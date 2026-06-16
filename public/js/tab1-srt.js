@@ -347,16 +347,55 @@ function initializeTab1() {
         toggleEmptyState();
     }
 
-    function handleFile(file) {
-        if (!file || (!file.name.endsWith('.srt') && !file.name.endsWith('.txt'))) {
-            showModal({ title: '檔案錯誤', message: '請上傳 .srt 或 .txt 格式的檔案。' });
+    async function handleFile(file) {
+        if (!file) return;
+        const nameLower = file.name.toLowerCase();
+        if (!nameLower.endsWith('.srt') && !nameLower.endsWith('.txt') && !nameLower.endsWith('.pdf')) {
+            showModal({ title: '檔案錯誤', message: '請上傳 .srt、.txt 或 .pdf 格式的檔案。' });
             return;
         }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            updateContent(e.target.result, file.name.split('.').slice(0, -1).join('.'));
-        };
-        reader.readAsText(file);
+
+        const baseName = file.name.split('.').slice(0, -1).join('.');
+
+        if (nameLower.endsWith('.pdf')) {
+            if (!window.pdfjsLib) {
+                showModal({ title: '載入錯誤', message: 'PDF 解析器尚未準備就緒，請重試或重新整理網頁。' });
+                return;
+            }
+            showModal({ title: '正在讀取 PDF...', showProgressBar: true });
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
+                const pdf = await loadingTask.promise;
+                let fullText = '';
+                
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    fullText += pageText + '\n';
+                }
+                
+                hideModal();
+                if (!fullText.trim()) {
+                    showModal({ title: '讀取失敗', message: '無法從該 PDF 檔案中提取文字，可能是因為檔案為掃描圖檔或受密碼保護。' });
+                } else {
+                    updateContent(fullText, baseName);
+                    showToast('✅ 成功匯入 PDF 文字！');
+                }
+            } catch (error) {
+                console.error('PDF 讀取錯誤:', error);
+                hideModal();
+                showModal({ title: '讀取失敗', message: `讀取 PDF 時發生錯誤：${error.message}` });
+            }
+        } else {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                updateContent(e.target.result, baseName);
+                showToast('✅ 成功匯入文稿！');
+            };
+            reader.readAsText(file);
+        }
     }
 
     function formatSrtForDisplay(srtContent, placeholder) {
