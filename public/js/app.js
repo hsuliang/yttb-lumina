@@ -3,7 +3,7 @@
  * 應用程式主邏輯，負責初始化各模組與處理全域事件。
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+const initApp = () => {
 
     // --- 元素選擇 ---
     const appearanceBtn = document.getElementById('appearance-btn');
@@ -779,4 +779,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initialize();
-});
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
