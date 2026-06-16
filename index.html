@@ -182,8 +182,95 @@
 </head>
 <body class="bg-background text-on-surface font-body-md antialiased min-h-screen flex selection:bg-primary-container selection:text-white">
 
-    <!-- SideNavBar -->
-    <nav class="hidden md:flex flex-col h-screen py-gutter px-4 bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant/10 fixed left-0 top-0 w-nav-width z-50">
+    <!-- 歡迎頁面入口 -->
+    <div id="welcome-portal" class="welcome-portal flex flex-col items-center justify-center min-h-screen p-4 select-none w-full">
+        <!-- 背景漸層發光特效 -->
+        <div class="portal-bg-glow glow-1"></div>
+        <div class="portal-bg-glow glow-2"></div>
+
+        <div class="portal-container w-full max-w-4xl text-center z-10 flex flex-col items-center gap-6">
+            <!-- 品牌 Branding -->
+            <div class="flex items-center justify-center gap-4 mb-2">
+                <img src="/images/Aliang.png" alt="丫亮笑長 Logo" class="h-20 w-20 rounded-full shadow-2xl">
+                <h1 class="text-4xl md:text-5xl font-extrabold tracking-wide text-white leading-tight">
+                    ㄚ亮笑長的內容創作助手
+                </h1>
+            </div>
+            <p class="text-lg text-gray-300 max-w-2xl leading-relaxed mb-4">
+                歡迎使用全方位 AI 數位內容創作助手！一鍵將影片字幕稿整理為部落格文章、社群貼文、電子報、輪播圖與資訊圖表規劃，大幅提升您的創作效率。
+            </p>
+
+            <!-- API 金鑰狀態卡片 -->
+            <div id="portal-key-status-box" class="portal-key-card p-3 rounded-xl border flex items-center justify-center gap-3 transition-all duration-300 border-red-500/20 bg-red-500/5 text-red-300 text-sm">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></span>
+                <span id="portal-key-status-text" class="font-bold">金鑰尚未設定，請先進行設定以啟用 AI 功能</span>
+                <button id="portal-key-setting-btn" class="py-1 px-3 rounded text-xs bg-red-500/25 hover:bg-red-500/40 text-red-200 border border-red-500/30 transition-all">
+                    設定金鑰
+                </button>
+            </div>
+
+            <!-- 六大特色導覽網格 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 w-full mt-4">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#f97316]">📝</span>
+                        <h3 class="font-bold text-white text-base">逐字稿整理與優化</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">智慧修正錯字、補全標點符號、合併段落，並快速產生影片摘要與精緻章節。</p>
+                </div>
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#3b82f6]">✍️</span>
+                        <h3 class="font-bold text-white text-base">部落格文章生成</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">將逐字稿一鍵轉換為符合 SEO 的結構化部落格文章，支援進階內部連結與關鍵字分析。</p>
+                </div>
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#22c55e]">📱</span>
+                        <h3 class="font-bold text-white text-base">多平台社群貼文</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">針對 Facebook、Instagram、Threads、LinkedIn 平台風格生成合適的社群文案與風格。</p>
+                </div>
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#a855f7]">✉️</span>
+                        <h3 class="font-bold text-white text-base">行銷電子報 (EDM)</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">自動精煉文章精華，生成具備點擊誘因的主旨與精緻 HTML 電子報版型文案。</p>
+                </div>
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#eab308]">🎨</span>
+                        <h3 class="font-bold text-white text-base">社群輪播圖提示詞</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">自動為輪播圖的多個頁面規劃視覺構圖、文字內容與 AI 繪圖提示詞 (Prompt)。</p>
+                </div>
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#f43f5e]">📊</span>
+                        <h3 class="font-bold text-white text-base">資訊圖表規劃結構</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">深度分析文稿，為您規劃出適合製作成 Infographic 的資訊結構報告與繪圖提示詞。</p>
+                </div>
+            </div>
+
+            <!-- 下方主要動作按鈕區 -->
+            <div id="portal-cta-group" class="flex flex-col md:flex-row gap-3 mt-6">
+                <button id="portal-start-btn" class="font-bold py-3 px-8 rounded-xl bg-[#f97316] text-[#341100] hover:brightness-110 shadow-lg text-base transition-all duration-200">
+                    開始全新創作
+                </button>
+                <button id="portal-resume-btn" class="font-bold py-3 px-8 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/10 shadow-lg text-base transition-all duration-200 hidden">
+                    繼續上次編輯
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主應用容器 -->
+    <div id="main-app-container" class="hidden w-full min-h-screen flex">
+        <!-- SideNavBar -->
+        <nav class="hidden md:flex flex-col h-screen py-gutter px-4 bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant/10 fixed left-0 top-0 w-nav-width z-50">
         <!-- Brand Header & Controls -->
         <div class="flex flex-col gap-2 mb-6 px-2">
             <div class="flex items-center gap-3">
@@ -1269,6 +1356,7 @@
 
         </div>
     </main>
+    </div>
 
     <!-- ==================== MODALS CONFIGURATION ==================== -->
 

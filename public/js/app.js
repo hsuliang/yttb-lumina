@@ -383,11 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 expiryTime = savedMode;
             }
 
-            if (expiryTime === 'session') {
-                apiKeyCountdown.textContent = '金鑰有效 (分頁關閉即清除)。';
-                return false;
-            } else if (expiryTime === 'never') {
-                apiKeyCountdown.textContent = '金鑰有效 (永久保存模式)。';
+            if (expiryTime === 'session' || expiryTime === 'never') {
+                apiKeyCountdown.textContent = '金鑰有效。';
                 return false;
             }
 
@@ -404,7 +401,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const hours = Math.floor((remaining / (1000 * 60 * 60)) % 24);
             const minutes = Math.floor((remaining / 1000 / 60) % 60);
             const seconds = Math.floor((remaining / 1000) % 60);
-            apiKeyCountdown.textContent = `金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            const countText = `金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            apiKeyCountdown.textContent = countText;
+
+            const portalText = document.getElementById('portal-key-status-text');
+            if (portalText && portalText.textContent.startsWith('已設定')) {
+                const keysJson = getStorageItem('geminiApiKeys');
+                let keysCount = 0;
+                try {
+                    keysCount = keysJson ? JSON.parse(keysJson).length : (getStorageItem('geminiApiKey') ? 1 : 0);
+                } catch(e) {}
+                portalText.textContent = `已設定 (共 ${keysCount} 組金鑰) (金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
+            }
             return true;
         };
 
@@ -464,6 +472,46 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (state.apiKeyCountdownInterval) clearInterval(state.apiKeyCountdownInterval);
         }
+        // 同步歡迎首頁 (Welcome Portal) 金鑰狀態
+        const portalBox = document.getElementById('portal-key-status-box');
+        const portalText = document.getElementById('portal-key-status-text');
+        const portalBtn = document.getElementById('portal-key-setting-btn');
+        if (portalBox && portalText && portalBtn) {
+            const indicator = portalBox.querySelector('span.rounded-full');
+            if (keysCount > 0) {
+                portalBox.className = 'portal-key-card p-3 rounded-xl border flex items-center justify-center gap-3 transition-all duration-300 border-green-500/20 bg-green-500/5 text-green-300 text-sm';
+                if (indicator) {
+                    indicator.className = 'inline-block w-2.5 h-2.5 rounded-full bg-green-500 shrink-0';
+                }
+                
+                let timeText = '';
+                const expiry = getStorageItem('apiKeyExpiry');
+                if (expiry === 'session' || expiry === 'never') {
+                    timeText = ' (金鑰有效)';
+                } else if (expiry) {
+                    const remaining = parseInt(expiry, 10) - Date.now();
+                    if (remaining > 0) {
+                        const hours = Math.floor((remaining / (1000 * 60 * 60)) % 24);
+                        const minutes = Math.floor((remaining / 1000 / 60) % 60);
+                        const seconds = Math.floor((remaining / 1000) % 60);
+                        timeText = ` (金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
+                    }
+                }
+                
+                portalText.textContent = `已設定 (共 ${keysCount} 組金鑰)${timeText}`;
+                portalBtn.textContent = '管理金鑰';
+                portalBtn.className = 'py-1 px-3 rounded text-xs bg-green-500/25 hover:bg-green-500/40 text-green-200 border border-green-500/30 transition-all';
+            } else {
+                portalBox.className = 'portal-key-card p-3 rounded-xl border flex items-center justify-center gap-3 transition-all duration-300 border-red-500/20 bg-red-500/5 text-red-300 text-sm';
+                if (indicator) {
+                    indicator.className = 'inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0';
+                }
+                portalText.textContent = '金鑰尚未設定，請先進行設定以啟用 AI 功能';
+                portalBtn.textContent = '設定金鑰';
+                portalBtn.className = 'py-1 px-3 rounded text-xs bg-red-500/25 hover:bg-red-500/40 text-red-200 border border-red-500/30 transition-all';
+            }
+        }
+
         window.updateTabAvailability();
         window.updateAiButtonStatus();
     }
@@ -644,6 +692,81 @@ document.addEventListener('DOMContentLoaded', () => {
                     showToast('頁面已重置！');
                     setTimeout(() => { location.reload(); }, 500);
                 }
+            });
+        }
+
+        // 歡迎首頁 Portal 邏輯與事件綁定
+        const welcomePortal = document.getElementById('welcome-portal');
+        const mainApp = document.getElementById('main-app-container');
+        const portalStartBtn = document.getElementById('portal-start-btn');
+        const portalResumeBtn = document.getElementById('portal-resume-btn');
+        const portalKeyBtn = document.getElementById('portal-key-setting-btn');
+
+        const checkDraftsAndShowResume = () => {
+            const hasBlog = window.hasBlogDraft ? window.hasBlogDraft() : !!localStorage.getItem('blogDraft');
+            const hasSocial = window.hasSocialDraft ? window.hasSocialDraft() : !!localStorage.getItem('socialDraft');
+            const hasInfo = window.hasInfographicDraft ? window.hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
+            
+            if ((hasBlog || hasSocial || hasInfo) && portalResumeBtn) {
+                portalResumeBtn.classList.remove('hidden');
+            } else if (portalResumeBtn) {
+                portalResumeBtn.classList.add('hidden');
+            }
+        };
+
+        checkDraftsAndShowResume();
+
+        if (portalStartBtn) {
+            portalStartBtn.addEventListener('click', () => {
+                if (welcomePortal) {
+                    welcomePortal.classList.add('portal-fade-out');
+                    setTimeout(() => {
+                        welcomePortal.style.display = 'none';
+                    }, 450);
+                }
+                if (mainApp) {
+                    mainApp.classList.remove('hidden');
+                    mainApp.classList.add('app-fade-in');
+                }
+            });
+        }
+
+        if (portalResumeBtn) {
+            portalResumeBtn.addEventListener('click', () => {
+                let targetTab = 'tab1';
+                if (window.hasBlogDraft && window.hasBlogDraft()) {
+                    targetTab = 'tab2';
+                } else if (window.hasSocialDraft && window.hasSocialDraft()) {
+                    targetTab = 'tab3';
+                } else if (window.hasInfographicDraft && window.hasInfographicDraft()) {
+                    targetTab = 'tab6';
+                } else if (localStorage.getItem('blogDraft')) {
+                    targetTab = 'tab2';
+                } else if (localStorage.getItem('socialDraft')) {
+                    targetTab = 'tab3';
+                } else if (localStorage.getItem('infographicDraft')) {
+                    targetTab = 'tab6';
+                }
+                
+                if (welcomePortal) {
+                    welcomePortal.classList.add('portal-fade-out');
+                    setTimeout(() => {
+                        welcomePortal.style.display = 'none';
+                    }, 450);
+                }
+                if (mainApp) {
+                    mainApp.classList.remove('hidden');
+                    mainApp.classList.add('app-fade-in');
+                }
+                
+                window.switchTab(targetTab);
+                showToast('已成功恢復您上次的編輯內容！');
+            });
+        }
+
+        if (portalKeyBtn) {
+            portalKeyBtn.addEventListener('click', () => {
+                showApiKeyModal();
             });
         }
 

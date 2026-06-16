@@ -1127,3 +1127,134 @@ input[type="range"]:disabled::-moz-range-thumb {
     background: #94a3b8;
     box-shadow: none;
 }
+
+/* ==================== 歡迎首頁 (Welcome Portal) 專屬樣式 ==================== */
+.welcome-portal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background-color: #070a13;
+    overflow-y: auto;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.welcome-portal::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.8) 0%, #070a13 100%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.portal-bg-glow {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.55;
+}
+
+.glow-1 {
+    width: 350px;
+    height: 350px;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.45) 0%, rgba(59, 130, 246, 0) 70%);
+    top: 15%;
+    left: 10%;
+    filter: blur(80px);
+    animation: float-glow-1 25s infinite alternate ease-in-out;
+}
+
+.glow-2 {
+    width: 450px;
+    height: 450px;
+    background: radial-gradient(circle, rgba(249, 115, 22, 0.35) 0%, rgba(249, 115, 22, 0) 70%);
+    bottom: 10%;
+    right: 10%;
+    filter: blur(100px);
+    animation: float-glow-2 30s infinite alternate ease-in-out;
+}
+
+@keyframes float-glow-1 {
+    0% {
+        transform: translate(0, 0) scale(1);
+    }
+    50% {
+        transform: translate(120px, 60px) scale(1.15);
+    }
+    100% {
+        transform: translate(-60px, 120px) scale(0.9);
+    }
+}
+
+@keyframes float-glow-2 {
+    0% {
+        transform: translate(0, 0) scale(1);
+    }
+    50% {
+        transform: translate(-90px, -70px) scale(0.85);
+    }
+    100% {
+        transform: translate(70px, -140px) scale(1.1);
+    }
+}
+
+.portal-container {
+    position: relative;
+    z-index: 10;
+}
+
+.portal-card {
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+}
+
+.portal-card:hover {
+    transform: translateY(-5px);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(249, 115, 22, 0.35);
+    box-shadow: 0 12px 30px -10px rgba(249, 115, 22, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.portal-key-card {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.portal-fade-out {
+    animation: portal-slide-out 0.45s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes portal-slide-out {
+    0% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-40px);
+        pointer-events: none;
+    }
+}
+
+.app-fade-in {
+    animation: app-slide-in 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes app-slide-in {
+    0% {
+        opacity: 0;
+        transform: scale(0.98) translateY(10px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
