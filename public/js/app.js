@@ -170,7 +170,22 @@ const initApp = () => {
         const stored = getStorageItem('geminiApiKeys');
         if (stored) {
             try {
-                modalApiKeys = JSON.parse(stored);
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                    modalApiKeys = parsed.map(entry => {
+                        if (typeof entry === 'string') {
+                            return { key: entry, count: 0 };
+                        }
+                        if (entry && typeof entry === 'object') {
+                            return { key: entry.key || '', count: entry.count || 0 };
+                        }
+                        return { key: '', count: 0 };
+                    }).filter(entry => entry.key.length > 0);
+                } else if (typeof parsed === 'string') {
+                    modalApiKeys = [{ key: parsed, count: 0 }];
+                } else {
+                    modalApiKeys = [];
+                }
             } catch (e) {
                 modalApiKeys = [];
             }
@@ -189,10 +204,11 @@ const initApp = () => {
     }
 
     function renderModalApiKeys() {
+        if (!apiKeysListContainer) return;
         apiKeysListContainer.innerHTML = '';
         const isLumina = document.querySelector('.glass-panel') || document.querySelector('#api-key-modal.backdrop-blur-sm');
         
-        if (modalApiKeys.length === 0) {
+        if (!Array.isArray(modalApiKeys) || modalApiKeys.length === 0) {
             if (isLumina) {
                 apiKeysListContainer.innerHTML = '<p class="text-xs text-on-surface-variant/50 text-center py-2">尚未設定任何金鑰</p>';
             } else {
@@ -201,6 +217,7 @@ const initApp = () => {
             return;
         }
         modalApiKeys.forEach((entry, index) => {
+            if (!entry || !entry.key) return;
             const item = document.createElement('div');
             if (isLumina) {
                 item.className = 'flex items-center justify-between bg-surface-container-lowest/50 p-2 rounded text-xs border border-outline-variant/10';
@@ -274,7 +291,20 @@ const initApp = () => {
     };
 
     function toggleAppearancePanel() { appearancePanel.classList.toggle('hidden'); }
-    function showApiKeyModal() { loadModalApiKeys(); apiKeyModal.classList.remove('hidden'); }
+    function showApiKeyModal() {
+        console.log("[showApiKeyModal] Opening API key modal...");
+        try {
+            loadModalApiKeys();
+            if (apiKeyModal) {
+                apiKeyModal.classList.remove('hidden');
+            } else {
+                console.error("[showApiKeyModal] apiKeyModal element not found!");
+            }
+        } catch(e) {
+            console.error("[showApiKeyModal] Error loading keys or opening modal:", e);
+        }
+    }
+    window.showApiKeyModal = showApiKeyModal;
     function hideApiKeyModal() { apiKeyModal.classList.add('hidden'); }
 
     async function saveApiKey() {
@@ -695,12 +725,12 @@ const initApp = () => {
             });
         }
 
-        // 歡迎首頁 Portal 邏輯與事件綁定
+        // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
         const welcomePortal = document.getElementById('welcome-portal');
         const mainApp = document.getElementById('main-app-container');
-        const portalStartBtn = document.getElementById('portal-start-btn');
         const portalResumeBtn = document.getElementById('portal-resume-btn');
-        const portalKeyBtn = document.getElementById('portal-key-setting-btn');
+        const portalStartBtn = document.getElementById('portal-start-btn');
+        const portalKeySettingBtn = document.getElementById('portal-key-setting-btn');
 
         const checkDraftsAndShowResume = () => {
             const hasBlog = window.hasBlogDraft ? window.hasBlogDraft() : !!localStorage.getItem('blogDraft');
@@ -716,8 +746,29 @@ const initApp = () => {
 
         checkDraftsAndShowResume();
 
-        if (portalStartBtn) {
-            portalStartBtn.addEventListener('click', () => {
+        const handleStartBtnClick = (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            console.log("[Portal] 開始全新創作 clicked");
+            const apiKey = getStorageItem('geminiApiKey');
+            const apiKeysJson = getStorageItem('geminiApiKeys');
+            let keysCount = 0;
+            if (apiKeysJson) {
+                try {
+                    const parsed = JSON.parse(apiKeysJson);
+                    keysCount = Array.isArray(parsed) ? parsed.length : 0;
+                } catch (e) {
+                    keysCount = 0;
+                }
+            }
+            if (keysCount === 0 && apiKey) {
+                keysCount = 1;
+            }
+
+            if (keysCount > 0) {
+                // 已設定金鑰：直接進入頁面，不出現金鑰設定
                 if (welcomePortal) {
                     welcomePortal.classList.add('portal-fade-out');
                     setTimeout(() => {
@@ -728,45 +779,82 @@ const initApp = () => {
                     mainApp.classList.remove('hidden');
                     mainApp.classList.add('app-fade-in');
                 }
-            });
-        }
-
-        if (portalResumeBtn) {
-            portalResumeBtn.addEventListener('click', () => {
-                let targetTab = 'tab1';
-                if (window.hasBlogDraft && window.hasBlogDraft()) {
-                    targetTab = 'tab2';
-                } else if (window.hasSocialDraft && window.hasSocialDraft()) {
-                    targetTab = 'tab3';
-                } else if (window.hasInfographicDraft && window.hasInfographicDraft()) {
-                    targetTab = 'tab6';
-                } else if (localStorage.getItem('blogDraft')) {
-                    targetTab = 'tab2';
-                } else if (localStorage.getItem('socialDraft')) {
-                    targetTab = 'tab3';
-                } else if (localStorage.getItem('infographicDraft')) {
-                    targetTab = 'tab6';
-                }
-                
-                if (welcomePortal) {
-                    welcomePortal.classList.add('portal-fade-out');
-                    setTimeout(() => {
-                        welcomePortal.style.display = 'none';
-                    }, 450);
-                }
-                if (mainApp) {
-                    mainApp.classList.remove('hidden');
-                    mainApp.classList.add('app-fade-in');
-                }
-                
-                window.switchTab(targetTab);
-                showToast('已成功恢復您上次的編輯內容！');
-            });
-        }
-
-        if (portalKeyBtn) {
-            portalKeyBtn.addEventListener('click', () => {
+            } else {
+                // 未設定金鑰：出現金鑰設定視窗，提醒使用者設定金鑰
                 showApiKeyModal();
+            }
+        };
+
+        const handleKeySettingBtnClick = (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            console.log("[Portal] 設定/管理金鑰 clicked");
+            showApiKeyModal();
+        };
+
+        const handleResumeBtnClick = (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            console.log("[Portal] 繼續上次編輯 clicked");
+            let targetTab = 'tab1';
+            if (window.hasBlogDraft && window.hasBlogDraft()) {
+                targetTab = 'tab2';
+            } else if (window.hasSocialDraft && window.hasSocialDraft()) {
+                targetTab = 'tab3';
+            } else if (window.hasInfographicDraft && window.hasInfographicDraft()) {
+                targetTab = 'tab6';
+            } else if (localStorage.getItem('blogDraft')) {
+                targetTab = 'tab2';
+            } else if (localStorage.getItem('socialDraft')) {
+                targetTab = 'tab3';
+            } else if (localStorage.getItem('infographicDraft')) {
+                targetTab = 'tab6';
+            }
+            
+            if (welcomePortal) {
+                welcomePortal.classList.add('portal-fade-out');
+                setTimeout(() => {
+                    welcomePortal.style.display = 'none';
+                }, 450);
+            }
+            
+            if (mainApp) {
+                mainApp.classList.remove('hidden');
+                mainApp.classList.add('app-fade-in');
+            }
+            
+            window.switchTab(targetTab);
+            showToast('已成功恢復您上次的編輯內容！');
+        };
+
+        // 直接綁定事件，提供最穩定的互動
+        if (portalStartBtn) {
+            portalStartBtn.addEventListener('click', handleStartBtnClick);
+        }
+        if (portalKeySettingBtn) {
+            portalKeySettingBtn.addEventListener('click', handleKeySettingBtnClick);
+        }
+        if (portalResumeBtn) {
+            portalResumeBtn.addEventListener('click', handleResumeBtnClick);
+        }
+
+        // 同時保留事件代理，作為雙重保險
+        if (welcomePortal) {
+            welcomePortal.addEventListener('click', (e) => {
+                const target = e.target.closest('button');
+                if (!target) return;
+
+                if (target.id === 'portal-start-btn') {
+                    handleStartBtnClick(e);
+                } else if (target.id === 'portal-key-setting-btn') {
+                    handleKeySettingBtnClick(e);
+                } else if (target.id === 'portal-resume-btn') {
+                    handleResumeBtnClick(e);
+                }
             });
         }
 
