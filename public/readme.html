@@ -3,174 +3,217 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ㄚ亮笑長的內容創作助手 - 使用說明</title>
+    <title>ㄚ亮笑長的內容創作助手 - 使用說明書</title>
     <link rel="icon" href="images/Aliang.png" type="image/png">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         body {
             font-family: 'Inter', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+            background-color: #070a13;
         }
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        .gradient-text {
+            background: linear-gradient(135deg, #ff7e47 0%, #ff5277 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #64748b;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
+        .glow-effect {
+            box-shadow: 0 0 30px rgba(249, 115, 22, 0.15);
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased">
+<body class="text-gray-100 antialiased min-h-screen flex flex-col">
 
-    <!-- 頁首 -->
-    <header class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-10">
-        <div class="max-w-4xl mx-auto px-6 py-5 flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-                <img src="images/Aliang.png" alt="Logo" class="h-10 w-10 object-contain">
+    <!-- 頁首 Header -->
+    <header class="border-b border-white/5 bg-slate-950/60 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="h-12 w-12 bg-white rounded-xl flex items-center justify-center p-1 shadow-lg shrink-0">
+                    <img src="images/Aliang.png" alt="Logo" class="h-full w-full rounded-lg object-contain">
+                </div>
                 <div>
-                    <h1 class="text-xl sm:text-2xl font-bold text-slate-900">ㄚ亮笑長的內容創作助手</h1>
-                    <p class="text-sm text-slate-600">使用說明與功能介紹</p>
+                    <h1 class="text-lg md:text-xl font-extrabold text-white leading-tight">ㄚ亮笑長的內容創作助手</h1>
+                    <p class="text-xs text-gray-400">系統使用說明與完整功能導覽</p>
                 </div>
             </div>
-            <a href="index.html" class="hidden sm:inline-block bg-blue-600 text-white font-bold py-2 px-5 rounded-lg transition duration-200 hover:bg-blue-700 shadow-md hover:shadow-lg">
+            <a href="index.html" class="bg-[#f97316] text-[#341100] font-bold py-2 px-5 rounded-xl transition duration-200 hover:brightness-110 shadow-lg text-sm">
                 返回應用程式
             </a>
         </div>
     </header>
 
-    <!-- 主要內容區 -->
-    <main class="max-w-4xl mx-auto p-6 md:p-10">
+    <!-- 主要內容區 Main Content -->
+    <main class="max-w-5xl mx-auto p-6 md:p-10 flex-grow w-full space-y-12">
 
-        <!-- 簡介 -->
-        <section class="mb-12">
-            <h2 class="text-3xl font-semibold text-slate-800 mb-6 border-b-2 border-blue-500 pb-3">
-                關於本工具
-            </h2>
-            <div class="space-y-5 text-lg leading-relaxed text-slate-700">
-                <p>
-                    這是一個專為內容創作者打造的全方位 AI 工具，能夠幫助您將字幕檔案（SRT）一鍵轉化為部落格文章、社群貼文與電子報。
-                </p>
-                <p>
-                    無論您是 YouTuber、Podcaster 還是講師，這個工具都能幫您節省 90% 的內容再製時間，讓創作效率最大化！
-                </p>
-            </div>
-        </section>
-
-        <!-- 核心功能 -->
-        <section class="mb-12">
-            <h2 class="text-3xl font-semibold text-slate-800 mt-12 mb-8 border-b-2 border-blue-500 pb-3">
-                四大核心功能
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- 功能 1 -->
-                <div class="bg-white rounded-xl shadow-md p-6 border border-slate-100">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-blue-100 text-blue-700 rounded-full h-8 w-8 flex items-center justify-center font-bold mr-3">1</span>
-                        <h3 class="text-xl font-bold text-slate-800">智慧字幕整理 (Tab 1)</h3>
-                    </div>
-                    <ul class="list-disc pl-11 space-y-1 text-slate-600 text-sm">
-                        <li>全新空狀態設計，直覺匯入字幕</li>
-                        <li>內建 DownSub 字幕下載教學</li>
-                        <li>自動合併短行、拆分長句、修復時間軸</li>
-                        <li>批次取代錯別字 (可存範本)</li>
-                        <li>整理報告與 AI 輔助摘要</li>
-                    </ul>
-                </div>
-                <!-- 功能 2 -->
-                <div class="bg-white rounded-xl shadow-md p-6 border border-slate-100">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-blue-100 text-blue-700 rounded-full h-8 w-8 flex items-center justify-center font-bold mr-3">2</span>
-                        <h3 class="text-xl font-bold text-slate-800">部落格文章生成 (Tab 2)</h3>
-                    </div>
-                    <ul class="list-disc pl-11 space-y-1 text-slate-600 text-sm">
-                        <li>AI 文本優化與風格精靈</li>
-                        <li><strong>風格變體中心</strong>：多種專業寫作風格與自訂指令</li>
-                        <li>SEO 標題、關鍵字與內部連結建議</li>
-                        <li>Quill 編輯器即時預覽與匯出</li>
-                    </ul>
-                </div>
-                <!-- 功能 3 -->
-                <div class="bg-white rounded-xl shadow-md p-6 border border-slate-100">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-blue-100 text-blue-700 rounded-full h-8 w-8 flex items-center justify-center font-bold mr-3">3</span>
-                        <h3 class="text-xl font-bold text-slate-800">社群貼文生成 (Tab 3)</h3>
-                    </div>
-                    <ul class="list-disc pl-11 space-y-1 text-slate-600 text-sm">
-                        <li>Facebook / IG / Line 多版本生成</li>
-                        <li>支援「視覺排版」、「懸疑提問」等進階風格</li>
-                        <li>自動生成 Hashtags</li>
-                        <li>客製化 CTA (行動呼籲)</li>
-                    </ul>
-                </div>
-                <!-- 功能 4 -->
-                <div class="bg-white rounded-xl shadow-md p-6 border border-slate-100">
-                    <div class="flex items-center mb-4">
-                        <span class="bg-blue-100 text-blue-700 rounded-full h-8 w-8 flex items-center justify-center font-bold mr-3">4</span>
-                        <h3 class="text-xl font-bold text-slate-800">電子報與其他 (Tab 4+)</h3>
-                    </div>
-                    <ul class="list-disc pl-11 space-y-1 text-slate-600 text-sm">
-                        <li>針對不同受眾生成電子報</li>
-                        <li>支援「商務提案」、「故事行銷」等專業風格</li>
-                        <li>深色模式 (Dark Mode)</li>
-                        <li>API Key 申請詳細教學</li>
-                    </ul>
+        <!-- 工具簡介 Intro -->
+        <section class="p-6 md:p-8 rounded-2xl border border-white/5 bg-white/5 glow-effect flex flex-col md:flex-row items-center gap-6">
+            <div class="flex-1 space-y-4">
+                <h2 class="text-2xl md:text-3xl font-extrabold text-white">
+                    全方位 AI 數位內容創作夥伴
+                </h2>
+                <div class="space-y-3 text-gray-300 text-sm md:text-base leading-relaxed">
+                    <p>
+                        這是一個為數位內容創作者深度訂製的高效再製工具。不論您的原始素材是影片字幕 (SRT 檔) 或是逐字稿文稿，本工具皆能在數秒內一鍵幫您重整並擴展為符合 SEO 的部落格文章、多平台社群貼文、行銷電子報、社群輪播圖結構與資訊圖表規劃，為您省去 90% 以上的手工轉換時間！
+                    </p>
+                    <p>
+                        本程式使用 Google 頂級 Gemini 大語言模型，藉由精心調校的 System Prompts，確保產出品質專業、結構完整，且帶有高度可讀性。
+                    </p>
                 </div>
             </div>
         </section>
 
-        <!-- 使用流程 -->
-        <section>
-            <h2 class="text-3xl font-semibold text-slate-800 mt-12 mb-10 border-b-2 border-blue-500 pb-3">
+        <!-- 六大核心功能網格 6-Tabs Overview -->
+        <section class="space-y-6">
+            <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
+                六大核心分頁功能
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Tab 1 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">📝</span>
+                        <h3 class="font-bold text-white text-base">智慧字幕整理 (Tab 1)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        可點擊或拖曳匯入 SRT 字幕檔。具備自動句末標點補全、錯別字智慧修正、長句自動分拆等功能。提供四個精準控制滑桿，並可一鍵取得 AI 影片摘要與精緻章節報告。
+                    </p>
+                </div>
+                <!-- Tab 2 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">✍️</span>
+                        <h3 class="font-bold text-white text-base">部落格文章生成 (Tab 2)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        將整理後的逐字稿重構為結構完整、排版優良的部落格草稿。內建「寫作客製化風格精靈」設定語氣、字數與視角。支援進階 SEO 關鍵字分析、SEO 標題推薦與內部連結建議，並搭載 Quill 富文本編輯器。
+                    </p>
+                </div>
+                <!-- Tab 3 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">📱</span>
+                        <h3 class="font-bold text-white text-base">多平台社群貼文 (Tab 3)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        針對 Facebook、Instagram、Threads、LinkedIn、LINE 等平台量身打造吸引點擊的文案。提供多種寫作風格（如懸疑提問、直白痛點、金句破題），自動生成熱門 Hashtags 與行動呼籲 (CTA)。
+                    </p>
+                </div>
+                <!-- Tab 4 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">✉️</span>
+                        <h3 class="font-bold text-white text-base">行銷電子報 (Tab 4)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        將長文精煉為具備高度點擊開信率的 HTML 電子報。系統將自動為您生成 3 組具誘因的郵件主旨、簡短預覽文字，以及精心排版的行銷郵件 HTML 原始碼。
+                    </p>
+                </div>
+                <!-- Tab 5 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">🎨</span>
+                        <h3 class="font-bold text-white text-base">社群輪播圖規劃 (Tab 5)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        專為 IG / FB 多圖滑動輪播打造。自動規劃每一頁輪播圖的視覺畫面構圖與文字標題，並針對 Stable Diffusion 或 Midjourney 等 AI 繪圖工具提供最合適的中英文繪圖提示詞 (Prompts)。
+                    </p>
+                </div>
+                <!-- Tab 6 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">📊</span>
+                        <h3 class="font-bold text-white text-base">資訊圖表規劃 (Tab 6)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        分析文稿或文章，規劃出適合製作成單張大圖資訊圖表 (Infographic) 的結構報告。自動提供圖表推薦指示、排版結構分析，以及視覺設計的中英文提示詞 (Prompts)。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 快速上手指南 Guide -->
+        <section class="space-y-6">
+            <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
                 快速上手指南
             </h2>
-            <ol class="relative border-l border-slate-200 ml-3 space-y-10">
+            <div class="space-y-6 relative border-l-2 border-white/10 ml-4 pl-6">
                 <!-- Step 1 -->
-                <li class="mb-10 ml-6">
-                    <span class="absolute flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full -left-4 ring-8 ring-white">
-                        <svg class="w-4 h-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H5v-2H3v-2H1v-4a6 6 0 0110.257-4.257" /></svg>
+                <div class="relative">
+                    <span class="absolute -left-10 top-0 flex items-center justify-center w-7 h-7 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">
+                        1
                     </span>
-                    <h3 class="flex items-center mb-1 text-lg font-semibold text-slate-900">步驟一：設定 API Key</h3>
-                    <p class="mb-4 text-base font-normal text-slate-500">
-                        點擊右上角鑰匙圖示，展開「<strong>📖 如何免費申請 API Key？</strong>」教學，跟著步驟免費取得金鑰並儲存。
+                    <h3 class="text-lg font-bold text-white">設定 Gemini API 金鑰</h3>
+                    <p class="text-gray-400 text-sm mt-1 leading-relaxed">
+                        點選首頁狀態列旁的「設定金鑰」或側邊欄底部的「金鑰管理」按鈕，展開「📖 如何免費申請？」連結。依照教學，登入 Google 帳號並至 Google AI Studio 點擊 "Create API Key" 免費申請，將取得以 <code class="text-[#f97316] font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">AIza</code> 開頭的金鑰複製，貼回本工具儲存即可。本工具亦支援填入多組金鑰實現負載平衡輪替。
                     </p>
-                </li>
+                </div>
                 <!-- Step 2 -->
-                <li class="mb-10 ml-6">
-                    <span class="absolute flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full -left-4 ring-8 ring-white">
-                        <svg class="w-4 h-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                <div class="relative">
+                    <span class="absolute -left-10 top-0 flex items-center justify-center w-7 h-7 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">
+                        2
                     </span>
-                    <h3 class="flex items-center mb-1 text-lg font-semibold text-slate-900">步驟二：匯入與整理字幕</h3>
-                    <p class="mb-4 text-base font-normal text-slate-500">
-                        在 Tab 1 點擊「<strong>如何取得字幕？</strong>」依照教學下載 SRT 檔。貼上後設定參數，點擊「<strong>開始整理</strong>」，系統會彈出整理報告並引導您下一步。
+                    <h3 class="text-lg font-bold text-white">匯入並一鍵整理字幕檔 (Tab 1)</h3>
+                    <p class="text-gray-400 text-sm mt-1 leading-relaxed">
+                        您可以至 DownSub 等網站下載您的 YouTube 影片 SRT 字幕檔。在 Tab 1 將字幕內容直接貼入或拖曳上傳至虛線匯入區。調整右側控制面板的「每行字數」、「最小合併字數」、「時間平移」、「間隔修復」滑桿，最後點選「智慧重整字幕」。完成後，可在此分頁直接點擊「生成摘要」與「生成章節」取得 AI 初步精簡報告。
                     </p>
-                </li>
+                </div>
                 <!-- Step 3 -->
-                <li class="mb-10 ml-6">
-                    <span class="absolute flex items-center justify-center w-8 h-8 bg-blue-100 rounded-full -left-4 ring-8 ring-white">
-                        <svg class="w-4 h-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                <div class="relative">
+                    <span class="absolute -left-10 top-0 flex items-center justify-center w-7 h-7 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">
+                        3
                     </span>
-                    <h3 class="flex items-center mb-1 text-lg font-semibold text-slate-900">步驟三：生成內容</h3>
-                    <p class="mb-4 text-base font-normal text-slate-500">
-                        前往 Tab 2, 3, 4。建議先在 Tab 2 使用「<strong>優化文本</strong>」提升品質。設定好您想要的風格後，點擊生成按鈕，AI 就會為您產出專業內容。
+                    <h3 class="text-lg font-bold text-white">一鍵生成部落格文章 (Tab 2)</h3>
+                    <p class="text-gray-400 text-sm mt-1 leading-relaxed">
+                        整理好文稿後，前往 Tab 2 部落格分頁。首選左側設定區的「最佳化文稿以提升寫作品質」，能大幅提升後續生成文章的流暢度與正確性。點選「風格客製化精靈」微調人設（如第一人稱、第三方導師）、字數與語氣。設定完成點擊「開始撰寫文章」，即可在右側編輯器獲得專業草稿，並支援 SEO 關鍵字與內部連結分析。
                     </p>
-                </li>
-            </ol>
+                </div>
+                <!-- Step 4 -->
+                <div class="relative">
+                    <span class="absolute -left-10 top-0 flex items-center justify-center w-7 h-7 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">
+                        4
+                    </span>
+                    <h3 class="text-lg font-bold text-white">多軌擴展社群與視覺規劃 (Tab 3 - 6)</h3>
+                    <p class="text-gray-400 text-sm mt-1 leading-relaxed">
+                        您可以根據剛產出的部落格文章或原始整理稿，切換至 Tab 3「社群貼文」、Tab 4「行銷電子報」、Tab 5「輪播圖提示詞」或 Tab 6「資訊圖表規劃」，一鍵生成不同平台的宣傳內容，形成全網覆蓋的數位內容行銷矩陣。
+                    </p>
+                </div>
+            </div>
         </section>
 
-        <!-- 頁尾 -->
-        <footer class="mt-16 text-center border-t border-slate-300 pt-10">
-            <a href="index.html" class="inline-block sm:hidden bg-blue-600 text-white font-bold py-3 px-8 rounded-lg transition duration-200 hover:bg-blue-700 shadow-lg text-lg">
+        <!-- 常見問答 FAQ -->
+        <section class="space-y-6">
+            <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
+                常見問題與進階設定
+            </h2>
+            <div class="space-y-4">
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
+                    <h4 class="font-bold text-white text-sm mb-2">Q1: 免費申請的 Gemini API Key 有限制嗎？</h4>
+                    <p class="text-gray-400 text-xs leading-relaxed">
+                        目前 Google AI Studio 提供的免費金鑰 (Gemini 2.5 Flash) 有每分鐘 15 次請求的限制。若您需要處理極大量的影片或文章，建議依照本程式金鑰設定提示，申請 2 到 3 組不同的免費金鑰一同填入，系統會自動在呼叫時進行智慧輪替，避免超出請求上限限制。
+                    </p>
+                </div>
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
+                    <h4 class="font-bold text-white text-sm mb-2">Q2: 程式有關閉頁面即清除金鑰的機制嗎？</h4>
+                    <p class="text-gray-400 text-xs leading-relaxed">
+                        有的。在您設定金鑰時，可以下拉選擇「金鑰保存期限」。如果您是在公用電腦操作，建議選擇「分頁關閉即清除」(存於 Session Storage)，當您將此瀏覽器分頁關閉後，所有 API 金鑰即會被自動銷毀抹除，無須擔心外洩。
+                    </p>
+                </div>
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
+                    <h4 class="font-bold text-white text-sm mb-2">Q3: 草稿與編輯中的資料會遺失嗎？</h4>
+                    <p class="text-gray-400 text-xs leading-relaxed">
+                        本程式內建即時草稿自動保存技術 (Auto-Save)。您的字幕內容、部落格優化文章與 SEO 設定將自動儲存於瀏覽器快取中。當您不小心重新整理頁面或斷電重開時，歡迎首頁會動態出現「繼續上次編輯」按鈕，點擊即可一鍵回復上次的工作區狀態。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 頁尾 Footer -->
+        <footer class="text-center border-t border-white/5 pt-8 text-xs text-gray-500">
+            <a href="index.html" class="inline-block md:hidden bg-[#f97316] text-[#341100] font-bold py-3 px-8 rounded-xl transition duration-200 hover:brightness-110 shadow-lg text-sm mb-6">
                 返回應用程式
             </a>
-            <p class="mt-6 text-sm text-slate-500">
-                Design by <a href="https://bit.ly/Aliang" target="_blank" rel="noopener" class="font-semibold text-blue-600 hover:underline">ㄚ亮笑長練功坊</a>
+            <p>
+                Design by <a href="https://52hal.cc/al" target="_blank" rel="noopener" class="text-blue-500 hover:underline">ㄚ亮笑長練功坊</a> | 丙午．芒種．20260616
             </p>
         </footer>
 
