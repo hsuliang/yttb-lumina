@@ -62,12 +62,22 @@
             </div>
         </section>
 
-        <!-- 六大核心功能網格 6-Tabs Overview -->
+        <!-- 七大核心功能網格 7-Tabs Overview -->
         <section class="space-y-6">
             <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
-                六大核心分頁功能
+                七大核心分頁功能
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Tab 0 -->
+                <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">🎙️</span>
+                        <h3 class="font-bold text-white text-base">語音轉文字辨識 (Tab 0)</h3>
+                    </div>
+                    <p class="text-gray-400 text-xs leading-relaxed flex-grow">
+                        支援上傳多種格式的影音檔案，透過 Gemini AI 或是免費部署您的專屬 Cloudflare Whisper Worker，快速且高精準地將語音內容轉換為純文本與 SRT 字幕。
+                    </p>
+                </div>
                 <!-- Tab 1 -->
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3 flex flex-col">
                     <div class="flex items-center space-x-3">
@@ -180,6 +190,62 @@
             </div>
         </section>
 
+        <!-- Cloudflare Worker 設定教學 -->
+        <section id="worker-setup-guide" class="space-y-6">
+            <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
+                如何取得 Cloudflare Worker 網址與 Token (進階語音辨識)
+            </h2>
+            <div class="bg-white/5 border border-white/5 p-6 md:p-8 rounded-2xl space-y-6">
+                <p class="text-gray-300 text-sm leading-relaxed">
+                    為了使用更精準的 Whisper 語音辨識引擎 (Tab 0)，您需要部署專屬的 Cloudflare Worker 來作為 API 的中繼站。這不僅免費，且能確保您的辨識資料安全不外洩。請依循以下步驟進行設定：
+                </p>
+
+                <div class="space-y-5">
+                    <!-- Step 1 -->
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <div class="shrink-0">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">1</span>
+                        </div>
+                        <div class="space-y-2">
+                            <h3 class="text-base font-bold text-white">部署專屬的 Worker</h3>
+                            <p class="text-gray-400 text-sm leading-relaxed">
+                                在本專案的 <code>cf-worker</code> 目錄下，包含了一個預設好的腳本。請確保您已安裝 <code class="text-[#f97316] bg-white/5 px-1.5 py-0.5 rounded">npm</code>。開啟終端機進入該目錄後，執行 <code class="text-[#f97316] bg-white/5 px-1.5 py-0.5 rounded">npm install</code>，然後執行 <code class="text-[#f97316] bg-white/5 px-1.5 py-0.5 rounded">npx wrangler deploy</code>。系統會自動引導您登入 Cloudflare 帳號並完成部署。
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <div class="shrink-0">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">2</span>
+                        </div>
+                        <div class="space-y-2">
+                            <h3 class="text-base font-bold text-white">取得 Worker 網址 (URL)</h3>
+                            <p class="text-gray-400 text-sm leading-relaxed">
+                                部署成功後，Wrangler 會在終端機輸出您的專屬網址，格式類似 <code class="text-[#f97316] bg-white/5 px-1.5 py-0.5 rounded">https://your-worker.your-subdomain.workers.dev</code>。請將這段網址**完整複製**，並進入 Lumina 程式左下角的「設定金鑰」選單中，貼上至「Whisper Worker 網址」欄位。
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <div class="shrink-0">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">3</span>
+                        </div>
+                        <div class="space-y-2">
+                            <h3 class="text-base font-bold text-white">設定驗證金鑰 (Token)</h3>
+                            <p class="text-gray-400 text-sm leading-relaxed">
+                                為了保護您的 Worker 不被他人濫用，您必須設定一組自訂的 Token。請進入您的 Cloudflare 儀表板，找到剛剛部署的 Worker -> Settings -> Variables and Secrets。新增一個名為 <code class="text-[#f97316] font-bold bg-white/5 px-1.5 py-0.5 rounded">AUTH_TOKEN</code> 的環境變數，值設定為您自訂的一串密碼 (例如：<code class="text-[#f97316] bg-white/5 px-1.5 py-0.5 rounded">my-secret-token-123</code>)。
+                            </p>
+                            <p class="text-gray-400 text-sm leading-relaxed">
+                                最後，將這串自訂的密碼貼回 Lumina 程式內的「Whisper 驗證金鑰 (Token)」欄位並儲存，即可開始享受快速且免費的高品質語音辨識服務！
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- 常見問答 FAQ -->
         <section class="space-y-6">
             <h2 class="text-2xl font-extrabold text-white border-l-4 border-[#f97316] pl-3">
@@ -213,7 +279,7 @@
                 返回應用程式
             </a>
             <p>
-                Design by <a href="https://52hal.cc/al" target="_blank" rel="noopener" class="text-blue-500 hover:underline">ㄚ亮笑長練功坊</a> | 丙午．芒種．20260616
+                Design by <a href="https://52hal.cc/al" target="_blank" rel="noopener" class="text-blue-500 hover:underline">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619
             </p>
         </footer>
 
