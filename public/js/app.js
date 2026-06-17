@@ -8,9 +8,9 @@ const initApp = () => {
     // --- 元素選擇 ---
     const appearanceBtn = document.getElementById('appearance-btn');
     const appearancePanel = document.getElementById('appearance-panel');
-    const apiKeyBtn = document.getElementById('api-key-btn');
-    const apiKeyModal = document.getElementById('api-key-modal');
-    const closeApiKeyModalBtn = document.getElementById('close-api-key-modal-btn');
+    const globalSettingsBtn = document.getElementById('global-settings-btn');
+    const globalSettingsModal = document.getElementById('global-settings-modal');
+    const closeGlobalSettingsBtn = document.getElementById('close-global-settings-btn');
     const apiKeyInput = document.getElementById('gemini-api-key');
     const apiKeysListContainer = document.getElementById('api-keys-list-container');
     const saveApiKeyBtn = document.getElementById('save-api-key-btn');
@@ -291,21 +291,54 @@ const initApp = () => {
     };
 
     function toggleAppearancePanel() { appearancePanel.classList.toggle('hidden'); }
-    function showApiKeyModal() {
-        console.log("[showApiKeyModal] Opening API key modal...");
+    function showGlobalSettingsModal(tabId = 'settings-tab-gemini') {
+        console.log(`[showGlobalSettingsModal] Opening settings modal to tab: ${tabId}...`);
         try {
             loadModalApiKeys();
-            if (apiKeyModal) {
-                apiKeyModal.classList.remove('hidden');
+            if (globalSettingsModal) {
+                globalSettingsModal.classList.remove('hidden');
+                switchSettingsTab(tabId);
             } else {
-                console.error("[showApiKeyModal] apiKeyModal element not found!");
+                console.error("[showGlobalSettingsModal] globalSettingsModal element not found!");
             }
         } catch(e) {
-            console.error("[showApiKeyModal] Error loading keys or opening modal:", e);
+            console.error("[showGlobalSettingsModal] Error loading keys or opening modal:", e);
         }
     }
-    window.showApiKeyModal = showApiKeyModal;
-    function hideApiKeyModal() { apiKeyModal.classList.add('hidden'); }
+    window.showGlobalSettingsModal = showGlobalSettingsModal;
+    window.showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemini'); // Backward compatibility
+    function hideGlobalSettingsModal() { globalSettingsModal.classList.add('hidden'); }
+    
+    function switchSettingsTab(targetId) {
+        const tabs = document.querySelectorAll('.settings-tab-btn');
+        const panels = document.querySelectorAll('.settings-tab-panel');
+        
+        tabs.forEach(tab => {
+            if (tab.dataset.target === targetId) {
+                tab.classList.add('active', 'border-primary', 'bg-primary/10', 'text-primary');
+                tab.classList.remove('border-transparent', 'text-on-surface-variant');
+            } else {
+                tab.classList.remove('active', 'border-primary', 'bg-primary/10', 'text-primary');
+                tab.classList.add('border-transparent', 'text-on-surface-variant');
+            }
+        });
+        
+        panels.forEach(panel => {
+            if (panel.id === targetId) {
+                panel.classList.remove('hidden');
+                // Auto-focus logic based on tab
+                if (targetId === 'settings-tab-gemini') {
+                    setTimeout(() => document.getElementById('gemini-api-key')?.focus(), 50);
+                } else if (targetId === 'settings-tab-worker') {
+                    setTimeout(() => document.getElementById('global-worker-url')?.focus(), 50);
+                } else if (targetId === 'settings-tab-dict') {
+                    setTimeout(() => document.getElementById('replace-original-input')?.focus(), 50);
+                }
+            } else {
+                panel.classList.add('hidden');
+            }
+        });
+    }
 
     async function saveApiKey() {
         const text = apiKeyInput.value.trim();
@@ -389,7 +422,7 @@ const initApp = () => {
             } else {
                 showToast('API Key 已儲存，AI 功能已啟用！');
             }
-            hideApiKeyModal();
+            hideGlobalSettingsModal();
 
         } catch (err) {
             console.error("Key validation error:", err);
@@ -607,9 +640,301 @@ const initApp = () => {
 
         try { updateApiKeyStatus(); } catch(e) { console.error("Error updating API key status:", e); }
 
+        // --- Worker Settings Logic ---
+        const workerUrlInput = document.getElementById('global-worker-url');
+        const workerTokenInput = document.getElementById('global-worker-token');
+        const workerExpirySelect = document.getElementById('worker-expiry-select');
+        const saveWorkerSettingsBtn = document.getElementById('save-worker-settings-btn');
+        const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
+        const workerTestStatus = document.getElementById('worker-test-status');
+
+        const WORKER_URL_KEY = 'aliang-tab0-worker-url';
+        const WORKER_TOKEN_KEY = 'aliang-tab0-worker-token';
+        const WORKER_EXPIRY_KEY = 'aliang-worker-expiry';
+
+        function loadWorkerSettings() {
+            const url = localStorage.getItem(WORKER_URL_KEY) || sessionStorage.getItem(WORKER_URL_KEY) || '';
+            const token = localStorage.getItem(WORKER_TOKEN_KEY) || sessionStorage.getItem(WORKER_TOKEN_KEY) || '';
+            if (workerUrlInput) workerUrlInput.value = url;
+            if (workerTokenInput) workerTokenInput.value = token;
+        }
+
+        function saveWorkerSettings() {
+            const url = workerUrlInput.value.trim();
+            const token = workerTokenInput.value.trim();
+            const expiryType = workerExpirySelect ? workerExpirySelect.value : 'session';
+            
+            // Clear old storage
+            localStorage.removeItem(WORKER_URL_KEY);
+            localStorage.removeItem(WORKER_TOKEN_KEY);
+            localStorage.removeItem(WORKER_EXPIRY_KEY);
+            sessionStorage.removeItem(WORKER_URL_KEY);
+            sessionStorage.removeItem(WORKER_TOKEN_KEY);
+
+            if (!url) {
+                showToast('已清除 Worker 設定');
+                return;
+            }
+
+            if (expiryType === 'session') {
+                sessionStorage.setItem(WORKER_URL_KEY, url);
+                if (token) sessionStorage.setItem(WORKER_TOKEN_KEY, token);
+            } else {
+                localStorage.setItem(WORKER_URL_KEY, url);
+                if (token) localStorage.setItem(WORKER_TOKEN_KEY, token);
+                
+                if (expiryType !== 'never') {
+                    const days = parseInt(expiryType, 10);
+                    const expiryTime = Date.now() + days * 24 * 60 * 60 * 1000;
+                    localStorage.setItem(WORKER_EXPIRY_KEY, expiryTime.toString());
+                } else {
+                    localStorage.setItem(WORKER_EXPIRY_KEY, 'never');
+                }
+            }
+            showToast('✅ Worker 設定已儲存');
+        }
+
+        function checkWorkerExpiry() {
+            const expiry = localStorage.getItem(WORKER_EXPIRY_KEY);
+            if (expiry && expiry !== 'never') {
+                if (Date.now() > parseInt(expiry, 10)) {
+                    localStorage.removeItem(WORKER_URL_KEY);
+                    localStorage.removeItem(WORKER_TOKEN_KEY);
+                    localStorage.removeItem(WORKER_EXPIRY_KEY);
+                    console.log("Worker 設定已過期，已自動清除");
+                }
+            }
+        }
+
+        if (saveWorkerSettingsBtn) saveWorkerSettingsBtn.addEventListener('click', saveWorkerSettings);
+
+        if (testWorkerConnectionBtn) {
+            testWorkerConnectionBtn.addEventListener('click', async () => {
+                if (!workerTestStatus) return;
+                const url = workerUrlInput?.value.trim();
+                const token = workerTokenInput?.value.trim();
+                
+                if (!url) {
+                    workerTestStatus.textContent = '❌ 請先填入 Worker URL';
+                    workerTestStatus.className = 'text-sm text-error mt-2';
+                    return;
+                }
+                
+                workerTestStatus.textContent = '⏳ 測試連線中...';
+                workerTestStatus.className = 'text-sm text-on-surface-variant mt-2';
+                
+                try {
+                    const baseUrl = url.replace(/\/+$/, '');
+                    const testUrl = `${baseUrl}/api/health`;
+                    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+                    
+                    const response = await fetch(testUrl, { method: 'GET', headers: headers });
+                    if (response.ok) {
+                        workerTestStatus.textContent = '✅ 連線成功！';
+                        workerTestStatus.className = 'text-sm text-success mt-2';
+                    } else if (response.status === 401 || response.status === 403) {
+                        workerTestStatus.textContent = '❌ 連線成功，但 Token 驗證失敗 (401/403)';
+                        workerTestStatus.className = 'text-sm text-error mt-2';
+                    } else {
+                        workerTestStatus.textContent = `⚠️ 連線失敗 (狀態碼: ${response.status})`;
+                        workerTestStatus.className = 'text-sm text-error mt-2';
+                    }
+                } catch (error) {
+                    workerTestStatus.textContent = `❌ 無法連線至 Worker (${error.message})`;
+                    workerTestStatus.className = 'text-sm text-error mt-2 text-wrap';
+                }
+            });
+        }
+
+        // Initialize worker settings
+        checkWorkerExpiry();
+        loadWorkerSettings();
+
+        // --- Custom Dictionary & Worker Settings Logic ---
+        const addReplaceRuleBtn = document.getElementById('add-replace-rule-btn');
+        const replaceOriginalInput = document.getElementById('replace-original-input');
+        const replaceReplacementInput = document.getElementById('replace-replacement-input');
+        const replaceRulesList = document.getElementById('replace-rules-list');
+        const clearAllRulesBtn = document.getElementById('clear-all-rules-btn');
+        const loadPresetRulesBtn = document.getElementById('load-preset-rules-btn');
+        const savePresetRulesBtn = document.getElementById('save-preset-rules-btn');
+        const exportRulesBtn = document.getElementById('export-rules-btn');
+        const importRulesBtn = document.getElementById('import-rules-btn');
+        const importRulesFileInput = document.getElementById('import-rules-file-input');
+        const STORAGE_KEY_REPLACE_RULES = 'aliang-yttb-replace-rules-preset';
+
+        function renderReplaceRules() {
+            if (!replaceRulesList) return;
+            replaceRulesList.innerHTML = '';
+            if (state.batchReplaceRules.length === 0) {
+                replaceRulesList.innerHTML = `<p class="p-4 text-center text-on-surface-variant/60">尚未新增任何取代規則</p>`;
+                return;
+            }
+            state.batchReplaceRules.forEach((rule, index) => {
+                const ruleEl = document.createElement('div');
+                ruleEl.className = 'rule-item text-on-surface bg-surface-variant/20 p-2 rounded mb-2 flex items-center justify-between border border-outline-variant/10';
+                ruleEl.innerHTML = ` <div class="flex items-center space-x-2 truncate"><span class="rule-text font-mono">${rule.original}</span> <span class="text-on-surface-variant/60">→</span> <span class="rule-text font-mono">${rule.replacement}</span></div> <button class="rule-delete-btn text-error hover:text-error-container" data-index="${index}" title="刪除此規則"> <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> `;
+                replaceRulesList.appendChild(ruleEl);
+            });
+            // Update Tab1 button if it exists
+            const tab1BatchBtn = document.getElementById('batch-replace-btn');
+            if (tab1BatchBtn) {
+                if (state.batchReplaceRules.length > 0) {
+                    tab1BatchBtn.textContent = `批次取代 (已設定 ${state.batchReplaceRules.length} 條)`;
+                    tab1BatchBtn.classList.add('active');
+                } else {
+                    tab1BatchBtn.textContent = '批次取代';
+                    tab1BatchBtn.classList.remove('active');
+                }
+            }
+        }
+
+        window.renderReplaceRules = renderReplaceRules;
+
+        function addReplaceRule() {
+            const original = replaceOriginalInput.value.trim();
+            const replacement = replaceReplacementInput.value.trim();
+            if (original) {
+                state.batchReplaceRules.push({ original, replacement });
+                replaceOriginalInput.value = '';
+                replaceReplacementInput.value = '';
+                replaceOriginalInput.focus();
+                renderReplaceRules();
+            }
+        }
+
+        function deleteRule(index) {
+            state.batchReplaceRules.splice(index, 1);
+            renderReplaceRules();
+        }
+
+        function clearAllRules() {
+            state.batchReplaceRules = [];
+            renderReplaceRules();
+        }
+
+        function savePresetRules() {
+            if (state.batchReplaceRules.length === 0) {
+                showToast('目前沒有規則可儲存。', { type: 'error' });
+                return;
+            }
+            try {
+                localStorage.setItem(STORAGE_KEY_REPLACE_RULES, JSON.stringify(state.batchReplaceRules));
+                showToast('✅ 已將目前規則儲存為常用範本！');
+            } catch (e) {
+                console.error('儲存失敗:', e);
+                showToast('儲存失敗，可能是儲存空間不足。', { type: 'error' });
+            }
+        }
+
+        function loadPresetRules() {
+            try {
+                const savedRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
+                if (!savedRules) {
+                    showToast('尚無儲存的常用範本。', { type: 'error' });
+                    return;
+                }
+                const rules = JSON.parse(savedRules);
+                if (Array.isArray(rules) && rules.length > 0) {
+                    if (state.batchReplaceRules.length > 0) {
+                        if (!confirm('載入範本將會清除目前未儲存的規則，確定要繼續嗎？')) return;
+                    }
+                    state.batchReplaceRules = rules;
+                    renderReplaceRules();
+                    showToast(`📥 已載入 ${rules.length} 條常用規則！`);
+                } else {
+                    showToast('儲存的範本格式錯誤或為空。', { type: 'error' });
+                }
+            } catch (e) {
+                console.error('載入失敗:', e);
+                showToast('載入失敗，請重試。', { type: 'error' });
+            }
+        }
+
+        function exportRules() {
+            if (state.batchReplaceRules.length === 0) {
+                showToast('目前沒有任何取代規則可以匯出。', { type: 'error' });
+                return;
+            }
+            try {
+                const jsonStr = JSON.stringify(state.batchReplaceRules, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `yttb_replace_rules_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('📤 規則匯出成功！');
+            } catch (e) {
+                console.error('匯出失敗:', e);
+                showToast('匯出失敗，請重試。', { type: 'error' });
+            }
+        }
+
+        function handleImportRulesFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const rules = JSON.parse(e.target.result);
+                    if (Array.isArray(rules)) {
+                        const isValid = rules.every(r => r && typeof r.original === 'string' && typeof r.replacement === 'string');
+                        if (!isValid) {
+                            showModal({ title: '匯入失敗', message: '匯入的檔案格式不正確。' });
+                            return;
+                        }
+                        if (state.batchReplaceRules.length > 0) {
+                            if (!confirm('匯入規則將會覆蓋當前暫存的規則，確定要繼續嗎？')) return;
+                        }
+                        state.batchReplaceRules = rules;
+                        renderReplaceRules();
+                        showToast(`📥 成功匯入 ${rules.length} 條取代規則！`);
+                    } else {
+                        showModal({ title: '匯入失敗', message: '匯入的檔案內容必須是 JSON 陣列。' });
+                    }
+                } catch (error) {
+                    showModal({ title: '匯入失敗', message: '解析 JSON 檔案失敗。' });
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        if (addReplaceRuleBtn) addReplaceRuleBtn.addEventListener('click', addReplaceRule);
+        if (clearAllRulesBtn) clearAllRulesBtn.addEventListener('click', clearAllRules);
+        if (loadPresetRulesBtn) loadPresetRulesBtn.addEventListener('click', loadPresetRules);
+        if (savePresetRulesBtn) savePresetRulesBtn.addEventListener('click', savePresetRules);
+        if (exportRulesBtn) exportRulesBtn.addEventListener('click', exportRules);
+        if (importRulesBtn) importRulesBtn.addEventListener('click', () => importRulesFileInput.click());
+        if (importRulesFileInput) {
+            importRulesFileInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleImportRulesFile(e.target.files[0]);
+                    e.target.value = '';
+                }
+            });
+        }
+        if (replaceRulesList) {
+            replaceRulesList.addEventListener('click', (e) => {
+                const deleteBtn = e.target.closest('.rule-delete-btn');
+                if (deleteBtn) deleteRule(parseInt(deleteBtn.dataset.index, 10));
+            });
+        }
+
+        // Initialize dictionary rules
+        renderReplaceRules();
+
         if (appearanceBtn) appearanceBtn.addEventListener('click', toggleAppearancePanel);
-        if (apiKeyBtn) apiKeyBtn.addEventListener('click', showApiKeyModal);
-        if (closeApiKeyModalBtn) closeApiKeyModalBtn.addEventListener('click', hideApiKeyModal);
+        if (globalSettingsBtn) globalSettingsBtn.addEventListener('click', () => showGlobalSettingsModal('settings-tab-gemini'));
+        if (closeGlobalSettingsBtn) closeGlobalSettingsBtn.addEventListener('click', hideGlobalSettingsModal);
+        
+        document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                switchSettingsTab(e.currentTarget.dataset.target);
+            });
+        });
         if (apiKeysListContainer) {
             apiKeysListContainer.addEventListener('click', (e) => {
                 if (e.target.classList.contains('delete-key-item-btn')) {

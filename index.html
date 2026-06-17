@@ -342,9 +342,9 @@
 
         <!-- Footer Nav -->
         <div class="mt-auto pt-4 border-t border-outline-variant/10 flex flex-col gap-2">
-            <button id="api-key-btn" class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200 text-xs w-full text-left" title="API Key 設定">
-                <span class="material-symbols-outlined text-[18px]">key</span>
-                <span class="font-label-md text-label-md">金鑰設定</span>
+            <button id="global-settings-btn" class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200 text-xs w-full text-left" title="全域設定">
+                <span class="material-symbols-outlined text-[18px]">settings</span>
+                <span class="font-label-md text-label-md">全域設定</span>
             </button>
             <a class="flex items-center gap-3 px-4 py-2 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200 text-xs" href="readme.html" target="_blank">
                 <span class="material-symbols-outlined text-[18px]">help</span>
@@ -423,24 +423,9 @@
                                 <span class="material-symbols-outlined text-[14px]">memory</span>辨識引擎
                             </label>
                             <select id="tab0-engine-select" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface" style="color: #0b1326 !important;">
-                                <option value="gemini">Gemini AI (使用現有 API Key)</option>
-                                <option value="whisper">Whisper 專業版 (時間戳更精準)</option>
+                                <option value="gemini">Gemini AI (gemini-1.5-flash)</option>
+                                <option value="whisper">Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)</option>
                             </select>
-                        </div>
-
-                        <!-- Whisper Worker Settings (hidden by default) -->
-                        <div id="tab0-whisper-settings" class="hidden space-y-3 p-3 rounded-xl border border-outline-variant/10 bg-surface-container/30">
-                            <label class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
-                                <span class="material-symbols-outlined text-[14px]">cloud</span>Worker 連線設定
-                            </label>
-                            <div class="space-y-2">
-                                <input id="tab0-worker-url" type="url" placeholder="Worker API URL" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-gray-400 focus:outline-none">
-                                <input id="tab0-worker-token" type="password" placeholder="API Token（密碼）" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-gray-400 focus:outline-none">
-                                <div class="flex items-center gap-2">
-                                    <button id="tab0-test-connection-btn" class="text-xs font-bold py-1.5 px-3 rounded-lg bg-secondary-container text-on-secondary-container hover:brightness-110 transition-all">測試連線</button>
-                                    <span id="tab0-connection-status" class="text-xs text-on-surface-variant"></span>
-                                </div>
-                            </div>
                         </div>
 
                         <!-- Language Selection -->
@@ -454,14 +439,6 @@
                                 <option value="en">English</option>
                                 <option value="ja">日本語</option>
                             </select>
-                        </div>
-
-                        <!-- Custom Dictionary -->
-                        <div class="space-y-2">
-                            <label class="font-label-md text-[14px] flex items-center gap-1" style="color: #ffffff !important;">
-                                <span class="material-symbols-outlined text-[14px]">dictionary</span>專有名詞 / 錯字替換
-                            </label>
-                            <textarea id="tab0-custom-dict" placeholder="純名詞：QuestWiz, Firebase&#10;強制替換：Gamini=Gemini, 估狗=Google" class="w-full p-2.5 rounded-lg glass-input text-sm resize-none h-20 placeholder:text-gray-500/70" style="color: #0b1326 !important;"></textarea>
                         </div>
 
                         <!-- Start Button -->
@@ -685,10 +662,7 @@
                             <button id="export-srt-btn" class="px-5 py-2 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 hover:border-outline-variant transition-all font-label-md text-label-md flex items-center gap-1.5 opacity-50 cursor-not-allowed text-xs" disabled="">
                                 <span class="material-symbols-outlined text-[18px]">download</span>匯出 SRT
                             </button>
-                            <div class="w-px h-6 bg-outline-variant/30 mx-1"></div>
-                            <button id="batch-replace-btn" class="px-5 py-2 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 hover:border-outline-variant transition-all font-label-md text-label-md flex items-center gap-1.5 text-xs">
-                                <span class="material-symbols-outlined text-[18px]">find_replace</span>批次取代
-                            </button>
+
                             <button id="generate-summary-btn" class="px-5 py-2 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 hover:border-outline-variant transition-all font-label-md text-label-md flex items-center gap-1.5 opacity-50 cursor-not-allowed text-xs" disabled="" title="請先輸入內容並設定 API Key">
                                 <span class="material-symbols-outlined text-[18px]">summarize</span>生成摘要
                             </button>
@@ -1550,101 +1524,169 @@
 
     <!-- ==================== MODALS CONFIGURATION ==================== -->
 
-    <!-- API Key settings modal -->
-    <div id="api-key-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center backdrop-blur-sm" style="z-index: 10005;">
-        <div class="glass-panel p-6 w-11/12 md:w-1/2 max-w-xl rounded-2xl shadow-2xl flex flex-col relative bg-surface-container-high/90">
-            <h3 class="text-lg font-bold mb-4 text-on-surface flex items-center justify-between">
-                <span>設定您的 Gemini API Key</span>
-                <span class="relative inline-block">
-                    <button id="toggle-api-help-btn" type="button" class="text-primary hover:text-primary-fixed text-xs font-semibold hover:underline focus:outline-none transition-colors ml-1">
-                        📖 如何免費申請？
+    <!-- Global Settings Modal -->
+    <div id="global-settings-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center backdrop-blur-sm z-[10005]">
+        <div class="glass-panel w-11/12 md:w-3/5 max-w-3xl rounded-2xl shadow-2xl flex flex-col relative bg-surface-container-high/90 overflow-hidden h-[85vh] md:h-[75vh]">
+            
+            <!-- Header -->
+            <div class="p-5 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-highest/50 shrink-0">
+                <h3 class="text-xl font-bold text-on-surface flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">settings</span>全域設定
+                </h3>
+                <button id="close-global-settings-btn" class="text-on-surface-variant hover:text-on-surface transition-colors p-1 rounded-full hover:bg-surface-variant/50">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <!-- Content Area (Sidebar Tabs + Tab Panels) -->
+            <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+                <!-- Sidebar Tabs -->
+                <div class="w-full md:w-48 border-b md:border-b-0 md:border-r border-outline-variant/20 bg-surface-container-lowest/30 shrink-0 flex md:flex-col overflow-x-auto md:overflow-y-auto">
+                    <button class="settings-tab-btn active w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-primary bg-primary/10 text-primary flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-gemini">
+                        <span class="material-symbols-outlined text-[18px]">key</span>Gemini API Key
                     </button>
-                    <!-- Floating popover panel for Key API guides -->
-                    <div id="api-key-help-panel" class="hidden absolute right-0 top-full mt-2 w-80 md:w-[26rem] bg-surface-container-highest p-4 rounded-xl border border-outline-variant/20 text-xs space-y-2 shadow-2xl z-[110] leading-relaxed">
-                        <ol class="list-decimal list-inside space-y-1.5 text-on-surface-variant">
-                            <li>登入您的 Google 帳號。</li>
-                            <li>前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="text-primary hover:underline font-bold">Google AI Studio</a>。</li>
-                            <li>點擊頁面<strong class="text-secondary mx-0.5">左下方</strong>的 <span class="bg-surface-variant/30 text-on-surface px-1.5 py-0.5 rounded font-mono border border-outline-variant/20">Get API key</span>。</li>
-                            <li>點擊頁面<strong class="text-secondary mx-0.5">右上角</strong>藍色的 <span class="bg-primary-container text-on-primary-container px-1.5 py-0.5 rounded font-bold border border-primary/20">Create API key</span>。</li>
-                            <li>選擇專案並點擊 <span class="bg-surface-variant/30 px-1.5 py-0.5 rounded border border-outline-variant/20">Create project</span>。</li>
-                            <li>複製生成的金鑰 (以 <code class="text-primary font-bold bg-primary/10 px-1 rounded">AIza</code> 開頭)，貼入輸入框中。</li>
-                        </ol>
-                        <p class="text-[10px] text-on-surface-variant/50 pt-2 border-t border-outline-variant/10">* Google 提供的免費額度非常足夠個人日常使用。</p>
+                    <button class="settings-tab-btn w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-worker">
+                        <span class="material-symbols-outlined text-[18px]">cloud</span>Worker 連線設定
+                    </button>
+                    <button class="settings-tab-btn w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-dict">
+                        <span class="material-symbols-outlined text-[18px]">find_replace</span>專有名詞替換
+                    </button>
+                </div>
+
+                <!-- Tab Panels -->
+                <div class="flex-1 overflow-y-auto p-5 relative">
+                    <!-- Tab 1: Gemini API Key -->
+                    <div id="settings-tab-gemini" class="settings-tab-panel space-y-4">
+                        <h4 class="text-lg font-bold text-on-surface mb-2 flex justify-between items-center">
+                            <span>Gemini API Key 設定</span>
+                            <span class="relative inline-block">
+                                <button id="toggle-api-help-btn" type="button" class="text-primary hover:text-primary-fixed text-xs font-semibold hover:underline focus:outline-none transition-colors ml-1">
+                                    📖 如何免費申請？
+                                </button>
+                                <!-- Floating popover panel for Key API guides -->
+                                <div id="api-key-help-panel" class="hidden absolute right-0 top-full mt-2 w-80 md:w-[26rem] bg-surface-container-highest p-4 rounded-xl border border-outline-variant/20 text-xs space-y-2 shadow-2xl z-[110] leading-relaxed">
+                                    <ol class="list-decimal list-inside space-y-1.5 text-on-surface-variant">
+                                        <li>登入您的 Google 帳號。</li>
+                                        <li>前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="text-primary hover:underline font-bold">Google AI Studio</a>。</li>
+                                        <li>點擊頁面<strong class="text-secondary mx-0.5">左下方</strong>的 <span class="bg-surface-variant/30 text-on-surface px-1.5 py-0.5 rounded font-mono border border-outline-variant/20">Get API key</span>。</li>
+                                        <li>點擊頁面<strong class="text-secondary mx-0.5">右上角</strong>藍色的 <span class="bg-primary-container text-on-primary-container px-1.5 py-0.5 rounded font-bold border border-primary/20">Create API key</span>。</li>
+                                        <li>選擇專案並點擊 <span class="bg-surface-variant/30 px-1.5 py-0.5 rounded border border-outline-variant/20">Create project</span>。</li>
+                                        <li>複製生成的金鑰 (以 <code class="text-primary font-bold bg-primary/10 px-1 rounded">AIza</code> 開頭)，貼入輸入框中。</li>
+                                    </ol>
+                                    <p class="text-[10px] text-on-surface-variant/50 pt-2 border-t border-outline-variant/10">* Google 提供的免費額度非常足夠個人日常使用。</p>
+                                </div>
+                            </span>
+                        </h4>
+                        
+                        <p class="text-xs text-on-surface-variant leading-relaxed">
+                            為了啟用 AI 功能，請提供您的 Gemini API 金鑰。您可以設定多組金鑰，系統會自動分配輪替使用。金鑰將僅儲存在您的瀏覽器中。
+                        </p>
+                        
+                        <div class="relative">
+                            <textarea id="gemini-api-key" placeholder="在此貼上您的 Gemini API Key（支援同時貼上多行，每行一組金鑰）" rows="3" class="w-full rounded-xl px-4 py-3 pr-10 border border-outline-variant/20 bg-surface-container-lowest/50 text-on-surface focus:outline-none resize-none masked-keys font-mono text-xs leading-relaxed"></textarea>
+                            <button id="toggle-key-visibility-btn" type="button" class="absolute right-3 bottom-3 text-on-surface-variant hover:text-on-surface focus:outline-none" title="切換金鑰可見性">
+                                <svg id="eye-open-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                                <svg id="eye-closed-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <label for="api-key-expiry-select" class="font-semibold text-xs text-on-surface whitespace-nowrap">金鑰保存期限</label>
+                            <select id="api-key-expiry-select" class="flex-grow p-2 rounded-lg bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
+                                <option value="2h" selected>2 小時（預設，建議）</option>
+                                <option value="4h">4 小時</option>
+                                <option value="8h">8 小時</option>
+                                <option value="24h">24 小時</option>
+                                <option value="session">分頁關閉即清除（Session 模式）</option>
+                                <option value="never">不自動清除（永久保存，請注意資訊安全）</option>
+                            </select>
+                        </div>
+
+                        <div class="flex justify-end pt-2">
+                            <button id="save-api-key-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110">儲存金鑰</button>
+                        </div>
+
+                        <div class="border-t border-outline-variant/10 pt-4 mt-4">
+                            <h4 class="font-semibold text-xs mb-3 text-on-surface uppercase tracking-wider">已設定的金鑰清單</h4>
+                            <div id="api-keys-list-container" class="space-y-2"></div>
+                        </div>
                     </div>
-                </span>
-            </h3>
-            
-            <div class="space-y-4 flex-grow">
-                <p class="text-xs text-on-surface-variant leading-relaxed">
-                    為了啟用 AI 功能，請提供您的 Gemini API 金鑰。您可以設定多組金鑰，系統會自動分配輪替使用。金鑰將僅儲存在您的瀏覽器中。
-                </p>
-                
-                <div class="relative">
-                    <textarea id="gemini-api-key" placeholder="在此貼上您的 Gemini API Key（支援同時貼上多行，每行一組金鑰）" rows="3" class="w-full rounded-xl px-4 py-3 pr-10 border border-outline-variant/20 bg-surface-container-lowest/50 text-on-surface focus:outline-none resize-none masked-keys font-mono text-xs leading-relaxed"></textarea>
-                    <button id="toggle-key-visibility-btn" type="button" class="absolute right-3 bottom-3 text-on-surface-variant hover:text-on-surface focus:outline-none" title="切換金鑰可見性">
-                        <svg id="eye-open-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        <svg id="eye-closed-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                        </svg>
-                    </button>
-                </div>
 
-                <div class="flex items-center gap-2">
-                    <label for="api-key-expiry-select" class="font-semibold text-xs text-on-surface whitespace-nowrap">金鑰保存期限</label>
-                    <select id="api-key-expiry-select" class="flex-grow p-2 rounded-lg bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
-                        <option value="2h" selected>2 小時（預設，建議）</option>
-                        <option value="4h">4 小時</option>
-                        <option value="8h">8 小時</option>
-                        <option value="24h">24 小時</option>
-                        <option value="session">分頁關閉即清除（Session 模式）</option>
-                        <option value="never">不自動清除（永久保存，請注意資訊安全）</option>
-                    </select>
-                </div>
+                    <!-- Tab 2: Worker Connection Settings -->
+                    <div id="settings-tab-worker" class="settings-tab-panel hidden space-y-4">
+                        <h4 class="text-lg font-bold text-on-surface mb-2">Worker 連線設定</h4>
+                        <p class="text-xs text-on-surface-variant leading-relaxed">
+                            要使用 Cloudflare 提供的 Whisper 專業版辨識功能，您必須先設定自己的 Cloudflare Worker。
+                        </p>
+                        
+                        <div class="space-y-3">
+                            <div class="space-y-1">
+                                <label for="global-worker-url" class="text-xs font-semibold text-on-surface">Worker API URL</label>
+                                <input type="text" id="global-worker-url" placeholder="例如: https://whisper.YOUR_SUBDOMAIN.workers.dev" class="w-full rounded-lg px-4 py-2 border border-outline-variant/20 bg-surface-container-lowest/50 text-on-surface focus:outline-none text-xs">
+                                <p class="text-[10px] text-on-surface-variant">請填入您自行架設的 Cloudflare Whisper Worker 網址，此為使用 Whisper 專業版的必要設定。</p>
+                            </div>
 
-                <div class="border-t border-outline-variant/10 pt-3">
-                    <h4 class="font-semibold text-xs mb-2 text-on-surface uppercase tracking-wider">已設定的金鑰清單</h4>
-                    <div id="api-keys-list-container" class="space-y-2 max-h-36 overflow-y-auto pr-1"></div>
-                </div>
-            </div>
-            
-            <div class="mt-6 flex justify-end gap-2 shrink-0">
-                <button id="close-api-key-modal-btn" class="font-bold py-2 px-4 rounded-lg bg-surface-variant/20 border border-outline-variant/20 text-on-surface text-xs hover:bg-surface-variant/40">關閉</button>
-                <button id="save-api-key-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110">儲存金鑰</button>
-            </div>
-        </div>
-    </div>
+                            <div class="space-y-1">
+                                <label for="global-worker-token" class="text-xs font-semibold text-on-surface">Cloudflare API Token (建議填寫)</label>
+                                <input type="password" id="global-worker-token" placeholder="請填寫具備 Workers AI 權限的 Token" class="w-full rounded-lg px-4 py-2 border border-outline-variant/20 bg-surface-container-lowest/50 text-on-surface focus:outline-none text-xs">
+                                <p class="text-[10px] text-on-surface-variant">為確保穩定性與隱私，建議您填寫自己的 Token。<a href="readme.html#worker-setup" target="_blank" class="text-primary hover:underline">如何取得？</a></p>
+                            </div>
 
-    <!-- Batch Replace srt rules modal -->
-    <div id="batch-replace-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="glass-panel p-6 w-11/12 md:w-1/2 max-w-xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] bg-surface-container-high/90">
-            <h3 class="text-lg font-bold mb-4 text-white flex items-center gap-2"><span class="material-symbols-outlined text-primary">find_replace</span>批次取代設定</h3>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 shrink-0">
-                <input type="text" id="replace-original-input" placeholder="原文 (要被取代的文字)" class="md:col-span-1 rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-white focus:outline-none">
-                <input type="text" id="replace-replacement-input" placeholder="取代文字 (新的文字)" class="md:col-span-1 rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-white focus:outline-none">
-                <button id="add-replace-rule-btn" class="md:col-span-1 font-bold rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">新增規則</button>
-            </div>
-            
-            <div id="replace-rules-list" class="flex-grow border border-outline-variant/20 rounded-xl bg-surface-container-lowest/30 p-3 min-h-[180px] max-h-[40vh] overflow-y-auto text-white"></div>
-            
-            <div class="mt-2 shrink-0">
-                <p class="text-[10px] text-white/70 text-center">提示：此處設定的規則，將在您點擊主畫面的「開始整理」按鈕時統一執行。</p>
-            </div>
-            
-            <div class="mt-6 flex flex-wrap justify-between items-center gap-4 shrink-0">
-                <div class="flex flex-wrap gap-1.5">
-                    <button id="load-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-white hover:bg-white/5 text-xs">📥 載入範本</button>
-                    <button id="save-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-white hover:bg-white/5 text-xs">💾 存為範本</button>
-                    <button id="export-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-white hover:bg-white/5 text-xs">📤 匯出規則</button>
-                    <button id="import-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-white hover:bg-white/5 text-xs">📥 匯入規則</button>
-                    <input type="file" id="import-rules-file-input" class="hidden" accept=".json">
-                </div>
-                <div class="flex gap-2 ml-auto">
-                    <button id="clear-all-rules-btn" class="font-bold py-2 px-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 text-xs">全部清除</button>
-                    <button id="close-replace-modal-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">完成設定</button>
+                            <div class="flex items-center gap-2 pt-2">
+                                <label for="worker-expiry-select" class="font-semibold text-xs text-on-surface whitespace-nowrap">連線保存期限</label>
+                                <select id="worker-expiry-select" class="flex-grow p-2 rounded-lg bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
+                                    <option value="2h" selected>2 小時（預設，建議）</option>
+                                    <option value="4h">4 小時</option>
+                                    <option value="8h">8 小時</option>
+                                    <option value="24h">24 小時</option>
+                                    <option value="session">分頁關閉即清除（Session 模式）</option>
+                                    <option value="never">不自動清除（永久保存）</option>
+                                </select>
+                            </div>
+
+                            <div class="flex justify-between items-center pt-4">
+                                <span id="worker-test-status" class="text-sm"></span>
+                                <div class="flex gap-2">
+                                    <button id="test-worker-connection-btn" class="font-bold py-2 px-4 rounded-lg bg-surface-variant/30 border border-outline-variant/20 text-on-surface text-xs hover:bg-surface-variant/50">測試連線</button>
+                                    <button id="save-worker-settings-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110">儲存 Worker 設定</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Custom Dictionary -->
+                    <div id="settings-tab-dict" class="settings-tab-panel hidden flex flex-col h-full">
+                        <h4 class="text-lg font-bold text-on-surface mb-2">專有名詞 / 錯字替換</h4>
+                        <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
+                            您設定的替換規則，將會在「Whisper 辨識」時自動傳送給 AI 作為參考字典，並在 Tab 1「開始整理」時自動對逐字稿執行批次取代。
+                        </p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 shrink-0">
+                            <input type="text" id="replace-original-input" placeholder="原文 (要被取代的文字)" class="md:col-span-1 rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
+                            <input type="text" id="replace-replacement-input" placeholder="取代文字 (新的文字)" class="md:col-span-1 rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
+                            <button id="add-replace-rule-btn" class="md:col-span-1 font-bold rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">新增規則</button>
+                        </div>
+                        
+                        <div id="replace-rules-list" class="flex-grow border border-outline-variant/20 rounded-xl bg-surface-container-lowest/30 p-3 min-h-[180px] overflow-y-auto text-on-surface"></div>
+                        
+                        <div class="mt-4 flex flex-wrap justify-between items-center gap-4 shrink-0 border-t border-outline-variant/10 pt-4">
+                            <div class="flex flex-wrap gap-1.5">
+                                <button id="load-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📥 載入範本</button>
+                                <button id="save-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">💾 存為範本</button>
+                                <button id="export-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📤 匯出規則</button>
+                                <button id="import-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📥 匯入規則</button>
+                                <input type="file" id="import-rules-file-input" class="hidden" accept=".json">
+                            </div>
+                            <div class="flex gap-2 ml-auto">
+                                <button id="clear-all-rules-btn" class="font-bold py-2 px-3 rounded-lg bg-error-container/20 border border-error/20 text-error hover:bg-error-container/40 text-xs">全部清除</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

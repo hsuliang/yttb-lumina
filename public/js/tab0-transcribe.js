@@ -361,8 +361,8 @@ async function transcribeWithGemini(file, language) {
  * @param {Function} onProgress - 進度回呼
  */
 async function transcribeWithWhisper(file, language, customDict, onProgress = () => {}) {
-    const workerUrl = localStorage.getItem(TAB0_STORAGE_KEYS.workerUrl);
-    const workerToken = localStorage.getItem(TAB0_STORAGE_KEYS.workerToken);
+    const workerUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+    const workerToken = localStorage.getItem('aliang-tab0-worker-token') || sessionStorage.getItem('aliang-tab0-worker-token');
 
     if (!workerUrl) throw new Error('請先設定 Whisper Worker 的 API URL。');
 
@@ -516,11 +516,6 @@ function initializeTab0() {
     const startBtn = document.getElementById('tab0-start-btn');
     const languageSelect = document.getElementById('tab0-language');
     const engineSelect = document.getElementById('tab0-engine-select');
-    const whisperSettings = document.getElementById('tab0-whisper-settings');
-    const workerUrlInput = document.getElementById('tab0-worker-url');
-    const workerTokenInput = document.getElementById('tab0-worker-token');
-    const testConnectionBtn = document.getElementById('tab0-test-connection-btn');
-    const connectionStatus = document.getElementById('tab0-connection-status');
     const resultTabs = document.querySelectorAll('.tab0-result-tab');
     const resultPanels = document.querySelectorAll('.tab0-result-panel');
     const exportSrtBtn = document.getElementById('tab0-export-srt-btn');
@@ -538,41 +533,19 @@ function initializeTab0() {
     // --- 載入已儲存的設定 ---
     const savedEngine = localStorage.getItem(TAB0_STORAGE_KEYS.engine) || 'gemini';
     const savedLanguage = localStorage.getItem(TAB0_STORAGE_KEYS.language) || 'auto';
-    const savedWorkerUrl = localStorage.getItem(TAB0_STORAGE_KEYS.workerUrl) || '';
-    const savedWorkerToken = localStorage.getItem(TAB0_STORAGE_KEYS.workerToken) || '';
 
     if (languageSelect) languageSelect.value = savedLanguage;
-    if (workerUrlInput) workerUrlInput.value = savedWorkerUrl;
-    if (workerTokenInput) workerTokenInput.value = savedWorkerToken;
 
     // 設定引擎 select
     if (engineSelect) {
         engineSelect.value = savedEngine;
         state.transcribeEngine = savedEngine;
-        if (whisperSettings) {
-            whisperSettings.classList.toggle('hidden', savedEngine !== 'whisper');
-        }
 
         // --- 引擎切換 ---
         engineSelect.addEventListener('change', () => {
             state.transcribeEngine = engineSelect.value;
             localStorage.setItem(TAB0_STORAGE_KEYS.engine, engineSelect.value);
-            if (whisperSettings) {
-                whisperSettings.classList.toggle('hidden', engineSelect.value !== 'whisper');
-            }
             updateTab0StartButton();
-        });
-    }
-
-    // --- Worker 設定儲存 ---
-    if (workerUrlInput) {
-        workerUrlInput.addEventListener('change', () => {
-            localStorage.setItem(TAB0_STORAGE_KEYS.workerUrl, workerUrlInput.value.trim());
-        });
-    }
-    if (workerTokenInput) {
-        workerTokenInput.addEventListener('change', () => {
-            localStorage.setItem(TAB0_STORAGE_KEYS.workerToken, workerTokenInput.value.trim());
         });
     }
 
@@ -581,41 +554,6 @@ function initializeTab0() {
         languageSelect.addEventListener('change', () => {
             state.transcribeLanguage = languageSelect.value;
             localStorage.setItem(TAB0_STORAGE_KEYS.language, languageSelect.value);
-        });
-    }
-
-    // --- 測試 Worker 連線 ---
-    if (testConnectionBtn) {
-        testConnectionBtn.addEventListener('click', async () => {
-            const url = workerUrlInput?.value.trim();
-            if (!url) {
-                if (connectionStatus) {
-                    connectionStatus.textContent = '❌ 請先填入 Worker URL';
-                    connectionStatus.className = 'text-xs text-red-400 mt-1';
-                }
-                return;
-            }
-            testConnectionBtn.disabled = true;
-            testConnectionBtn.textContent = '測試中...';
-            try {
-                const token = workerTokenInput?.value.trim();
-                const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-                const resp = await fetch(`${url.replace(/\/+$/, '')}/api/health`, { headers });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    connectionStatus.textContent = `🟢 連線成功！${data.model ? `模型: ${data.model}` : ''}`;
-                    connectionStatus.className = 'text-xs text-green-400 mt-1';
-                } else {
-                    connectionStatus.textContent = `🔴 連線失敗 (${resp.status})`;
-                    connectionStatus.className = 'text-xs text-red-400 mt-1';
-                }
-            } catch (e) {
-                connectionStatus.textContent = `🔴 連線失敗: ${e.message}`;
-                connectionStatus.className = 'text-xs text-red-400 mt-1';
-            } finally {
-                testConnectionBtn.disabled = false;
-                testConnectionBtn.textContent = '測試連線';
-            }
         });
     }
 
@@ -831,14 +769,6 @@ function initializeTab0() {
         const engine = state.transcribeEngine;
         let canStart = hasFile;
 
-        if (engine === 'gemini') {
-            const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-            canStart = hasFile && hasApiKey;
-        } else if (engine === 'whisper') {
-            const hasWorkerUrl = !!localStorage.getItem(TAB0_STORAGE_KEYS.workerUrl);
-            canStart = hasFile && hasWorkerUrl;
-        }
-
         startBtn.disabled = !canStart;
         startBtn.classList.toggle('opacity-50', !canStart);
         startBtn.classList.toggle('cursor-not-allowed', !canStart);
@@ -851,38 +781,92 @@ function initializeTab0() {
                 return;
             }
 
-            startBtn.disabled = true;
-
-            try {
-                let result;
-                if (state.transcribeEngine === 'whisper') {
-                    // Whisper：靜態模式（進度由 handleWhisperProgress 控制）
-                    startProgressMessages(true);
-                    if (progressMessage) progressMessage.textContent = '正在準備音訊...';
-                    const customDictVal = document.getElementById('tab0-custom-dict')?.value || '';
-                    result = await transcribeWithWhisper(
-                        selectedFile,
-                        state.transcribeLanguage,
-                        customDictVal,
-                        handleWhisperProgress
-                    );
-                } else {
-                    // Gemini：循環提示訊息與進度條
-                    const estSec = selectedFile ? selectedFile.size / 16000 : 60;
-                    startProgressMessages(false, estSec);
-                    result = await transcribeWithGemini(selectedFile, state.transcribeLanguage);
+            if (state.transcribeEngine === 'whisper') {
+                const hasWorkerUrl = !!(localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url'));
+                if (!hasWorkerUrl) {
+                    showModal({
+                        title: '缺少 Worker 連線設定',
+                        message: '使用 Whisper 專業版需要設定 Cloudflare Worker。是否前往設定？',
+                        buttons: [
+                            { text: '取消', class: 'btn-secondary', callback: hideModal },
+                            { text: '前往設定', class: 'btn-primary', callback: () => {
+                                hideModal();
+                                if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-worker');
+                            }}
+                        ]
+                    });
+                    return;
                 }
-
-                displayResults(result);
-                showToast('🎉 語音辨識完成！', { type: 'success' });
-
-            } catch (error) {
-                console.error('[Tab0] Transcription failed:', error);
-                showToast(`辨識失敗：${error.message}`, { type: 'error' });
-            } finally {
-                stopProgressMessages();
-                updateTab0StartButton();
+            } else if (state.transcribeEngine === 'gemini') {
+                const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+                if (!hasApiKey) {
+                    showModal({
+                        title: '缺少 Gemini API Key',
+                        message: '使用 Gemini 模式需要設定 API Key。是否前往設定？',
+                        buttons: [
+                            { text: '取消', class: 'btn-secondary', callback: hideModal },
+                            { text: '前往設定', class: 'btn-primary', callback: () => {
+                                hideModal();
+                                if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-gemini');
+                            }}
+                        ]
+                    });
+                    return;
+                }
             }
+
+            const confirmDictAndStart = async () => {
+                startBtn.disabled = true;
+
+                try {
+                    let result;
+                    if (state.transcribeEngine === 'whisper') {
+                        // Whisper：靜態模式（進度由 handleWhisperProgress 控制）
+                        startProgressMessages(true);
+                        if (progressMessage) progressMessage.textContent = '正在準備音訊...';
+                        let customDictVal = '';
+                        if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
+                            customDictVal = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
+                        }
+                        result = await transcribeWithWhisper(
+                            selectedFile,
+                            state.transcribeLanguage,
+                            customDictVal,
+                            handleWhisperProgress
+                        );
+                    } else {
+                        // Gemini：循環提示訊息與進度條
+                        const estSec = selectedFile ? selectedFile.size / 16000 : 60;
+                        startProgressMessages(false, estSec);
+                        result = await transcribeWithGemini(selectedFile, state.transcribeLanguage);
+                    }
+
+                    displayResults(result);
+                    showToast('🎉 語音辨識完成！', { type: 'success' });
+
+                } catch (error) {
+                    console.error('[Tab0] Transcription failed:', error);
+                    showToast(`辨識失敗：${error.message}`, { type: 'error' });
+                } finally {
+                    stopProgressMessages();
+                    updateTab0StartButton();
+                }
+            };
+
+            showModal({
+                title: '確認開始辨識',
+                message: '是否需要設定「專有名詞 / 錯字替換」？\n如果您已經設定過或不需要，請點擊「直接開始」。',
+                buttons: [
+                    { text: '前往設定', class: 'btn-secondary', callback: () => {
+                        hideModal();
+                        if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-dict');
+                    }},
+                    { text: '直接開始', class: 'btn-primary', callback: () => {
+                        hideModal();
+                        confirmDictAndStart();
+                    }}
+                ]
+            });
         });
     }
 

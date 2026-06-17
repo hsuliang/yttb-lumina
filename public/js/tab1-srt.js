@@ -20,22 +20,9 @@ const fixTimestampsCheckbox = document.getElementById('fix-timestamps');
 const timestampThresholdInput = document.getElementById('timestamp-threshold');
 const processSrtBtn = document.getElementById('process-srt-btn');
 const exportSrtBtn = document.getElementById('export-srt-btn');
-const batchReplaceBtn = document.getElementById('batch-replace-btn');
-const batchReplaceModal = document.getElementById('batch-replace-modal');
-const closeReplaceModalBtn = document.getElementById('close-replace-modal-btn');
-const addReplaceRuleBtn = document.getElementById('add-replace-rule-btn');
-const replaceOriginalInput = document.getElementById('replace-original-input');
-const replaceReplacementInput = document.getElementById('replace-replacement-input');
-const replaceRulesList = document.getElementById('replace-rules-list');
-const clearAllRulesBtn = document.getElementById('clear-all-rules-btn');
 const timelineShiftInput = document.getElementById('timeline-shift');
 const timelineShiftValue = document.getElementById('timeline-shift-value');
 const timestampThresholdValue = document.getElementById('timestamp-threshold-value');
-const loadPresetRulesBtn = document.getElementById('load-preset-rules-btn');
-const savePresetRulesBtn = document.getElementById('save-preset-rules-btn');
-const exportRulesBtn = document.getElementById('export-rules-btn');
-const importRulesBtn = document.getElementById('import-rules-btn');
-const importRulesFileInput = document.getElementById('import-rules-file-input');
 
 // [第二階段優化] - 新增返回編輯按鈕的選擇器
 const returnToEditBtn = document.getElementById('return-to-edit-btn');
@@ -45,7 +32,7 @@ const subtitleHelpPanel = document.getElementById('subtitle-help-panel');
 // [Tab 1 Empty State]
 const tab1EmptyState = document.getElementById('tab1-empty-state');
 
-const STORAGE_KEY_REPLACE_RULES = 'aliang-yttb-replace-rules-preset';
+
 
 
 // --- 輔助函式 (模組級) ---
@@ -84,15 +71,7 @@ function setMode(mode) {
     }
 }
 
-function updateBatchReplaceButtonStatus() {
-    if (state.batchReplaceRules.length > 0) {
-        batchReplaceBtn.textContent = `批次取代 (已設定 ${state.batchReplaceRules.length} 條)`;
-        batchReplaceBtn.classList.add('active');
-    } else {
-        batchReplaceBtn.textContent = '批次取代';
-        batchReplaceBtn.classList.remove('active');
-    }
-}
+
 
 // [第二階段優化] - 新增返回編輯模式的函式
 function returnToEditMode() {
@@ -115,7 +94,7 @@ function resetTab1() {
     exportSrtBtn.disabled = true;
     exportSrtBtn.className = 'font-bold py-2 px-4 rounded btn-disabled';
     state.batchReplaceRules = [];
-    updateBatchReplaceButtonStatus();
+    if (window.renderReplaceRules) window.renderReplaceRules();
     updateCharCount();
     toggleEmptyState();
 }
@@ -178,145 +157,7 @@ function initializeTab1() {
         }
     }
 
-    function openBatchReplaceModal() { batchReplaceModal.classList.remove('hidden'); renderReplaceRules(); }
-    function closeBatchReplaceModal() { if (state.batchReplaceRules.length > 0) { processSrtBtn.classList.add('button-flash'); setTimeout(() => { processSrtBtn.classList.remove('button-flash'); }, 1500); } batchReplaceModal.classList.add('hidden'); }
-    
-    function renderReplaceRules() {
-        replaceRulesList.innerHTML = '';
-        if (state.batchReplaceRules.length === 0) {
-            replaceRulesList.innerHTML = `<p class="p-4 text-center text-white/60">尚未新增任何取代規則</p>`;
-            return;
-        }
-        state.batchReplaceRules.forEach((rule, index) => {
-            const ruleEl = document.createElement('div');
-            ruleEl.className = 'rule-item text-white';
-            ruleEl.innerHTML = ` <span class="rule-text font-mono text-white">${rule.original}</span> <span class="text-white/60 mx-1">→</span> <span class="rule-text font-mono text-white">${rule.replacement}</span> <button class="rule-delete-btn" data-index="${index}" title="刪除此規則"> <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg> </button> `;
-            replaceRulesList.appendChild(ruleEl);
-        });
-        updateBatchReplaceButtonStatus();
-    }
 
-    function addReplaceRule() {
-        const original = replaceOriginalInput.value.trim();
-        const replacement = replaceReplacementInput.value.trim();
-        if (original) {
-            state.batchReplaceRules.push({ original, replacement });
-            replaceOriginalInput.value = '';
-            replaceReplacementInput.value = '';
-            replaceOriginalInput.focus();
-            renderReplaceRules();
-        }
-    }
-
-    function deleteRule(index) {
-        state.batchReplaceRules.splice(index, 1);
-        renderReplaceRules();
-    }
-
-    function clearAllRules() {
-        state.batchReplaceRules = [];
-        renderReplaceRules();
-    }
-
-    function savePresetRules() {
-        if (state.batchReplaceRules.length === 0) {
-            showToast('目前沒有規則可儲存。', { type: 'error' });
-            return;
-        }
-        try {
-            localStorage.setItem(STORAGE_KEY_REPLACE_RULES, JSON.stringify(state.batchReplaceRules));
-            showToast('✅ 已將目前規則儲存為常用範本！');
-        } catch (e) {
-            console.error('儲存失敗:', e);
-            showToast('儲存失敗，可能是儲存空間不足。', { type: 'error' });
-        }
-    }
-
-    function loadPresetRules() {
-        try {
-            const savedRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
-            if (!savedRules) {
-                showToast('尚無儲存的常用範本。', { type: 'error' });
-                return;
-            }
-            
-            const rules = JSON.parse(savedRules);
-            if (Array.isArray(rules) && rules.length > 0) {
-                // 混合模式策略：載入範本時，覆蓋當前暫存規則
-                if (state.batchReplaceRules.length > 0) {
-                    if (!confirm('載入範本將會清除目前未儲存的規則，確定要繼續嗎？')) {
-                        return;
-                    }
-                }
-                
-                state.batchReplaceRules = rules;
-                renderReplaceRules();
-                showToast(`📥 已載入 ${rules.length} 條常用規則！`);
-            } else {
-                showToast('儲存的範本格式錯誤或為空。', { type: 'error' });
-            }
-        } catch (e) {
-            console.error('載入失敗:', e);
-            showToast('載入失敗，請重試。', { type: 'error' });
-        }
-    }
-
-    function exportRules() {
-        if (state.batchReplaceRules.length === 0) {
-            showToast('目前沒有任何取代規則可以匯出。', { type: 'error' });
-            return;
-        }
-        try {
-            const jsonStr = JSON.stringify(state.batchReplaceRules, null, 2);
-            const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `yttb_replace_rules_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('📤 規則匯出成功！');
-        } catch (e) {
-            console.error('匯出失敗:', e);
-            showToast('匯出失敗，請重試。', { type: 'error' });
-        }
-    }
-
-    function handleImportRulesFile(file) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const rules = JSON.parse(e.target.result);
-                if (Array.isArray(rules)) {
-                    // 驗證規則格式是否正確
-                    const isValid = rules.every(r => r && typeof r.original === 'string' && typeof r.replacement === 'string');
-                    if (!isValid) {
-                        showModal({ title: '匯入失敗', message: '匯入的檔案格式不正確，必須是包含 original 與 replacement 欄位的規則陣列。' });
-                        return;
-                    }
-                    
-                    if (state.batchReplaceRules.length > 0) {
-                        if (!confirm('匯入規則將會覆蓋當前暫存的規則，確定要繼續嗎？')) {
-                            return;
-                        }
-                    }
-                    
-                    state.batchReplaceRules = rules;
-                    renderReplaceRules();
-                    showToast(`📥 成功匯入 ${rules.length} 條取代規則！`);
-                } else {
-                    showModal({ title: '匯入失敗', message: '匯入的檔案內容必須是 JSON 陣列。' });
-                }
-            } catch (error) {
-                console.error('解析匯入檔案失敗:', error);
-                showModal({ title: '匯入失敗', message: '解析 JSON 檔案失敗，請確保檔案格式正確。' });
-            }
-        };
-        reader.readAsText(file);
-    }
 
     function switchView(viewToShow) {
         console.log("[switchView] Switching view to:", viewToShow);
@@ -568,31 +409,23 @@ function initializeTab1() {
     smartAreaContainer.addEventListener('dragleave', (e) => { e.preventDefault(); smartAreaContainer.classList.remove('dragover'); });
     smartAreaContainer.addEventListener('drop', (e) => { e.preventDefault(); smartAreaContainer.classList.remove('dragover'); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
     fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
-    processSrtBtn.addEventListener('click', processAndDisplaySrt);
-    exportSrtBtn.addEventListener('click', exportSrtFile);
-    batchReplaceBtn.addEventListener('click', openBatchReplaceModal);
-    closeReplaceModalBtn.addEventListener('click', closeBatchReplaceModal);
-    addReplaceRuleBtn.addEventListener('click', addReplaceRule);
-    clearAllRulesBtn.addEventListener('click', clearAllRules);
-    if (loadPresetRulesBtn) loadPresetRulesBtn.addEventListener('click', loadPresetRules);
-    if (savePresetRulesBtn) savePresetRulesBtn.addEventListener('click', savePresetRules);
-    if (exportRulesBtn) exportRulesBtn.addEventListener('click', exportRules);
-    if (importRulesBtn) importRulesBtn.addEventListener('click', () => importRulesFileInput.click());
-    if (importRulesFileInput) {
-        importRulesFileInput.addEventListener('change', (e) => {
-            if (e.target.files.length) {
-                handleImportRulesFile(e.target.files[0]);
-                e.target.value = '';
-            }
+    processSrtBtn.addEventListener('click', () => {
+        showModal({
+            title: '確認開始整理',
+            message: '是否需要設定「批次取代 / 專有名詞替換」？\n如果您已經設定過或不需要，請點擊「直接開始」。',
+            buttons: [
+                { text: '前往設定', class: 'btn-secondary', callback: () => {
+                    hideModal();
+                    if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-dict');
+                }},
+                { text: '直接開始', class: 'btn-primary', callback: () => {
+                    hideModal();
+                    processAndDisplaySrt();
+                }}
+            ]
         });
-    }
-
-    replaceRulesList.addEventListener('click', (e) => {
-        const deleteBtn = e.target.closest('.rule-delete-btn');
-        if (deleteBtn) {
-            deleteRule(parseInt(deleteBtn.dataset.index, 10));
-        }
     });
+    exportSrtBtn.addEventListener('click', exportSrtFile);
 
     // --- 初始化 ---
     timestampThresholdInput.disabled = !fixTimestampsCheckbox.checked;

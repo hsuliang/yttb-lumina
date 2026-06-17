@@ -43,7 +43,7 @@ async function resolveFlashModelsList(apiKey, throwOnError = false) {
             throw new Error('Invalid response format');
         }
 
-        // 1. 過濾：只保留包含 'flash' 且支援 'generateContent' 的正式模型，排除預覽版 (preview, lite)
+        // 1. 過濾：只保留包含 'flash' 且支援 'generateContent' 的正式模型，排除預覽版 (preview, lite) 及特定用途 (image, vision)
         const flashModels = data.models.filter(m => {
             const name = m.name || '';
             const nameLower = name.toLowerCase();
@@ -51,7 +51,9 @@ async function resolveFlashModelsList(apiKey, throwOnError = false) {
             return hasGenerateContent && 
                    nameLower.includes('flash') && 
                    !nameLower.includes('preview') && 
-                   !nameLower.includes('lite');
+                   !nameLower.includes('lite') &&
+                   !nameLower.includes('image') &&
+                   !nameLower.includes('vision');
         });
 
         if (flashModels.length === 0) {
@@ -217,21 +219,22 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
                 const errorMsg = error.message || '';
                 console.warn(`Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
-                // 判定是否為金鑰錯誤 (金鑰無效或額度上限)
-                const isKeyError = errorMsg.includes("API key not valid") || 
-                                   errorMsg.includes("not valid") || 
-                                   errorMsg.includes("invalid") || 
-                                   errorMsg.includes("400") || 
-                                   errorMsg.includes("403") || 
-                                   errorMsg.includes("429") || 
-                                   errorMsg.includes("Quota exceeded") || 
-                                   errorMsg.includes("exhausted") || 
-                                   errorMsg.includes("rate limit");
+                // ★ 改善錯誤分類邏輯：
+                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
+                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
+                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
+                const isRealKeyError = errorMsg.includes("API key not valid") || 
+                                       errorMsg.includes("not valid") || 
+                                       errorMsg.includes("invalid") || 
+                                       (errorMsg.includes("403") && !errorMsg.includes("limit"));
 
-                if (isKeyError) {
+                if (isRealKeyError) {
                     console.warn("Detected API key error, switching to next key...");
                     break; // 直接跳出內層模型循環，換下一個金鑰
                 }
+                
+                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
+                console.log(`Model ${modelName} 暫時不可用，嘗試下一個模型...`);
             }
         }
 
