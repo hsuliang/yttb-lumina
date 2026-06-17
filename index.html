@@ -123,12 +123,12 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
         .glass-input {
-            background: #ffffff !important;
+            background: rgba(255, 255, 255, 0.05) !important;
             border: 1px solid rgba(255, 255, 255, 0.2) !important;
-            color: #0b1326 !important; /* surface background color as text */
+            color: #dae2fd !important;
         }
         .glass-input::placeholder {
-            color: rgba(0, 0, 0, 0.5) !important;
+            color: rgba(218, 226, 253, 0.4) !important;
         }
         .glass-input option {
             background-color: #171f33 !important; /* surface-container */
@@ -405,13 +405,13 @@
 
                         <!-- Audio Upload Area -->
                         <div class="space-y-2">
-                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                            <label class="font-label-md text-label-md flex items-center gap-1 text-on-surface">
                                 <span class="material-symbols-outlined text-[14px]">audio_file</span>音訊檔案
                             </label>
                             <div id="tab0-drop-zone" class="w-full glass-input rounded-xl border-dashed border-2 flex flex-col items-center justify-center p-3 text-center group hover:border-primary transition-all cursor-pointer relative overflow-hidden min-h-[60px]">
-                                <span class="material-symbols-outlined text-2xl mb-1 group-hover:text-primary transition-colors" style="color: #0b1326 !important;">upload_file</span>
-                                <p class="text-xs mb-0.5 font-medium" style="color: #0b1326 !important;">拖放音訊檔案或點擊選取</p>
-                                <p class="text-[10px]" style="color: #0b1326 !important;">支援 .mp3, .wav, .ogg, .m4a, .flac, .webm</p>
+                                <span class="material-symbols-outlined text-2xl mb-1 group-hover:text-primary transition-colors text-on-surface">upload_file</span>
+                                <p class="text-xs mb-0.5 font-medium text-on-surface">拖放音訊檔案或點擊選取</p>
+                                <p class="text-[10px] text-on-surface-variant">支援 .mp3, .wav, .ogg, .m4a, .flac, .webm</p>
                                 <input id="tab0-audio-input" type="file" accept=".mp3,.wav,.ogg,.m4a,.flac,.webm,.mp4,audio/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
                             </div>
                             <div id="tab0-file-info" class="hidden"></div>
@@ -419,10 +419,10 @@
 
                         <!-- Engine Selection -->
                         <div class="space-y-2">
-                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                            <label class="font-label-md text-label-md flex items-center gap-1 text-on-surface">
                                 <span class="material-symbols-outlined text-[14px]">memory</span>辨識引擎
                             </label>
-                            <select id="tab0-engine-select" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface" style="color: #0b1326 !important;">
+                            <select id="tab0-engine-select" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface">
                                 <option value="gemini">Gemini AI (gemini-1.5-flash)</option>
                                 <option value="whisper">Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)</option>
                             </select>
@@ -430,10 +430,10 @@
 
                         <!-- Language Selection -->
                         <div class="space-y-2">
-                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                            <label class="font-label-md text-label-md flex items-center gap-1 text-on-surface">
                                 <span class="material-symbols-outlined text-[14px]">translate</span>語言選擇
                             </label>
-                            <select id="tab0-language" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface" style="color: #0b1326 !important;">
+                            <select id="tab0-language" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface">
                                 <option value="auto">自動偵測（推薦）</option>
                                 <option value="zh">中文（繁體）</option>
                                 <option value="en">English</option>
@@ -526,7 +526,7 @@
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <div class="flex items-center justify-between">
-                            <label class="font-headline-md text-[18px] font-semibold flex items-center gap-2" style="color: #0b1326 !important;">
+                            <label class="font-headline-md text-[18px] font-semibold flex items-center gap-2 text-on-surface">
                                 <span class="material-symbols-outlined text-primary text-[20px]">tune</span>逐字稿設定
                             </label>
                             <button id="toggle-subtitle-help-btn" class="text-primary hover:text-primary-fixed text-xs font-label-md flex items-center gap-1 transition-colors">

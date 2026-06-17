@@ -4,17 +4,17 @@
 
 /* 預設主題：老式報紙 */
 :root {
-    --bg-color: #f1f5f9;
-    --text-color: #000000;
-    --card-bg: #ffffff;
-    --card-border: #e2e8f0;
-    --heading-color: #000000;
-    --link-color: #475569;
-    --button-bg: #1e293b;
-    --button-text: #ffffff;
-    --gray-bg: #e2e8f0;
-    --gray-text: #475569;
-    --disabled-text: #64748b;
+    --bg-color: #0b1326;
+    --text-color: #dae2fd;
+    --card-bg: rgba(255, 255, 255, 0.04);
+    --card-border: rgba(255, 255, 255, 0.1);
+    --heading-color: #ffffff;
+    --link-color: #adc6ff;
+    --button-bg: #adc6ff;
+    --button-text: #002e6a;
+    --gray-bg: rgba(255, 255, 255, 0.05);
+    --gray-text: #c2c6d6;
+    --disabled-text: #8c909f;
 }
 
 body[data-theme="caramel-pudding"] {
@@ -186,47 +186,61 @@ textarea:focus, input:focus, select:focus {
     color: var(--heading-color);
 }
 
-/* ########## NEW: QUILL EDITOR STYLES ########## */
-#blog-editor-container {
-    height: 75vh;
-    background-color: #1e293b !important;
-}
-#blog-editor-container .ql-editor {
-    color: #ffffff !important;
+/* ########## NEW: QUILL EDITOR STYLES (LUMINA GLASS) ########## */
+.ql-container {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    background-color: transparent !important;
+    border-bottom-left-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
 }
 
 .ql-toolbar {
-    background-color: var(--gray-bg);
-    border-color: var(--card-border) !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
     border-top-left-radius: 0.5rem;
     border-top-right-radius: 0.5rem;
-}
-
-.ql-container {
-    border-color: var(--card-border) !important;
-    background-color: var(--card-bg);
-    border-bottom-left-radius: 0.5rem;
-    border-bottom-right-radius: 0.5rem;
 }
 
 .ql-editor {
     font-family: inherit;
     font-size: 1rem;
     line-height: 1.75;
-    color: var(--text-color);
+    color: #dae2fd !important;
 }
 
 .ql-editor.ql-blank::before{
-    color: var(--gray-text);
+    color: rgba(255, 255, 255, 0.5) !important;
     font-style: normal;
     content: 'AI 生成的文章將會顯示在這裡，您可以直接進行編輯...';
 }
 
 .ql-snow .ql-stroke {
-    stroke: var(--text-color);
+    stroke: #dae2fd !important;
+}
+.ql-snow .ql-fill, .ql-snow .ql-stroke.ql-fill {
+    fill: #dae2fd !important;
 }
 .ql-snow .ql-picker-label {
-    color: var(--text-color);
+    color: #dae2fd !important;
+}
+.ql-snow .ql-picker-options {
+    background-color: #171f33 !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+.ql-snow .ql-picker-item:hover {
+    color: #adc6ff !important;
+}
+.ql-snow.ql-toolbar button:hover .ql-stroke, 
+.ql-snow .ql-toolbar button:hover .ql-stroke, 
+.ql-snow.ql-toolbar button.ql-active .ql-stroke, 
+.ql-snow .ql-toolbar button.ql-active .ql-stroke {
+    stroke: #adc6ff !important;
+}
+.ql-snow.ql-toolbar button:hover .ql-fill, 
+.ql-snow .ql-toolbar button:hover .ql-fill, 
+.ql-snow.ql-toolbar button.ql-active .ql-fill, 
+.ql-snow .ql-toolbar button.ql-active .ql-fill {
+    fill: #adc6ff !important;
 }
 
 /* SEO 複製按鈕樣式 */
@@ -267,14 +281,14 @@ textarea:focus, input:focus, select:focus {
     padding: 0.5rem;
     border: 1px solid var(--card-border);
     border-radius: 0.375rem; /* rounded-md */
-    background-color: #ffffff !important;
+    background-color: var(--gray-bg) !important;
 }
 
 .tag-pill {
     display: inline-flex;
     align-items: center;
-    background-color: #e2e8f0 !important;
-    color: #000000 !important;
+    background-color: var(--card-border) !important;
+    color: var(--text-color) !important;
     padding: 0.25rem 0.75rem;
     margin: 0.25rem;
     border-radius: 9999px; /* rounded-full */
@@ -290,11 +304,11 @@ textarea:focus, input:focus, select:focus {
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
-    background-color: rgba(0, 0, 0, 0.1);
-    color: #000000 !important;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-color) !important;
 }
 .tag-delete-btn:hover {
-    background-color: rgba(0, 0, 0, 0.3);
+    background-color: rgba(255, 255, 255, 0.3);
 }
 
 .tag-input {
@@ -304,7 +318,7 @@ textarea:focus, input:focus, select:focus {
     background-color: transparent;
     padding: 0.25rem;
     min-width: 120px;
-    color: #000000 !important;
+    color: var(--text-color) !important;
 }
 
 .tag-suggestions {
@@ -317,13 +331,13 @@ textarea:focus, input:focus, select:focus {
     cursor: pointer;
     padding: 0.25rem 0.75rem;
     border-radius: 9999px;
-    background-color: #e2e8f0 !important;
+    background-color: var(--card-bg) !important;
     border: 1px solid var(--card-border);
     font-size: 0.875rem;
-    color: #000000 !important;
+    color: var(--text-color) !important;
 }
 .tag-suggestion:hover {
-    background-color: var(--card-border);
+    background-color: var(--card-border) !important;
 }
 
 
@@ -997,33 +1011,12 @@ body[data-theme="dark-knight"] .btn-primary.btn-loading::after {
 
 /* 📊 AI 智慧圖表排版建議區塊樣式 */
 .info-report-box {
-    background-color: #f0f7ff;
-    border: 1px solid #d0e7ff;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.5rem;
     padding: 1rem;
-    color: #000000 !important;
+    color: var(--text-color) !important;
     transition: all 0.3s ease;
-}
-body[data-theme="caramel-pudding"] .info-report-box {
-    background-color: #fffbeb;
-    border-color: #fde68a;
-}
-body[data-theme="muji-style"] .info-report-box {
-    background-color: #f9f9f9;
-    border-color: #e5e7eb;
-}
-body[data-theme="blueberry-pancake"] .info-report-box {
-    background-color: #f0f7ff;
-    border-color: #bfdbfe;
-}
-body[data-theme="mint-soda"] .info-report-box {
-    background-color: #f0fdfa;
-    border-color: #b2f5ea;
-}
-body[data-theme="dark-knight"] .info-report-box {
-    background-color: #0f172a;
-    border-color: #334155;
-    color: #ffffff !important;
 }
 
 /* Premium Slider Styling for Lumina Glass */
