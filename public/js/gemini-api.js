@@ -242,6 +242,181 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
     throw new Error(translateError(finalErrorMsg));
 }
 
+// ########## TAB 0 NEW ##########
+/**
+ * 呼叫 Gemini API 進行音訊轉寫（multimodal: text + audio）。
+ * 複用金鑰池輪替與模型降級邏輯。
+ *
+ * @param {string} apiKey - 偏好的 API Key。
+ * @param {string} audioBase64 - 音訊檔案的 base64 編碼字串。
+ * @param {string} mimeType - 音訊 MIME 類型，如 "audio/mp3"。
+ * @param {string} promptText - 轉寫指令 prompt。
+ * @returns {Promise<string>} AI 生成的 SRT 文字。
+ */
+async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
+    if (!window.GoogleGenerativeAI) {
+        throw new Error("Google AI SDK 尚未載入。");
+    }
+
+    // 建立金鑰嘗試池（與 callGeminiAPI 相同邏輯）
+    let keyPool = [];
+    try {
+        const stored = localStorage.getItem('geminiApiKeys') || sessionStorage.getItem('geminiApiKeys');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+                keyPool = parsed.map(entry => entry.key);
+            }
+        }
+    } catch (e) {
+        console.warn("Failed to parse geminiApiKeys from storage", e);
+    }
+
+    if (apiKey) {
+        keyPool = keyPool.filter(k => k !== apiKey);
+        keyPool.unshift(apiKey);
+    }
+
+    if (keyPool.length === 0) {
+        throw new Error("找不到有效的 API Key，請先設定。");
+    }
+
+    let lastError = null;
+
+    for (let i = 0; i < keyPool.length; i++) {
+        const currentKey = keyPool[i];
+        const allModels = await resolveFlashModelsList(currentKey);
+
+        // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
+        const audioModels = allModels.filter(m => !m.includes('-image'));
+        console.log(`[Audio API] 音訊可用模型 (已過濾 image 模型):`, audioModels);
+
+        if (audioModels.length === 0) {
+            console.warn("[Audio API] 過濾後無可用模型，使用原始清單");
+        }
+        const models = audioModels.length > 0 ? audioModels : allModels;
+
+        let lastModelError = null;
+
+        for (const modelName of models) {
+            try {
+                const modelBadge = document.getElementById('modal-model-badge');
+                const modelNameEl = document.getElementById('modal-model-name');
+                if (modelBadge && modelNameEl) {
+                    modelBadge.classList.remove('hidden');
+                    modelNameEl.textContent = modelName;
+                }
+
+                // ★ Tab0 專屬模型 badge
+                const tab0Badge = document.getElementById('tab0-model-badge');
+                if (tab0Badge) {
+                    tab0Badge.classList.remove('hidden');
+                    tab0Badge.textContent = `模型：${modelName}`;
+                }
+
+                console.log(`[Audio API] Trying Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
+
+                const genAI = new window.GoogleGenerativeAI(currentKey);
+
+                const generationConfig = {
+                    responseMimeType: "text/plain",
+                    temperature: 0,
+                };
+
+                const systemInstruction = {
+                    role: "system",
+                    parts: [{ text: "你是一個專業的語音轉寫員。你必須且只能使用「繁體中文（台灣）」進行回覆，絕對不可以使用簡體中文。請嚴格遵守使用者要求的輸出格式。" }]
+                };
+
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: generationConfig,
+                    systemInstruction: systemInstruction,
+                });
+
+                const parts = [
+                    { text: promptText },
+                    {
+                        inlineData: {
+                            data: audioBase64,
+                            mimeType: mimeType,
+                        },
+                    },
+                ];
+
+                const result = await model.generateContent({ contents: [{ role: "user", parts }] });
+                const response = result.response;
+
+                if (response.promptFeedback && response.promptFeedback.blockReason) {
+                    throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                }
+
+                if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                    throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                }
+
+                const responseText = response.text();
+
+                // 更新金鑰使用計數
+                try {
+                    let isSession = false;
+                    let stored = localStorage.getItem('geminiApiKeys');
+                    if (!stored) {
+                        stored = sessionStorage.getItem('geminiApiKeys');
+                        isSession = true;
+                    }
+                    if (stored) {
+                        const parsed = JSON.parse(stored);
+                        if (Array.isArray(parsed)) {
+                            const entry = parsed.find(e => e.key === currentKey);
+                            if (entry) {
+                                entry.count = (entry.count || 0) + 1;
+                                if (isSession) {
+                                    sessionStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
+                                } else {
+                                    localStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
+                                }
+                            }
+                        }
+                    }
+                } catch (ex) {
+                    console.warn("Failed to update key count in storage", ex);
+                }
+
+                return responseText;
+
+            } catch (error) {
+                lastModelError = error;
+                const errorMsg = error.message || '';
+                console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
+
+                // ★ 改善錯誤分類邏輯：
+                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
+                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
+                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
+                const isRealKeyError = errorMsg.includes("API key not valid") ||
+                                       errorMsg.includes("not valid") ||
+                                       errorMsg.includes("invalid") ||
+                                       (errorMsg.includes("403") && !errorMsg.includes("limit"));
+
+                if (isRealKeyError) {
+                    console.warn("[Audio API] Key 無效，切換到下一組 Key...");
+                    break; // 跳出模型迴圈，換下一組 Key
+                }
+
+                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
+                console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
+            }
+        }
+
+        lastError = lastModelError;
+    }
+
+    const finalErrorMsg = lastError ? lastError.message : "未知錯誤";
+    throw new Error(translateError(finalErrorMsg));
+}
+// ########## END TAB 0 NEW ##########
+
 function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";
     

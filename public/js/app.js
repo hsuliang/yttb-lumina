@@ -595,6 +595,9 @@ const initApp = () => {
     }
     
     function initialize() {
+        // ########## TAB 0 NEW ##########
+        try { if (window.initializeTab0) { window.initializeTab0(); } } catch(e) { console.error("Error initializing Tab 0:", e); }
+        // ########## END TAB 0 NEW ##########
         try { initializeTab1(); } catch(e) { console.error("Error initializing Tab 1:", e); }
         try { initializeTab2(); } catch(e) { console.error("Error initializing Tab 2:", e); }
         try { initializeTab3(); } catch(e) { console.error("Error initializing Tab 3:", e); }
@@ -702,7 +705,7 @@ const initApp = () => {
             const smartArea = document.getElementById('smart-area');
             const hasContent = smartArea && smartArea.value.trim().length > 0;
             console.log(`[Tab Click] Target: ${tabId}, hasContent: ${hasContent}`);
-            if (tabId !== 'tab1' && !hasContent) {
+            if (tabId !== 'tab1' && tabId !== 'tab0' && !hasContent) {
                 console.log("[Tab Click] Navigation blocked. Showing Toast.");
                 showToast('請先貼上或整理您的字幕/文稿內容！', { type: 'warning' });
                 return;

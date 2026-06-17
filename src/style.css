@@ -159,7 +159,7 @@ body[data-theme="dark-knight"] .btn-disabled {
 
 
 /* 輸入框、文字區樣式 */
-textarea, input[type="text"], input[type="password"], input[type="number"], select {
+textarea, input[type="text"], input[type="password"], input[type="url"], input[type="number"], select {
     background-color: var(--gray-bg);
     color: var(--text-color);
     border: 1px solid var(--card-border);

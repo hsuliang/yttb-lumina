@@ -9,6 +9,10 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260617.1",
     "vite": "^8.0.12"
+  },
+  "dependencies": {
+    "@cloudflare/ai": "^1.2.2"
   }
 }

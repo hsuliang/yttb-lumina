@@ -123,12 +123,20 @@
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
         .glass-input {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            color: #0b1326 !important; /* surface background color as text */
+        }
+        .glass-input::placeholder {
+            color: rgba(0, 0, 0, 0.5) !important;
+        }
+        .glass-input option {
+            background-color: #171f33 !important; /* surface-container */
+            color: #dae2fd !important;
         }
         .glass-input:focus {
-            border-color: theme('colors.primary');
-            box-shadow: 0 0 0 4px rgba(77, 142, 255, 0.1);
+            border-color: #adc6ff !important;
+            box-shadow: 0 0 0 4px rgba(173, 198, 255, 0.15) !important;
         }
         
         /* Sidebar active navigation override */
@@ -270,14 +278,14 @@
     </div>
 
     <!-- 主應用容器 -->
-    <div id="main-app-container" class="hidden w-full min-h-screen flex">
+    <div id="main-app-container" class="hidden w-full h-screen overflow-hidden flex">
         <!-- SideNavBar -->
         <nav class="hidden md:flex flex-col h-screen py-gutter px-4 bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant/10 fixed left-0 top-0 w-nav-width z-50">
         <!-- Brand Header & Controls -->
         <div class="flex flex-col gap-2 mb-6 px-2">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shrink-0 border border-outline-variant/10 shadow-lg">
-                    <img src="/images/Aliang.png" alt="丫亮笑長 Logo" class="h-10 w-10 rounded-full">
+                <div class="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0 border border-outline-variant/10 shadow-lg">
+                    <img src="/images/Aliang.png" alt="丫亮笑長 Logo" class="h-10 w-10 rounded-xl">
                 </div>
                 <div>
                     <h1 class="font-bold text-primary dark:text-primary leading-tight whitespace-nowrap text-base tracking-wide">ㄚ亮笑長的內容創作助手</h1>
@@ -293,6 +301,12 @@
 
         <!-- Main Nav Links -->
         <div class="flex-1 flex flex-col overflow-y-auto gap-1">
+            <!-- ########## TAB 0 NEW ########## -->
+            <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab0">
+                <span class="material-symbols-outlined">mic</span>
+                <span class="text-[15px] font-semibold">字幕產生器</span>
+            </a>
+            <!-- ########## END TAB 0 NEW ########## -->
             <a class="tab-btn active flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab1">
                 <span class="material-symbols-outlined">description</span>
                 <span class="text-[15px] font-semibold">逐字稿整理</span>
@@ -343,25 +357,199 @@
     </nav>
 
     <!-- Main Workspace Container -->
-    <main class="flex-1 ml-nav-width overflow-y-auto p-6 min-h-screen relative box-border bg-background">
+    <main class="flex-1 ml-nav-width h-screen overflow-hidden p-6 relative box-border bg-background flex flex-col">
         
         <!-- Ambient Glows -->
         <div class="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
         <div class="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
-        <div class="max-w-[1600px] mx-auto h-full flex flex-col gap-card-gap relative z-10">
+        <div class="max-w-[1600px] w-full mx-auto flex-1 flex flex-col gap-card-gap min-h-0 relative z-10">
             
-            <!-- ==================== TAB 1: TRANSCRIPT PROCESSING ==================== -->
-            <div id="tab1" class="tab-content flex flex-col gap-card-gap h-full">
+            <!-- ########## TAB 0 NEW: SUBTITLE GENERATOR ########## -->
+            <div id="tab0" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">內容整理與優化</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">🎙️ AI 字幕產生器</h2>
                 </div>
                 
-                <div class="flex flex-col lg:flex-row flex-1 min-h-[600px] gap-6 items-stretch">
+                <div class="flex flex-col lg:flex-row flex-1 min-h-0 gap-6 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <div class="flex items-center justify-between">
                             <label class="font-headline-md text-[18px] text-on-surface font-semibold flex items-center gap-2">
+                                <span class="material-symbols-outlined text-primary text-[20px]">settings</span>辨識設定
+                            </label>
+                            <button id="tab0-help-toggle-btn" class="text-primary hover:text-primary-fixed text-xs font-label-md flex items-center gap-1 transition-colors">
+                                <span class="material-symbols-outlined text-[14px]">help</span>使用教學
+                            </button>
+                        </div>
+
+                        <!-- Help Panel (Collapsible) -->
+                        <div id="tab0-help-panel" class="hidden glass-panel p-4 rounded-xl text-xs text-on-surface-variant space-y-3 leading-relaxed">
+                            <div>
+                                <strong class="text-on-surface flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Gemini AI 模式（推薦新手）</strong>
+                                <p class="ml-2 mt-1">使用您已有的 Gemini API Key 進行語音辨識，零額外設定。</p>
+                            </div>
+                            <div class="pt-2 border-t border-outline-variant/10">
+                                <strong class="text-on-surface flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Whisper 專業版</strong>
+                                <p class="ml-2 mt-1">使用 Cloudflare Workers AI 的 Whisper 模型，時間戳精準。需要：</p>
+                                <ol class="list-decimal list-inside ml-2 mt-1 space-y-1">
+                                    <li>註冊 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener" class="text-primary hover:underline font-bold">Cloudflare 免費帳號</a></li>
+                                    <li>建立一個 Worker 並貼上程式碼</li>
+                                    <li>設定 API Token</li>
+                                </ol>
+                                <a href="readme.html" target="_blank" rel="noopener" class="ml-2 text-primary hover:underline font-bold inline-flex items-center gap-1 mt-1.5">
+                                    查看完整部署教學 <span class="material-symbols-outlined text-[12px]">open_in_new</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Audio Upload Area -->
+                        <div class="space-y-2">
+                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                                <span class="material-symbols-outlined text-[14px]">audio_file</span>音訊檔案
+                            </label>
+                            <div id="tab0-drop-zone" class="w-full glass-input rounded-xl border-dashed border-2 flex flex-col items-center justify-center p-3 text-center group hover:border-primary transition-all cursor-pointer relative overflow-hidden min-h-[60px]">
+                                <span class="material-symbols-outlined text-2xl mb-1 group-hover:text-primary transition-colors" style="color: #0b1326 !important;">upload_file</span>
+                                <p class="text-xs mb-0.5 font-medium" style="color: #0b1326 !important;">拖放音訊檔案或點擊選取</p>
+                                <p class="text-[10px]" style="color: #0b1326 !important;">支援 .mp3, .wav, .ogg, .m4a, .flac, .webm</p>
+                                <input id="tab0-audio-input" type="file" accept=".mp3,.wav,.ogg,.m4a,.flac,.webm,.mp4,audio/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                            </div>
+                            <div id="tab0-file-info" class="hidden"></div>
+                        </div>
+
+                        <!-- Engine Selection -->
+                        <div class="space-y-2">
+                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                                <span class="material-symbols-outlined text-[14px]">memory</span>辨識引擎
+                            </label>
+                            <select id="tab0-engine-select" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface" style="color: #0b1326 !important;">
+                                <option value="gemini">Gemini AI (使用現有 API Key)</option>
+                                <option value="whisper">Whisper 專業版 (時間戳更精準)</option>
+                            </select>
+                        </div>
+
+                        <!-- Whisper Worker Settings (hidden by default) -->
+                        <div id="tab0-whisper-settings" class="hidden space-y-3 p-3 rounded-xl border border-outline-variant/10 bg-surface-container/30">
+                            <label class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+                                <span class="material-symbols-outlined text-[14px]">cloud</span>Worker 連線設定
+                            </label>
+                            <div class="space-y-2">
+                                <input id="tab0-worker-url" type="url" placeholder="Worker API URL" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-gray-400 focus:outline-none">
+                                <input id="tab0-worker-token" type="password" placeholder="API Token（密碼）" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface placeholder:text-gray-400 focus:outline-none">
+                                <div class="flex items-center gap-2">
+                                    <button id="tab0-test-connection-btn" class="text-xs font-bold py-1.5 px-3 rounded-lg bg-secondary-container text-on-secondary-container hover:brightness-110 transition-all">測試連線</button>
+                                    <span id="tab0-connection-status" class="text-xs text-on-surface-variant"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Language Selection -->
+                        <div class="space-y-2">
+                            <label class="font-label-md text-label-md flex items-center gap-1" style="color: #ffffff !important;">
+                                <span class="material-symbols-outlined text-[14px]">translate</span>語言選擇
+                            </label>
+                            <select id="tab0-language" class="w-full glass-input rounded-lg px-3 py-2 text-sm text-on-surface" style="color: #0b1326 !important;">
+                                <option value="auto">自動偵測（推薦）</option>
+                                <option value="zh">中文（繁體）</option>
+                                <option value="en">English</option>
+                                <option value="ja">日本語</option>
+                            </select>
+                        </div>
+
+                        <!-- Custom Dictionary -->
+                        <div class="space-y-2">
+                            <label class="font-label-md text-[14px] flex items-center gap-1" style="color: #ffffff !important;">
+                                <span class="material-symbols-outlined text-[14px]">dictionary</span>專有名詞 / 錯字替換
+                            </label>
+                            <textarea id="tab0-custom-dict" placeholder="純名詞：QuestWiz, Firebase&#10;強制替換：Gamini=Gemini, 估狗=Google" class="w-full p-2.5 rounded-lg glass-input text-sm resize-none h-20 placeholder:text-gray-500/70" style="color: #0b1326 !important;"></textarea>
+                        </div>
+
+                        <!-- Start Button -->
+                        <button id="tab0-start-btn" class="w-full font-bold py-3 px-6 rounded-xl bg-primary text-on-primary text-sm hover:brightness-110 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2" disabled>
+                            <span class="material-symbols-outlined text-[18px]">play_arrow</span>
+                            開始辨識
+                        </button>
+
+                    </div>
+
+                    <!-- Right Result Panel -->
+                    <div class="flex-1 min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                        <!-- Progress Area (hidden by default) -->
+                        <div id="tab0-progress-area" class="hidden flex-1 flex flex-col items-center justify-center gap-5 p-8">
+                            <div class="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                            <p id="tab0-progress-message" class="text-sm text-on-surface-variant text-center animate-pulse max-w-xs"></p>
+                            <span id="tab0-model-badge" class="hidden text-[10px] font-mono text-on-surface-variant/60 bg-surface-variant/20 px-2 py-0.5 rounded-full"></span>
+                            <!-- 分段進度（長音訊模式） -->
+                            <div id="tab0-chunk-progress" class="hidden w-full max-w-xs">
+                                <div class="flex justify-between items-center text-xs text-on-surface-variant/70 mb-2">
+                                    <span id="tab0-chunk-label">分段辨識中...</span>
+                                    <span id="tab0-chunk-counter" class="font-mono font-semibold text-primary"></span>
+                                </div>
+                                <div class="w-full h-2 bg-surface-variant/30 rounded-full overflow-hidden">
+                                    <div id="tab0-chunk-bar" class="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+                                </div>
+                                <p id="tab0-chunk-eta" class="text-[10px] text-on-surface-variant/40 mt-1 text-center"></p>
+                            </div>
+                        </div>
+
+                        <!-- Result Area (hidden initially) -->
+                        <div id="tab0-result-area" class="flex-1 min-h-0 flex flex-col hidden">
+                            <!-- Result info bar -->
+                            <div class="px-5 pt-4 pb-2 flex items-center justify-between border-b border-outline-variant/10">
+                                <span id="tab0-result-info" class="hidden text-xs text-on-surface-variant"></span>
+                                <div class="flex gap-1.5">
+                                    <button class="tab0-result-tab active bg-primary/20 text-primary px-3 py-1 rounded-md text-xs font-semibold transition-all" data-target="tab0-result-srt">SRT</button>
+                                    <button class="tab0-result-tab px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:bg-surface-variant/30 transition-all" data-target="tab0-result-text">純文字</button>
+                                    <button class="tab0-result-tab px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:bg-surface-variant/30 transition-all" data-target="tab0-result-vtt">VTT</button>
+                                </div>
+                            </div>
+
+                            <!-- Result Panels -->
+                            <div class="flex-1 overflow-y-auto p-5">
+                                <pre id="tab0-result-srt" class="tab0-result-panel text-sm text-on-surface whitespace-pre-wrap font-mono leading-relaxed"></pre>
+                                <pre id="tab0-result-text" class="tab0-result-panel hidden text-sm text-on-surface whitespace-pre-wrap leading-relaxed"></pre>
+                                <pre id="tab0-result-vtt" class="tab0-result-panel hidden text-sm text-on-surface whitespace-pre-wrap font-mono leading-relaxed"></pre>
+                            </div>
+
+                            <!-- Bottom Toolbar -->
+                            <div class="px-5 py-3 border-t border-outline-variant/10 flex items-center gap-2 flex-wrap">
+                                <button id="tab0-export-srt-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled>
+                                    <span class="material-symbols-outlined text-[14px]">download</span>匯出 SRT
+                                </button>
+                                <button id="tab0-export-vtt-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled>
+                                    <span class="material-symbols-outlined text-[14px]">download</span>匯出 VTT
+                                </button>
+                                <button id="tab0-export-txt-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled>
+                                    <span class="material-symbols-outlined text-[14px]">download</span>匯出文字檔
+                                </button>
+                                <div class="flex-1"></div>
+                                <button id="tab0-send-to-tab1-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled>
+                                    <span class="material-symbols-outlined text-[14px]">arrow_forward</span>逐字稿整理
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Empty State (shown initially) -->
+                        <div id="tab0-empty-state" class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+                            <span class="material-symbols-outlined text-5xl text-on-surface-variant/30">graphic_eq</span>
+                            <p class="text-sm text-on-surface-variant/50">選擇音訊檔案並開始辨識<br>字幕結果將在此顯示</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- ########## END TAB 0 NEW ########## -->
+
+            <!-- ==================== TAB 1: TRANSCRIPT PROCESSING ==================== -->
+            <div id="tab1" class="tab-content flex-1 flex flex-col gap-card-gap min-h-0">
+                <div class="flex justify-between items-end shrink-0">
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">📝 內容整理與優化</h2>
+                </div>
+                
+                <div class="flex flex-col lg:flex-row flex-1 min-h-0 gap-6 items-stretch">
+                    <!-- Left Settings Panel -->
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                        <div class="flex items-center justify-between">
+                            <label class="font-headline-md text-[18px] font-semibold flex items-center gap-2" style="color: #0b1326 !important;">
                                 <span class="material-symbols-outlined text-primary text-[20px]">tune</span>逐字稿設定
                             </label>
                             <button id="toggle-subtitle-help-btn" class="text-primary hover:text-primary-fixed text-xs font-label-md flex items-center gap-1 transition-colors">
@@ -462,7 +650,7 @@
                     </div>
                     
                     <!-- Right Preview / Editor Column -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <div class="px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/30 shrink-0">
                             <div class="flex items-center gap-4">
                                 <h3 id="tab1-title-text" class="font-headline-md text-body-lg font-semibold text-on-surface">內容預覽與編輯</h3>
@@ -513,12 +701,12 @@
             </div>
 
             <!-- ==================== TAB 2: BLOG GENERATION ==================== -->
-            <div id="tab2" class="tab-content hidden flex flex-col gap-card-gap h-full">
+            <div id="tab2" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">部落格文章生成</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">✍️ 部落格文章生成</h2>
                 </div>
 
-                <div class="flex flex-col lg:flex-row flex-1 min-h-[600px] gap-6 items-stretch">
+                <div class="flex flex-col lg:flex-row flex-1 min-h-0 gap-6 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <div class="flex items-center justify-between">
@@ -645,7 +833,7 @@
                     </div>
 
                     <!-- Right Panel Canvas -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <!-- Preview Navigation Tabs -->
                         <div class="border-b border-outline-variant/20 px-6 pt-2 flex gap-6 bg-surface-container-low/30 shrink-0">
                             <button class="blog-view-btn pb-3 pt-2 font-label-md text-label-md text-primary border-b-2 border-primary active" data-blog-view="preview">文章預覽</button>
@@ -783,12 +971,12 @@
             </div>
 
             <!-- ==================== TAB 3: SOCIAL POSTS ==================== -->
-            <div id="tab3" class="tab-content hidden flex flex-col gap-card-gap h-full">
+            <div id="tab3" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">社群貼文生成</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">📱 社群貼文生成</h2>
                 </div>
 
-                <div class="flex flex-col lg:flex-row flex-1 min-h-[600px] gap-6 items-stretch">
+                <div class="flex flex-col lg:flex-row flex-1 min-h-0 gap-6 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <div class="flex items-center justify-between">
@@ -864,7 +1052,7 @@
                     </div>
 
                     <!-- Right Panel Canvas -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <!-- Preview platform buttons -->
                         <div class="flex px-6 pt-3 border-b border-outline-variant/20 bg-surface-container-low/30 shrink-0 gap-6">
                             <button class="social-tab-btn pb-3 pt-2 font-label-md text-label-md text-primary border-b-2 border-primary active" data-platform="facebook">Facebook</button>
@@ -904,12 +1092,12 @@
             </div>
 
             <!-- ==================== TAB 4: EDM NEWSLETTER ==================== -->
-            <div id="tab4" class="tab-content hidden flex flex-col gap-card-gap h-full">
+            <div id="tab4" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">電子報內容生成</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">📧 電子報內容生成</h2>
                 </div>
 
-                <div class="flex flex-col lg:flex-row flex-1 min-h-[600px] gap-6 items-stretch">
+                <div class="flex flex-col lg:flex-row flex-1 min-h-0 gap-6 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
@@ -959,7 +1147,7 @@
                     </div>
 
                     <!-- Right Panel Canvas -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <div class="px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/30 shrink-0">
                             <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
                                 <span class="material-symbols-outlined text-primary text-[20px]">visibility</span>內容預覽
@@ -995,12 +1183,12 @@
             </div>
 
             <!-- ==================== TAB 5: CAROUSEL PROMPTS ==================== -->
-            <div id="tab5" class="tab-content hidden flex flex-col gap-card-gap h-full">
+            <div id="tab5" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">社群輪播圖提示詞生成</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">🎠 社群輪播圖提示詞生成</h2>
                 </div>
 
-                <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-[600px] items-stretch">
+                <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
@@ -1110,7 +1298,7 @@
                     </div>
 
                     <!-- Right Column Canvas -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <div class="px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/30 shrink-0">
                             <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
                                 <span class="material-symbols-outlined text-primary text-[20px]">visibility</span>內容預覽
@@ -1146,12 +1334,12 @@
             </div>
 
             <!-- ==================== TAB 6: INFOGRAPHIC PROMPTS ==================== -->
-            <div id="tab6" class="tab-content hidden flex flex-col gap-card-gap h-full">
+            <div id="tab6" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
-                    <h2 class="font-headline-lg text-headline-lg text-on-surface">資訊圖表提示詞生成</h2>
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">📊 資訊圖表提示詞生成</h2>
                 </div>
 
-                <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-[600px] items-stretch">
+                <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
                     <!-- Left Settings Panel -->
                     <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
@@ -1304,7 +1492,7 @@
                     </div>
 
                     <!-- Right Column Canvas -->
-                    <div class="flex-grow bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
                         <div class="px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/30 shrink-0">
                             <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
                                 <span class="material-symbols-outlined text-primary text-[20px]">visibility</span>內容預覽
@@ -1663,6 +1851,9 @@
     <script src="/js/ui-components.js?v=1.1"></script>
     <script src="/js/variation-hub.js?v=1.1"></script>
     <script src="/js/optimization-service.js?v=1.1"></script>
+    <!-- ########## TAB 0 NEW ########## -->
+    <script src="/js/tab0-transcribe.js?v=2.3"></script>
+    <!-- ########## END TAB 0 NEW ########## -->
     <script src="/js/tab1-srt.js?v=1.1"></script>
     <script src="/js/tab2-blog.js?v=1.1"></script>
     <script src="/js/tab3-social.js?v=1.1"></script>
