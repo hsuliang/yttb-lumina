@@ -1,3 +1,6 @@
+import { state } from './state.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
 /**
  * gemini-api.js
  * 封裝所有與 Google Gemini API 互動的邏輯。
@@ -24,7 +27,7 @@ const FALLBACK_MODEL = 'gemini-flash-latest';
  * @param {boolean} throwOnError - 是否在網路錯誤時直接拋出異常（用於儲存驗證）
  * @returns {Promise<string[]>} 排序後的模型名稱陣列
  */
-async function resolveFlashModelsList(apiKey, throwOnError = false) {
+export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     if (!apiKey) {
         return [FALLBACK_MODEL];
     }
@@ -108,10 +111,8 @@ async function resolveFlashModelsList(apiKey, throwOnError = false) {
  * @returns {Promise<string>} AI 生成的文本內容。
  * @throws {Error} 如果所有嘗試均失敗。
  */
-async function callGeminiAPI(apiKey, prompt, forceJson = false) {
-    if (!window.GoogleGenerativeAI) {
-        throw new Error("Google AI SDK 尚未載入。");
-    }
+export async function callGeminiAPI(apiKey, prompt, forceJson = false) {
+    
 
     // 建立金鑰嘗試池
     let keyPool = [];
@@ -158,7 +159,7 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
 
                 console.log(`Trying API Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
 
-                const genAI = new window.GoogleGenerativeAI(currentKey);
+                const genAI = new GoogleGenerativeAI(currentKey);
 
                 const generationConfig = {
                     responseMimeType: forceJson ? "application/json" : "text/plain",
@@ -175,7 +176,7 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
                     systemInstruction: systemInstruction,
                 });
 
-                const requestOptions = window.currentAbortController ? { signal: window.currentAbortController.signal } : undefined;
+                const requestOptions = state.currentAbortController ? { signal: state.currentAbortController.signal } : undefined;
                 const result = await model.generateContent(prompt, requestOptions);
                 const response = result.response;
 
@@ -264,10 +265,8 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
  * @param {string} promptText - 轉寫指令 prompt。
  * @returns {Promise<string>} AI 生成的 SRT 文字。
  */
-async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
-    if (!window.GoogleGenerativeAI) {
-        throw new Error("Google AI SDK 尚未載入。");
-    }
+export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
+    
 
     // 建立金鑰嘗試池（與 callGeminiAPI 相同邏輯）
     let keyPool = [];
@@ -327,7 +326,7 @@ async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
 
                 console.log(`[Audio API] Trying Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
 
-                const genAI = new window.GoogleGenerativeAI(currentKey);
+                const genAI = new GoogleGenerativeAI(currentKey);
 
                 const generationConfig = {
                     responseMimeType: "text/plain",
@@ -355,7 +354,7 @@ async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
                     },
                 ];
 
-                const requestOptions = window.currentAbortController ? { signal: window.currentAbortController.signal } : undefined;
+                const requestOptions = state.currentAbortController ? { signal: state.currentAbortController.signal } : undefined;
                 const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
                 const response = result.response;
 

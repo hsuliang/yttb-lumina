@@ -53,7 +53,7 @@ function stringifySrt(subtitles) {
     }).join('\n\n');
 }
 
-window.processSubtitles = function(srtContent, options) {
+export const processSubtitles = function(srtContent, options) {
     const { maxCharsPerLine, keepPunctuation, fixTimestamps, timestampThreshold, batchReplaceRules, mergeShortLinesThreshold, timelineShift } = options;
     let report = { fixedGaps: 0, fixedOverlaps: 0, linesSplit: 0, linesMerged: 0, replacementsMade: 0, timelineShifted: 0 };
     let isPlainText = false;

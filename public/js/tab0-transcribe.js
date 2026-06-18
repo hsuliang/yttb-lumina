@@ -1,3 +1,9 @@
+import { callGeminiAudioAPI } from './gemini-api.js';
+
+import { showToast, showModal, hideModal } from './ui-components.js';
+import { state, AI_PROMPT_MESSAGES } from './state.js';
+import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
+
 /**
  * tab0-transcribe.js
  * Tab0 字幕產生器：支援 Gemini AI 與 Whisper Worker 雙軌模式。
@@ -302,7 +308,7 @@ function getFileExtension(filename) {
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
 async function transcribeWithGemini(file, language) {
-    const apiKey = window.getBalancedApiKey();
+    const apiKey = getBalancedApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
     }
@@ -461,7 +467,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                     method: 'POST',
                     headers: chunkHeaders,
                     body: wavBlob,
-                    signal: window.currentAbortController ? window.currentAbortController.signal : undefined
+                    signal: state.currentAbortController ? state.currentAbortController.signal : undefined
                 });
                 if (resp.ok || resp.status === 401 || resp.status === 403) break;
                 
@@ -515,7 +521,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
 }
 
 // ########## TAB 0 INITIALIZATION ##########
-function initializeTab0() {
+export function initializeTab0() {
     // --- 元素選擇 ---
     const audioFileInput = document.getElementById('tab0-audio-input');
     const audioDropZone = document.getElementById('tab0-drop-zone');
@@ -575,6 +581,7 @@ function initializeTab0() {
         }
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
         selectedFile = file;
+        state.originalFileName = file.name.replace(/\.[^.]+$/, "");
         if (fileInfoDisplay) {
             fileInfoDisplay.innerHTML = `
                 <div class="flex items-center gap-2 text-on-surface">
@@ -798,7 +805,7 @@ function initializeTab0() {
                             { text: '取消', class: 'btn-secondary', callback: hideModal },
                             { text: '前往設定', class: 'btn-primary', callback: () => {
                                 hideModal();
-                                if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-worker');
+                                if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-worker');
                             }}
                         ]
                     });
@@ -814,7 +821,7 @@ function initializeTab0() {
                             { text: '取消', class: 'btn-secondary', callback: hideModal },
                             { text: '前往設定', class: 'btn-primary', callback: () => {
                                 hideModal();
-                                if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-gemini');
+                                if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-gemini');
                             }}
                         ]
                     });
@@ -866,7 +873,7 @@ function initializeTab0() {
                 buttons: [
                     { text: '前往設定', class: 'btn-secondary', callback: () => {
                         hideModal();
-                        if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-dict');
+                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-dict');
                     }},
                     { text: '直接開始', class: 'btn-primary', callback: () => {
                         hideModal();
@@ -935,7 +942,7 @@ function initializeTab0() {
                 smartArea.value = content;
                 smartArea.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            window.switchTab('tab1');
+            switchTab('tab1');
             showToast('✅ 字幕已傳入 Tab1，可以開始整理！');
         });
     }
@@ -952,5 +959,3 @@ function initializeTab0() {
 
     console.log("[Tab0] 字幕產生器初始化完成");
 }
-
-window.initializeTab0 = initializeTab0;

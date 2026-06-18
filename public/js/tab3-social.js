@@ -1,3 +1,9 @@
+import { showToast, showModal, hideModal, populateSelectWithOptions } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { VariationHub } from './variation-hub.js';
+import { updateAiButtonStatus, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+
 /**
  * tab3-social.js
  * 負責管理第三分頁「社群貼文生成」的所有 UI 互動與邏輯。
@@ -10,11 +16,11 @@ const SOCIAL_SETTINGS_STORAGE_KEYS = {
 };
 const SOCIAL_DRAFT_KEY = 'aliang-yttb-draft-social';
 
-window.hasSocialDraft = function() {
+export const hasSocialDraft = function() {
     return localStorage.getItem(SOCIAL_DRAFT_KEY) !== null;
 }
 
-window.restoreSocialDraft = function() {
+export const restoreSocialDraft = function() {
     try {
         const draftJSON = localStorage.getItem(SOCIAL_DRAFT_KEY);
         if (!draftJSON) return;
@@ -43,17 +49,17 @@ window.restoreSocialDraft = function() {
             document.getElementById('social-copy-btn').classList.remove('hidden');
         }
         
-        if (window.updateTabAvailability) window.updateTabAvailability();
-        if (window.updateAiButtonStatus) window.updateAiButtonStatus();
+        if (updateTabAvailability) updateTabAvailability();
+        if (updateAiButtonStatus) updateAiButtonStatus();
 
         showToast('社群貼文草稿已成功恢復！');
     } catch (e) {
         console.error('無法讀取社群貼文草稿:', e);
-        window.clearSocialDraft();
+        clearSocialDraft();
     }
 }
 
-window.clearSocialDraft = function() {
+export const clearSocialDraft = function() {
     localStorage.removeItem(SOCIAL_DRAFT_KEY);
 }
 
@@ -145,7 +151,6 @@ function renderCurrentSocialVersionUI() {
 }
 
 
-function initializeTab3() {
     const generateSocialBtn = document.getElementById('generate-social-btn');
     const generateSocialVariationBtn = document.getElementById('generate-social-variation-btn');
     const socialOutputContainer = document.getElementById('social-output-container');
@@ -240,9 +245,9 @@ function initializeTab3() {
         catch (e) { console.error('無法儲存社群貼文草稿:', e); }
     }
 
-    window.switchSocialTab = function(platform) {
+export const switchSocialTab = function(platform) {
         state.activeSocialTab = platform;
-        socialTabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.socialTab === platform));
+        socialTabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.platform === platform));
         for (const key in socialPostOutputs) {
             socialPostOutputs[key].classList.toggle('hidden', key !== platform);
         }
@@ -252,8 +257,8 @@ function initializeTab3() {
     }
 
         async function proceedGenerateSocialPosts(variationModifier = '', shouldOverride = false) {
-            const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-            if (!apiKey) { if(window.showApiKeyModal) window.showApiKeyModal(); return; }
+            const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+            if (!apiKey) { if(showApiKeyModal) showApiKeyModal(); return; }
     
             let sourceText = '';
             const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
@@ -376,7 +381,7 @@ function initializeTab3() {
     generateSocialBtn.addEventListener('click', generateSocialPosts);
     generateSocialVariationBtn.addEventListener('click', generateSocialVariation);
     socialCopyBtn.addEventListener('click', copySocialPost);
-    socialTabBtns.forEach(btn => btn.addEventListener('click', () => switchSocialTab(btn.dataset.socialTab)));
+    socialTabBtns.forEach(btn => btn.addEventListener('click', () => switchSocialTab(btn.dataset.platform)));
 
     socialObjectiveSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.OBJECTIVE, e.target.value); saveSocialDraft(); });
     socialLengthSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.LENGTH, e.target.value); saveSocialDraft(); });
@@ -393,14 +398,15 @@ function initializeTab3() {
     
     loadSocialSettings();
 
-    if (window.hasSocialDraft()) {
+    if (hasSocialDraft()) {
         setTimeout(() => {
             if (confirm('偵測到上次有未儲存的社群貼文草稿，是否要恢復？')) {
                 restoreSocialDraft();
             } else {
-                window.clearSocialDraft();
-                if(window.updateTabAvailability) window.updateTabAvailability();
+                clearSocialDraft();
+                if(updateTabAvailability) updateTabAvailability();
             }
         }, 100);
     }
-}
+
+export function initializeTab3() {}

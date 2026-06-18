@@ -1,8 +1,11 @@
+import { showToast } from './ui-components.js';
+import { state } from './state.js';
+
 // js/variation-hub.js
 
 const VARIATION_HUB_STORAGE_PREFIX = 'aliang-yttb-custom-variations-';
 
-const VariationHub = (function() {
+export const VariationHub = (function() {
     let modal, titleEl, styleSelect, customInput, overrideCheckbox, saveBtn, deleteBtn, cancelBtn, confirmBtn;
     let currentType = ''; // 'blog', 'social', 'edm'
     let currentCallback = null;
@@ -265,5 +268,9 @@ const VariationHub = (function() {
     };
 })();
 
-// Ensure it initializes when the DOM is ready
-document.addEventListener('DOMContentLoaded', VariationHub.init);
+// Ensure it initializes reliably
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', VariationHub.init);
+} else {
+    VariationHub.init();
+}

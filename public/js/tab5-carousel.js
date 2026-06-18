@@ -1,9 +1,14 @@
+import { showToast, showModal, hideModal } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { VariationHub } from './variation-hub.js';
+import { getBalancedApiKey, showApiKeyModal } from './app.js';
+
 /**
  * tab5-carousel.js
  * 負責管理第五分頁「社群輪播圖提示詞」的所有 UI 互動與邏輯（簡化版）。
  */
 
-function initializeTab5() {
     // --- 元素選擇 ---
     const generateCarouselBtn = document.getElementById('generate-carousel-btn');
     const generateCarouselVariationBtn = document.getElementById('generate-carousel-variation-btn');
@@ -197,13 +202,13 @@ function initializeTab5() {
         state.currentCarouselVersionIndex = index;
         renderCarouselVersionTabs();
         renderCurrentCarouselVersionUI();
-        window.saveCarouselDraft();
+        saveCarouselDraft();
     }
 
     // --- 草稿持久化 ---
     const CAROUSEL_DRAFT_KEY = 'lumina-carousel-draft';
 
-    window.saveCarouselDraft = function() {
+export const saveCarouselDraft = function() {
         if (state.carouselVersions.length > 0) {
             localStorage.setItem(CAROUSEL_DRAFT_KEY, JSON.stringify({
                 versions: state.carouselVersions,
@@ -214,7 +219,7 @@ function initializeTab5() {
         }
     }
 
-    window.restoreCarouselDraft = function() {
+export const restoreCarouselDraft = function() {
         const saved = localStorage.getItem(CAROUSEL_DRAFT_KEY);
         if (saved) {
             try {
@@ -233,7 +238,7 @@ function initializeTab5() {
         return false;
     }
 
-    window.clearCarouselDraft = function() {
+export const clearCarouselDraft = function() {
         localStorage.removeItem(CAROUSEL_DRAFT_KEY);
         state.carouselVersions = [];
         state.currentCarouselVersionIndex = 0;
@@ -241,7 +246,7 @@ function initializeTab5() {
         renderCurrentCarouselVersionUI();
     }
     
-    window.hasCarouselDraft = function() {
+export const hasCarouselDraft = function() {
         return !!localStorage.getItem(CAROUSEL_DRAFT_KEY);
     }
 
@@ -488,9 +493,9 @@ ${layoutInstructionsText}
 
     // --- API 呼叫與生成邏輯 ---
     async function handleGenerateCarousel(variationModifier = '', shouldOverride = false) {
-        const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         if (!apiKey) {
-            if (window.showApiKeyModal) window.showApiKeyModal();
+            if (showApiKeyModal) showApiKeyModal();
             return;
         }
 
@@ -527,7 +532,7 @@ ${layoutInstructionsText}
 
             renderCarouselVersionTabs();
             renderCurrentCarouselVersionUI();
-            window.saveCarouselDraft();
+            saveCarouselDraft();
 
             hideModal();
             showToast(`社群輪播圖提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
@@ -595,7 +600,7 @@ ${layoutInstructionsText}
 
     // 初始化角色輸入框與顯示狀態
     renderRoles();
-    if (!window.restoreCarouselDraft()) {
+    if (!restoreCarouselDraft()) {
         renderCurrentCarouselVersionUI();
     }
 
@@ -630,4 +635,5 @@ ${layoutInstructionsText}
         carouselLayoutStyleSelect.addEventListener('change', updateLayoutStylePreview);
     }
     updateLayoutStylePreview();
-}
+
+export function initializeTab5() {}
