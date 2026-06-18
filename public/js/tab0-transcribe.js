@@ -365,8 +365,14 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     const workerToken = localStorage.getItem('aliang-tab0-worker-token') || sessionStorage.getItem('aliang-tab0-worker-token');
 
     if (!workerUrl) throw new Error('請先設定 Whisper Worker 的 API URL。');
+    
+    // 防呆：確保 URL 包含 http(s):// 協定
+    let validWorkerUrl = workerUrl.trim();
+    if (!/^https?:\/\//i.test(validWorkerUrl)) {
+        validWorkerUrl = 'https://' + validWorkerUrl;
+    }
 
-    const baseUrl = workerUrl.replace(/\/+$/, '');
+    const baseUrl = validWorkerUrl.replace(/\/+$/, '');
     const authHeaders = workerToken ? { 'Authorization': `Bearer ${workerToken}` } : {};
     const CHUNK_DURATION = 20;        // 分段設定：每段 20 秒
                                       // 降低為 20 秒以減少長音檔觸發 Cloudflare 503 超時錯誤的機率
