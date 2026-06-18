@@ -326,7 +326,7 @@ function initializeTab3() {
             if (error.message && error.message.includes('overloaded')) { 
                 showModal({ 
                     title: 'AI 正在尖峰時段，請稍候！', message: '別擔心...',
-                    buttons: [ { text: '關閉', class: 'btn-secondary', callback: hideModal }, { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateSocialPosts(isVariation); } } ]
+                    buttons: [ { text: '關閉', class: 'btn-secondary', callback: hideModal }, { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateSocialPosts(variationModifier, shouldOverride); } } ]
                 });
             } else { 
                 showModal({ title: '社群貼文生成失敗', message: `發生錯誤：${error.message}` }); 
@@ -341,7 +341,7 @@ function initializeTab3() {
         if (state.socialPostVersions.length > 0 && !confirm("這將會清除所有已生成的版本並重新開始，您確定嗎？")) {
             return;
         }
-        proceedGenerateSocialPosts(false);
+        proceedGenerateSocialPosts('', false);
     }
 
     function generateSocialVariation() {

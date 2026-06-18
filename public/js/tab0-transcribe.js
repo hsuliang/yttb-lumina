@@ -404,7 +404,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     onProgress({
         type: 'chunks',
         current: 0, total: totalChunks,
-        message: `準備分段辨識，共 ${totalChunks} 段（每段 30 秒）`,
+        message: `準備分段辨識，共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒）`,
         eta: '',
     });
 
@@ -502,7 +502,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         engine: 'whisper',
         blockCount: allSrtBlocks.length,
         warning: totalChunks > 1
-            ? `長音訊分段辨識：共 ${totalChunks} 段（每段 60 秒），SRT 時間戳已自動對齊合併。`
+            ? `長音訊分段辨識：共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒），SRT 時間戳已自動對齊合併。`
             : null,
     };
 }

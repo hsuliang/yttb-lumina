@@ -277,12 +277,9 @@ const initApp = () => {
             const candidates = keysList.filter(k => (k.count || 0) === minCount);
             const selected = candidates[Math.floor(Math.random() * candidates.length)];
             
-            selected.count = (selected.count || 0) + 1;
+            // 不在此處 +1，計數統一由 gemini-api.js 的成功回呼處理，避免雙重計數
+            console.log(`[API Key Rotation] 選擇金鑰: ${selected.key.substring(0, 6)}...${selected.key.substring(selected.key.length - 4)} (目前已累計使用: ${selected.count || 0} 次)`);
             
-            console.log(`[API Key Rotation] 選擇金鑰: ${selected.key.substring(0, 6)}...${selected.key.substring(selected.key.length - 4)} (目前已累計使用: ${selected.count} 次)`);
-            
-            const isSession = getStorageItem('apiKeyExpiryMode') === 'session';
-            setStorageItem('geminiApiKeys', JSON.stringify(keysList), isSession);
             return selected.key;
         } catch (e) {
             console.error('Error balancing API key:', e);
@@ -600,9 +597,11 @@ const initApp = () => {
         });
         
         const hasTab2Draft = window.hasBlogDraft && window.hasBlogDraft();
-        document.getElementById('tab2-dot').classList.toggle('hidden', !hasTab2Draft);
+        const tab2Dot = document.getElementById('tab2-dot');
+        if (tab2Dot) { tab2Dot.classList.toggle('hidden', !hasTab2Draft); }
         const hasTab3Draft = window.hasSocialDraft && window.hasSocialDraft();
-        document.getElementById('tab3-dot').classList.toggle('hidden', !hasTab3Draft);
+        const tab3Dot = document.getElementById('tab3-dot');
+        if (tab3Dot) { tab3Dot.classList.toggle('hidden', !hasTab3Draft); }
         const hasTab6Draft = window.hasInfographicDraft && window.hasInfographicDraft();
         const tab6Dot = document.getElementById('tab6-dot');
         if (tab6Dot) { tab6Dot.classList.toggle('hidden', !hasTab6Draft); }
@@ -628,9 +627,7 @@ const initApp = () => {
     }
     
     function initialize() {
-        // ########## TAB 0 NEW ##########
         try { if (window.initializeTab0) { window.initializeTab0(); } } catch(e) { console.error("Error initializing Tab 0:", e); }
-        // ########## END TAB 0 NEW ##########
         try { initializeTab1(); } catch(e) { console.error("Error initializing Tab 1:", e); }
         try { initializeTab2(); } catch(e) { console.error("Error initializing Tab 2:", e); }
         try { initializeTab3(); } catch(e) { console.error("Error initializing Tab 3:", e); }

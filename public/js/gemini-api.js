@@ -245,7 +245,6 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
     throw new Error(translateError(finalErrorMsg));
 }
 
-// ########## TAB 0 NEW ##########
 /**
  * 呼叫 Gemini API 進行音訊轉寫（multimodal: text + audio）。
  * 複用金鑰池輪替與模型降級邏輯。
@@ -418,7 +417,6 @@ async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
     const finalErrorMsg = lastError ? lastError.message : "未知錯誤";
     throw new Error(translateError(finalErrorMsg));
 }
-// ########## END TAB 0 NEW ##########
 
 function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";

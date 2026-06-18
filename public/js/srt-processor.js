@@ -84,7 +84,8 @@ window.processSubtitles = function(srtContent, options) {
         subs.forEach(sub => {
             for (const rule of batchReplaceRules) {
                 if (rule.original) {
-                    const regex = new RegExp(rule.original, 'g');
+                    const escaped = rule.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(escaped, 'g');
                     const matches = sub.text.match(regex);
                     if(matches) {
                         report.replacementsMade += matches.length;
