@@ -170,8 +170,16 @@ window.showToast = function(message, options = {}) {
 
 
 window.showModal = function(options) {
-    window.stopPromptRotation();
     const { title, message, showCopyButton = false, showProgressBar = false, buttons = [], taskType = null, isHtml = false, large = false } = options;
+    
+    // 防呆：如果是使用者主動取消任務產生的錯誤，不顯示錯誤視窗
+    if (message && (typeof message === 'string') && (message.includes('AbortError') || message.includes('The user aborted a request'))) {
+        console.log('使用者已取消任務，攔截錯誤視窗');
+        window.showToast('已取消任務');
+        return;
+    }
+
+    window.stopPromptRotation();
     
     const modal = document.getElementById('modal');
     const modalTitle = document.getElementById('modal-title');
@@ -207,6 +215,7 @@ window.showModal = function(options) {
     modalProgressBar.classList.toggle('hidden', !showProgressBar);
     
     if (showProgressBar) {
+        window.currentAbortController = new AbortController();
         modalMessage.classList.remove('hidden');
         if (taskType && AI_PROMPT_MESSAGES[taskType]) {
             window.startPromptRotation(taskType);
@@ -242,6 +251,10 @@ window.showModal = function(options) {
 
 window.hideModal = function() {
     window.stopPromptRotation();
+    if (window.currentAbortController) {
+        window.currentAbortController.abort();
+        window.currentAbortController = null;
+    }
     const modalModelBadge = document.getElementById('modal-model-badge');
     if (modalModelBadge) {
         modalModelBadge.classList.add('hidden');

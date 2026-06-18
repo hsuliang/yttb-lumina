@@ -46,6 +46,8 @@ const PRESET_TAGS = ['居久屋微醺夜', '噗噗聊聊'];
 const CUSTOM_CTA_STORAGE_KEY = 'aliang-yttb-custom-ctas';
 const CUSTOM_TAGS_STORAGE_KEY = 'aliang-yttb-custom-tags';
 
+window.currentAbortController = null;
+
 // --- 動態狀態變數 ---
 let state = {
     originalFileName: '',

@@ -461,6 +461,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                     method: 'POST',
                     headers: chunkHeaders,
                     body: wavBlob,
+                    signal: window.currentAbortController ? window.currentAbortController.signal : undefined
                 });
                 if (resp.ok || resp.status === 401 || resp.status === 403) break;
                 

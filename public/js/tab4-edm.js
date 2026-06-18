@@ -68,6 +68,52 @@ function initializeTab4() {
         state.currentEdmVersionIndex = index;
         renderEdmVersionTabs();
         renderCurrentEdmVersionUI();
+        window.saveEdmDraft();
+    }
+
+    // --- 草稿持久化 ---
+    const EDM_DRAFT_KEY = 'lumina-edm-draft';
+
+    window.saveEdmDraft = function() {
+        if (state.edmVersions.length > 0) {
+            localStorage.setItem(EDM_DRAFT_KEY, JSON.stringify({
+                versions: state.edmVersions,
+                currentIndex: state.currentEdmVersionIndex
+            }));
+        } else {
+            localStorage.removeItem(EDM_DRAFT_KEY);
+        }
+    }
+
+    window.restoreEdmDraft = function() {
+        const saved = localStorage.getItem(EDM_DRAFT_KEY);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.versions && parsed.versions.length > 0) {
+                    state.edmVersions = parsed.versions;
+                    state.currentEdmVersionIndex = parsed.currentIndex || 0;
+                    renderEdmVersionTabs();
+                    renderCurrentEdmVersionUI();
+                    return true;
+                }
+            } catch (e) {
+                console.error("無法還原 EDM 草稿:", e);
+            }
+        }
+        return false;
+    }
+
+    window.clearEdmDraft = function() {
+        localStorage.removeItem(EDM_DRAFT_KEY);
+        state.edmVersions = [];
+        state.currentEdmVersionIndex = 0;
+        renderEdmVersionTabs();
+        renderCurrentEdmVersionUI();
+    }
+    
+    window.hasEdmDraft = function() {
+        return !!localStorage.getItem(EDM_DRAFT_KEY);
     }
 
     // --- 核心邏輯 ---
@@ -149,6 +195,7 @@ function initializeTab4() {
             
             renderEdmVersionTabs();
             renderCurrentEdmVersionUI();
+            window.saveEdmDraft();
 
             hideModal();
             showToast(`電子報 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
@@ -199,5 +246,7 @@ function initializeTab4() {
     // --- 初始化 ---
     populateSelectWithOptions(edmAudienceSelect, audienceOptions);
     populateSelectWithOptions(edmStyleSelect, styleOptions);
-    renderCurrentEdmVersionUI();
+    if (!window.restoreEdmDraft()) {
+        renderCurrentEdmVersionUI();
+    }
 }

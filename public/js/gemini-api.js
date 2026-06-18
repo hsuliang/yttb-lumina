@@ -30,7 +30,10 @@ async function resolveFlashModelsList(apiKey, throwOnError = false) {
     }
     
     if (modelCache.has(apiKey)) {
-        return modelCache.get(apiKey);
+        const cached = modelCache.get(apiKey);
+        if (Date.now() - cached.timestamp < 3600000) { // 1 hour TTL
+            return cached.data;
+        }
     }
 
     try {
@@ -86,7 +89,7 @@ async function resolveFlashModelsList(apiKey, throwOnError = false) {
         }
 
         console.log("Resolved Flash models order:", list);
-        modelCache.set(apiKey, list);
+        modelCache.set(apiKey, { data: list, timestamp: Date.now() });
         return list;
     } catch (e) {
         console.warn("[系統警告] 動態模型解析失敗，已啟用動態常綠降級方案:", FALLBACK_MODEL, e);
@@ -172,7 +175,8 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
                     systemInstruction: systemInstruction,
                 });
 
-                const result = await model.generateContent(prompt);
+                const requestOptions = window.currentAbortController ? { signal: window.currentAbortController.signal } : undefined;
+                const result = await model.generateContent(prompt, requestOptions);
                 const response = result.response;
 
                 if (response.promptFeedback && response.promptFeedback.blockReason) {
@@ -227,6 +231,11 @@ async function callGeminiAPI(apiKey, prompt, forceJson = false) {
                                        errorMsg.includes("not valid") || 
                                        errorMsg.includes("invalid") || 
                                        (errorMsg.includes("403") && !errorMsg.includes("limit"));
+
+                if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
+                    console.warn("使用者主動取消請求，中止所有嘗試。");
+                    throw error;
+                }
 
                 if (isRealKeyError) {
                     console.warn("Detected API key error, switching to next key...");
@@ -346,7 +355,8 @@ async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
                     },
                 ];
 
-                const result = await model.generateContent({ contents: [{ role: "user", parts }] });
+                const requestOptions = window.currentAbortController ? { signal: window.currentAbortController.signal } : undefined;
+                const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
                 const response = result.response;
 
                 if (response.promptFeedback && response.promptFeedback.blockReason) {
@@ -400,6 +410,11 @@ async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
                                        errorMsg.includes("not valid") ||
                                        errorMsg.includes("invalid") ||
                                        (errorMsg.includes("403") && !errorMsg.includes("limit"));
+
+                if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
+                    console.warn("[Audio API] 使用者主動取消請求，中止所有嘗試。");
+                    throw error;
+                }
 
                 if (isRealKeyError) {
                     console.warn("[Audio API] Key 無效，切換到下一組 Key...");

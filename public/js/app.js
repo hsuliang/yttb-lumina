@@ -1044,6 +1044,8 @@ const initApp = () => {
                     if(window.clearBlogDraft) window.clearBlogDraft();
                     if(window.clearSocialDraft) window.clearSocialDraft();
                     if(window.clearInfographicDraft) window.clearInfographicDraft();
+                    if(window.clearEdmDraft) window.clearEdmDraft();
+                    if(window.clearCarouselDraft) window.clearCarouselDraft();
                     showToast('頁面已重置！');
                     setTimeout(() => { location.reload(); }, 500);
                 }
@@ -1061,8 +1063,10 @@ const initApp = () => {
             const hasBlog = window.hasBlogDraft ? window.hasBlogDraft() : !!localStorage.getItem('blogDraft');
             const hasSocial = window.hasSocialDraft ? window.hasSocialDraft() : !!localStorage.getItem('socialDraft');
             const hasInfo = window.hasInfographicDraft ? window.hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
+            const hasEdm = window.hasEdmDraft ? window.hasEdmDraft() : !!localStorage.getItem('lumina-edm-draft');
+            const hasCarousel = window.hasCarouselDraft ? window.hasCarouselDraft() : !!localStorage.getItem('lumina-carousel-draft');
             
-            if ((hasBlog || hasSocial || hasInfo) && portalResumeBtn) {
+            if ((hasBlog || hasSocial || hasInfo || hasEdm || hasCarousel) && portalResumeBtn) {
                 portalResumeBtn.classList.remove('hidden');
             } else if (portalResumeBtn) {
                 portalResumeBtn.classList.add('hidden');

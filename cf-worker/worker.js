@@ -222,8 +222,46 @@ async function handleTranscribe(request, env) {
         const audioBuffer = await request.arrayBuffer();
         const language = request.headers.get('X-Language') || null;
 
-        if (!audioBuffer || audioBuffer.byteLength === 0) {
-            return errorResponse('音訊資料為空，請確認上傳的檔案');
+        if (!audioBuffer || audioBuffer.byteLength < 12) {
+            return errorResponse('音訊資料為空或過短，請確認上傳的檔案');
+        }
+
+        // FEAT-05: Magic Number 驗證 (阻擋非音訊檔案惡意上傳)
+        const uint8_test = new Uint8Array(audioBuffer);
+        let isValidAudio = false;
+        
+        // 1. WAV (RIFF ... WAVE)
+        if (uint8_test[0] === 0x52 && uint8_test[1] === 0x49 && uint8_test[2] === 0x46 && uint8_test[3] === 0x46 &&
+            uint8_test[8] === 0x57 && uint8_test[9] === 0x41 && uint8_test[10] === 0x56 && uint8_test[11] === 0x45) {
+            isValidAudio = true;
+        }
+        // 2. WEBM (1A 45 DF A3)
+        else if (uint8_test[0] === 0x1A && uint8_test[1] === 0x45 && uint8_test[2] === 0xDF && uint8_test[3] === 0xA3) {
+            isValidAudio = true;
+        }
+        // 3. MP4/M4A/MOV (ftyp at offset 4)
+        else if (uint8_test[4] === 0x66 && uint8_test[5] === 0x74 && uint8_test[6] === 0x79 && uint8_test[7] === 0x70) {
+            isValidAudio = true;
+        }
+        // 4. MP3 (ID3)
+        else if (uint8_test[0] === 0x49 && uint8_test[1] === 0x44 && uint8_test[2] === 0x33) {
+            isValidAudio = true;
+        }
+        // 4.1 MP3 (No ID3, starts with frame sync FF FB / FF FA / FF F3 / FF F2)
+        else if (uint8_test[0] === 0xFF && (uint8_test[1] & 0xE0) === 0xE0) {
+            isValidAudio = true;
+        }
+        // 5. OGG (OggS)
+        else if (uint8_test[0] === 0x4F && uint8_test[1] === 0x67 && uint8_test[2] === 0x67 && uint8_test[3] === 0x53) {
+            isValidAudio = true;
+        }
+        // 6. FLAC (fLaC)
+        else if (uint8_test[0] === 0x66 && uint8_test[1] === 0x4C && uint8_test[2] === 0x61 && uint8_test[3] === 0x43) {
+            isValidAudio = true;
+        }
+
+        if (!isValidAudio) {
+            return errorResponse('不支援的檔案格式，請上傳有效的音訊檔案 (WAV, MP3, M4A, WEBM, OGG, FLAC)', 415);
         }
 
         // 大小檢查

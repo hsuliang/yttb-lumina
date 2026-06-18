@@ -197,6 +197,52 @@ function initializeTab5() {
         state.currentCarouselVersionIndex = index;
         renderCarouselVersionTabs();
         renderCurrentCarouselVersionUI();
+        window.saveCarouselDraft();
+    }
+
+    // --- 草稿持久化 ---
+    const CAROUSEL_DRAFT_KEY = 'lumina-carousel-draft';
+
+    window.saveCarouselDraft = function() {
+        if (state.carouselVersions.length > 0) {
+            localStorage.setItem(CAROUSEL_DRAFT_KEY, JSON.stringify({
+                versions: state.carouselVersions,
+                currentIndex: state.currentCarouselVersionIndex
+            }));
+        } else {
+            localStorage.removeItem(CAROUSEL_DRAFT_KEY);
+        }
+    }
+
+    window.restoreCarouselDraft = function() {
+        const saved = localStorage.getItem(CAROUSEL_DRAFT_KEY);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.versions && parsed.versions.length > 0) {
+                    state.carouselVersions = parsed.versions;
+                    state.currentCarouselVersionIndex = parsed.currentIndex || 0;
+                    renderCarouselVersionTabs();
+                    renderCurrentCarouselVersionUI();
+                    return true;
+                }
+            } catch (e) {
+                console.error("無法還原 Carousel 草稿:", e);
+            }
+        }
+        return false;
+    }
+
+    window.clearCarouselDraft = function() {
+        localStorage.removeItem(CAROUSEL_DRAFT_KEY);
+        state.carouselVersions = [];
+        state.currentCarouselVersionIndex = 0;
+        renderCarouselVersionTabs();
+        renderCurrentCarouselVersionUI();
+    }
+    
+    window.hasCarouselDraft = function() {
+        return !!localStorage.getItem(CAROUSEL_DRAFT_KEY);
     }
 
     // --- 提示詞組裝 ---
@@ -481,6 +527,7 @@ ${layoutInstructionsText}
 
             renderCarouselVersionTabs();
             renderCurrentCarouselVersionUI();
+            window.saveCarouselDraft();
 
             hideModal();
             showToast(`社群輪播圖提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
@@ -548,7 +595,9 @@ ${layoutInstructionsText}
 
     // 初始化角色輸入框與顯示狀態
     renderRoles();
-    renderCurrentCarouselVersionUI();
+    if (!window.restoreCarouselDraft()) {
+        renderCurrentCarouselVersionUI();
+    }
 
     // 監聽風格切換事件與初始化顯示狀態
     if (carouselStyleSelect) {
