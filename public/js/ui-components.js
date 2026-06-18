@@ -251,10 +251,7 @@ window.showModal = function(options) {
 
 window.hideModal = function() {
     window.stopPromptRotation();
-    if (window.currentAbortController) {
-        window.currentAbortController.abort();
-        window.currentAbortController = null;
-    }
+    // Do NOT abort here, otherwise successful tasks that call hideModal() will trigger an AbortError.
     const modalModelBadge = document.getElementById('modal-model-badge');
     if (modalModelBadge) {
         modalModelBadge.classList.add('hidden');

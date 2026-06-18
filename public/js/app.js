@@ -1035,7 +1035,15 @@ const initApp = () => {
             window.switchTab(tabId);
         }));
         
-        if (modalCloseBtn) modalCloseBtn.addEventListener('click', hideModal);
+        if (modalCloseBtn) {
+            modalCloseBtn.addEventListener('click', () => {
+                if (window.currentAbortController) {
+                    window.currentAbortController.abort();
+                    window.currentAbortController = null;
+                }
+                hideModal();
+            });
+        }
         if (modalCopyBtn) modalCopyBtn.addEventListener('click', copyModalContent);
         
         if (resetAppBtn) {
