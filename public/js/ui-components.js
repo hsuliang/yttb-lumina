@@ -1,3 +1,5 @@
+import { state, THEMES, AI_PROMPT_MESSAGES } from './state.js';
+
 /**
  * ui-components.js
  * 負責管理通用的 UI 元件，如彈出視窗、主題、摺疊面板等。
@@ -9,21 +11,21 @@ const sunIcon = document.getElementById('sun-icon');
 const moonIcon = document.getElementById('moon-icon');
 
 // 函式 (新增)
-window.applyMode = function(mode) {
+export const applyMode = function(mode) {
     if (sunIcon && moonIcon) {
         if (mode === 'dark') {
             sunIcon.classList.add('hidden');
             moonIcon.classList.remove('hidden');
             // 如果當前是亮色主題，切換到預設的暗色主題
             if (document.body.dataset.theme !== 'dark-knight') {
-                 window.applyTheme('dark-knight');
+                 applyTheme('dark-knight');
             }
         } else {
             sunIcon.classList.remove('hidden');
             moonIcon.classList.add('hidden');
             // 如果當前是暗色主題，切換回預設的亮色主題
             if (document.body.dataset.theme === 'dark-knight') {
-                window.applyTheme(localStorage.getItem('selectedLightTheme') || 'old-newspaper');
+                applyTheme(localStorage.getItem('selectedLightTheme') || 'old-newspaper');
             }
         }
     }
@@ -31,13 +33,13 @@ window.applyMode = function(mode) {
 }
 
 // 函式 (新增)
-window.toggleMode = function() {
+export const toggleMode = function() {
     const currentMode = localStorage.getItem('selectedMode') || 'light';
-    window.applyMode(currentMode === 'light' ? 'dark' : 'light');
+    applyMode(currentMode === 'light' ? 'dark' : 'light');
 }
 
 // 函式 (修改)
-window.applyTheme = function(themeName) {
+export const applyTheme = function(themeName) {
     document.body.dataset.theme = themeName;
 
     // 判斷主題是亮色還是暗色，並儲存對應的偏好
@@ -49,12 +51,12 @@ window.applyTheme = function(themeName) {
         localStorage.setItem('selectedLightTheme', themeName); // 記住使用者選擇的亮色主題
     }
     
-    window.renderThemeSwatches();
-    window.updateModeIcons();
+    renderThemeSwatches();
+    updateModeIcons();
 }
 
 // 函式 (新增)
-window.updateModeIcons = function() {
+export const updateModeIcons = function() {
      if (sunIcon && moonIcon) {
          const currentMode = localStorage.getItem('selectedMode') || 'light';
          if (currentMode === 'dark') {
@@ -69,11 +71,11 @@ window.updateModeIcons = function() {
 
 // 事件監聽 (新增)
 if (modeToggleBtn) {
-    modeToggleBtn.addEventListener('click', window.toggleMode);
+    modeToggleBtn.addEventListener('click', toggleMode);
 }
 
 
-window.renderThemeSwatches = function() {
+export const renderThemeSwatches = function() {
     const themeSwatchesContainer = document.querySelector('.theme-swatches-container');
     if (!themeSwatchesContainer) return; // Add a guard clause
     themeSwatchesContainer.innerHTML = '';
@@ -94,13 +96,13 @@ window.renderThemeSwatches = function() {
             swatch.classList.add('active');
         }
         swatch.addEventListener('click', () => {
-            window.applyTheme(value);
+            applyTheme(value);
         });
         themeSwatchesContainer.appendChild(swatch);
     }
 }
 
-window.stopPromptRotation = function() {
+export const stopPromptRotation = function() {
     if (state.promptInterval) {
         clearInterval(state.promptInterval);
         state.promptInterval = null;
@@ -108,7 +110,7 @@ window.stopPromptRotation = function() {
     state.currentAiTask = null;
 }
 
-window.startPromptRotation = function(taskType) {
+export const startPromptRotation = function(taskType) {
     state.currentAiTask = taskType;
     let messageIndex = 0;
     const messages = AI_PROMPT_MESSAGES[taskType];
@@ -131,7 +133,7 @@ window.startPromptRotation = function(taskType) {
  * @param {string} options.action.text - 按鈕文字。
  * @param {function} options.action.callback - 按鈕點擊後的回呼函式。
  */
-window.showToast = function(message, options = {}) {
+export const showToast = function(message, options = {}) {
     const { type = 'success', duration = 5000, action = null } = options;
     const container = document.getElementById('toast-container');
     if (!container) return;
@@ -169,17 +171,17 @@ window.showToast = function(message, options = {}) {
 }
 
 
-window.showModal = function(options) {
+export const showModal = function(options) {
     const { title, message, showCopyButton = false, showProgressBar = false, buttons = [], taskType = null, isHtml = false, large = false } = options;
     
     // 防呆：如果是使用者主動取消任務產生的錯誤，不顯示錯誤視窗
     if (message && (typeof message === 'string') && (message.includes('AbortError') || message.includes('The user aborted a request'))) {
         console.log('使用者已取消任務，攔截錯誤視窗');
-        window.showToast('已取消任務');
+        showToast('已取消任務');
         return;
     }
 
-    window.stopPromptRotation();
+    stopPromptRotation();
     
     const modal = document.getElementById('modal');
     const modalTitle = document.getElementById('modal-title');
@@ -215,10 +217,10 @@ window.showModal = function(options) {
     modalProgressBar.classList.toggle('hidden', !showProgressBar);
     
     if (showProgressBar) {
-        window.currentAbortController = new AbortController();
+state.currentAbortController = new AbortController();
         modalMessage.classList.remove('hidden');
         if (taskType && AI_PROMPT_MESSAGES[taskType]) {
-            window.startPromptRotation(taskType);
+            startPromptRotation(taskType);
         } else {
             modalMessage.textContent = "請稍候，AI 正在思考中...";
         }
@@ -249,8 +251,8 @@ window.showModal = function(options) {
     modal.classList.remove('hidden');
 }
 
-window.hideModal = function() {
-    window.stopPromptRotation();
+export const hideModal = function() {
+    stopPromptRotation();
     // Do NOT abort here, otherwise successful tasks that call hideModal() will trigger an AbortError.
     const modalModelBadge = document.getElementById('modal-model-badge');
     if (modalModelBadge) {
@@ -259,7 +261,7 @@ window.hideModal = function() {
     document.getElementById('modal').classList.add('hidden');
 }
 
-window.copyModalContent = function() {
+export const copyModalContent = function() {
     const modalMessage = document.getElementById('modal-message');
     const modalCopyBtn = document.getElementById('modal-copy-btn');
     navigator.clipboard.writeText(modalMessage.textContent).then(() => {
@@ -272,7 +274,7 @@ window.copyModalContent = function() {
     });
 }
 
-window.toggleAccordion = function(btn, panel) {
+export const toggleAccordion = function(btn, panel) {
     btn.classList.toggle('open');
     panel.classList.toggle('open');
     panel.classList.toggle('hidden');
@@ -289,7 +291,7 @@ window.toggleAccordion = function(btn, panel) {
     }
 }
 
-window.populateSelectWithOptions = function(selectElement, options) {
+export const populateSelectWithOptions = function(selectElement, options) {
     selectElement.innerHTML = '';
     for (const [value, text] of Object.entries(options)) {
         const option = document.createElement('option');
@@ -306,5 +308,5 @@ document.addEventListener('DOMContentLoaded', () => {
         ? 'dark-knight' 
         : (localStorage.getItem('selectedLightTheme') || 'old-newspaper');
     
-    window.applyTheme(savedTheme);
+    applyTheme(savedTheme);
 });

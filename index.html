@@ -6,9 +6,6 @@
     <title>ㄚ亮笑長的內容創作助手 - Lumina Glass</title>
     <link rel="icon" href="/images/Aliang.png" type="image/png">
     
-    <!-- Tailwind CSS CDN with Plugins -->
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    
     <!-- Google Fonts & Material Symbols -->
     <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
@@ -19,103 +16,14 @@
     <!-- Local stylesheet -->
     <link rel="stylesheet" href="/src/style.css">
     
-    <!-- Tailwind Configuration -->
-    <script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "on-primary-fixed-variant": "#004395",
-                        "on-secondary-fixed": "#341100",
-                        "on-primary-fixed": "#001a42",
-                        "on-primary": "#002e6a",
-                        "on-secondary": "#552100",
-                        "surface-variant": "#2d3449",
-                        "outline-variant": "#424754",
-                        "surface-tint": "#adc6ff",
-                        "inverse-surface": "#dae2fd",
-                        "surface-container-lowest": "#060e20",
-                        "on-secondary-container": "#4a1c00",
-                        "surface-container-low": "#131b2e",
-                        "on-surface-variant": "#c2c6d6",
-                        "primary-container": "#4d8eff",
-                        "surface-container": "#171f33",
-                        "error-container": "#93000a",
-                        "surface": "#0b1326",
-                        "primary": "#adc6ff",
-                        "background": "#0b1326",
-                        "surface-dim": "#0b1326",
-                        "on-background": "#dae2fd",
-                        "primary-fixed": "#d8e2ff",
-                        "secondary": "#ffb690",
-                        "on-tertiary": "#003824",
-                        "inverse-on-surface": "#283044",
-                        "tertiary-fixed": "#6ffbbe",
-                        "outline": "#8c909f",
-                        "secondary-fixed": "#ffdbca",
-                        "on-primary-container": "#00285d",
-                        "surface-container-high": "#222a3d",
-                        "on-tertiary-container": "#00311f",
-                        "tertiary-fixed-dim": "#4edea3",
-                        "on-secondary-fixed-variant": "#783200",
-                        "secondary-fixed-dim": "#ffb690",
-                        "on-tertiary-fixed": "#002113",
-                        "inverse-primary": "#005ac2",
-                        "surface-bright": "#31394d",
-                        "primary-fixed-dim": "#adc6ff",
-                        "on-tertiary-fixed-variant": "#005236",
-                        "surface-container-highest": "#2d3449",
-                        "on-error": "#690005",
-                        "on-surface": "#dae2fd",
-                        "tertiary": "#4edea3",
-                        "tertiary-container": "#00a572",
-                        "secondary-container": "#ec6a06",
-                        "error": "#ffb4ab",
-                        "on-error-container": "#ffdad6"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "0.5rem",
-                        "xl": "0.75rem",
-                        "2xl": "1rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "gutter": "24px",
-                        "inner-padding": "24px",
-                        "nav-width": "280px",
-                        "margin-page": "32px",
-                        "card-gap": "20px"
-                    },
-                    "fontFamily": {
-                        "headline-lg": ["Hanken Grotesk"],
-                        "display-lg": ["Hanken Grotesk"],
-                        "headline-lg-mobile": ["Hanken Grotesk"],
-                        "body-lg": ["Inter"],
-                        "headline-md": ["Hanken Grotesk"],
-                        "body-md": ["Inter"],
-                        "body-sm": ["Inter"],
-                        "label-md": ["JetBrains Mono"]
-                    },
-                    "fontSize": {
-                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "600" }],
-                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-                        "headline-lg-mobile": ["28px", { "lineHeight": "36px", "fontWeight": "600" }],
-                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
-                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
-                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
-                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }]
-                    }
-                }
-            }
-        }
-    </script>
     
     <style>
 
         /* Glassmorphism utils */
+        .modal-glow-red {
+            border: 1px solid rgba(239, 68, 68, 0.4) !important;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.3), inset 0 0 20px rgba(239, 68, 68, 0.05) !important;
+        }
         .glass-panel {
             background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(12px);
@@ -186,6 +94,25 @@
             outline-offset: max(2px, 0.15em);
         }
         
+    
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(150, 150, 150, 0.3);
+            border-radius: 10px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(150, 150, 150, 0.5);
+        }
+
     </style>
 </head>
 <body class="bg-background text-on-surface font-body-md antialiased min-h-screen flex selection:bg-primary-container selection:text-white">
@@ -360,7 +287,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619R
             </div>
         </div>
     </nav>
@@ -663,14 +590,14 @@
                         
                         <!-- Floating actions toolbar at bottom -->
                         <div class="p-4 border-t border-outline-variant/20 bg-surface/40 backdrop-blur-md flex flex-wrap gap-2 items-center justify-center shrink-0">
-                            <button id="export-srt-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="">
+                            <button id="export-srt-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="">
                                 <span class="material-symbols-outlined text-[14px]">download</span>匯出 SRT
                             </button>
 
-                            <button id="generate-summary-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
+                            <button id="generate-summary-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
                                 <span class="material-symbols-outlined text-[14px]">summarize</span>生成摘要
                             </button>
-                            <button id="generate-chapters-btn" class="font-bold py-2 px-4 rounded-lg bg-secondary-container text-on-secondary-container text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
+                            <button id="generate-chapters-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
                                 <span class="material-symbols-outlined text-[14px]">format_list_numbered</span>生成章節
                             </button>
                         </div>
@@ -1151,7 +1078,7 @@
 
                             <!-- Generated HTML content box -->
                             <div id="edm-output-container" class="hidden w-full h-full flex flex-col relative z-20 p-6 overflow-y-auto">
-                                <div id="edm-preview" class="p-6 border border-outline-variant/10 rounded-xl bg-white text-gray-800 shadow-inner">
+                                <div id="edm-preview" class="p-6 border border-outline-variant/10 rounded-xl bg-surface-container-lowest/50 text-on-surface">
                                     <!-- HTML Content goes here -->
                                 </div>
                             </div>
@@ -1200,7 +1127,10 @@
 
                             <!-- Include Logo checkbox -->
                             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-lowest/50 border border-outline-variant/10">
-                                <input class="custom-checkbox cursor-pointer" id="carousel-include-logo" type="checkbox">
+                                <div class="relative flex items-center justify-center w-5 h-5 shrink-0">
+    <input class="peer appearance-none w-5 h-5 border-2 border-outline-variant rounded bg-transparent checked:bg-primary checked:border-primary transition-colors cursor-pointer" id="carousel-include-logo" type="checkbox">
+    <span class="material-symbols-outlined absolute text-[16px] text-on-primary opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity">check</span>
+</div>
                                 <label class="font-body-md text-body-sm text-on-surface cursor-pointer select-none flex-1" for="carousel-include-logo">在提示詞中包含 Logo 圖示</label>
                             </div>
 
@@ -1363,7 +1293,10 @@
 
                             <!-- Include Logo checkbox -->
                             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-lowest/50 border border-outline-variant/10">
-                                <input class="custom-checkbox cursor-pointer" id="infographic-include-logo" type="checkbox">
+                                <div class="relative flex items-center justify-center w-5 h-5 shrink-0">
+    <input class="peer appearance-none w-5 h-5 border-2 border-outline-variant rounded bg-transparent checked:bg-primary checked:border-primary transition-colors cursor-pointer" id="infographic-include-logo" type="checkbox">
+    <span class="material-symbols-outlined absolute text-[16px] text-on-primary opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity">check</span>
+</div>
                                 <label class="font-body-md text-body-sm text-on-surface cursor-pointer select-none flex-1" for="infographic-include-logo">在提示詞中包含 Logo 圖示</label>
                             </div>
 
@@ -1479,12 +1412,7 @@
                                 <span class="material-symbols-outlined text-primary text-[20px]">visibility</span>內容預覽
                             </h3>
                             
-                            <!-- Lang tabs switch -->
-                            <div class="flex bg-surface-container-lowest border border-outline-variant/10 p-0.5 rounded-lg">
-                                <button id="infographic-tab-en" class="px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors">英文提示詞</button>
-                                <button id="infographic-tab-zh" class="px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors">中文提示詞</button>
                             </div>
-                        </div>
 
                         <!-- Versions select tabs -->
                         <div id="infographic-versions-tabs-container" class="flex px-6 py-2 border-b border-outline-variant/10 bg-surface/20 shrink-0 gap-2"></div>
@@ -1501,12 +1429,12 @@
                             <!-- Generated output area -->
                             <div id="infographic-text-container" class="hidden w-full h-full flex flex-col relative z-20 overflow-hidden divide-y divide-outline-variant/10">
                                 <!-- Top structure / layout report box -->
-                                <div id="infographic-analysis-report-container" class="w-full h-[45%] p-6 overflow-y-auto space-y-4">
+                                <div id="infographic-analysis-report-container" class="w-full h-[45%] flex flex-col p-6 gap-2">
                                     <div class="flex items-center gap-2 shrink-0 mb-2">
                                         <span class="material-symbols-outlined text-primary">analytics</span>
                                         <h4 class="text-xs font-semibold text-on-surface uppercase tracking-wider">資訊圖表規劃結構報告</h4>
                                     </div>
-                                    <div id="infographic-analysis-report-content" class="info-report-box text-xs leading-relaxed space-y-3">
+                                    <div id="infographic-analysis-report-content" class="info-report-box text-xs leading-relaxed space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2">
                                         <!-- Populated dynamically by JS -->
                                     </div>
                                 </div>
@@ -1514,10 +1442,17 @@
                                 <!-- Bottom Prompt box -->
                                 <div class="w-full h-[55%] p-6 flex flex-col gap-3 overflow-hidden">
                                     <div class="flex items-center justify-between shrink-0">
-                                        <span class="text-xs font-semibold text-on-surface-variant">設計提示詞 Prompt</span>
+                                        <div class="flex items-center gap-4">
+                                            <span class="text-xs font-semibold text-on-surface-variant">設計提示詞 Prompt</span>
+                                            <!-- Lang tabs switch -->
+                                            <div class="flex bg-surface-container-lowest border border-outline-variant/10 p-0.5 rounded-lg">
+                                                <button id="infographic-tab-en" class="px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors">英</button>
+                                                <button id="infographic-tab-zh" class="px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors">中</button>
+                                            </div>
+                                        </div>
                                         <button id="copy-infographic-prompt-btn" class="px-3 py-1 rounded-lg bg-secondary text-[#341100] hover:brightness-110 text-xs font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">content_copy</span>複製提示詞</button>
                                     </div>
-                                    <textarea id="infographic-prompt-textarea" readonly class="w-full flex-1 p-4 bg-surface-container-lowest/50 text-on-surface font-mono text-xs rounded-xl focus:outline-none resize-none leading-relaxed border border-outline-variant/10"></textarea>
+                                    <textarea id="infographic-prompt-textarea" readonly class="w-full flex-1 p-4 bg-surface-container-lowest/50 text-on-surface font-mono text-xs rounded-xl focus:outline-none resize-none leading-relaxed border border-outline-variant/10 custom-scrollbar"></textarea>
                                 </div>
                             </div>
                         </div>
@@ -1533,7 +1468,7 @@
 
     <!-- Global Settings Modal -->
     <div id="global-settings-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center backdrop-blur-sm z-[10005]">
-        <div class="glass-panel w-11/12 md:w-3/5 max-w-3xl rounded-2xl shadow-2xl flex flex-col relative bg-surface-container-high/90 overflow-hidden h-[85vh] md:h-[75vh]">
+        <div class="glass-panel modal-glow-red w-11/12 md:w-3/5 max-w-3xl rounded-2xl shadow-2xl flex flex-col relative bg-surface-container-high/90 overflow-hidden h-[85vh] md:h-[75vh]">
             
             <!-- Header -->
             <div class="p-5 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-highest/50 shrink-0">
@@ -1617,11 +1552,6 @@
                         <div class="flex justify-end pt-2">
                             <button id="save-api-key-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110">儲存金鑰</button>
                         </div>
-
-                        <div class="border-t border-outline-variant/10 pt-4 mt-4">
-                            <h4 class="font-semibold text-xs mb-3 text-on-surface uppercase tracking-wider">已設定的金鑰清單</h4>
-                            <div id="api-keys-list-container" class="space-y-2"></div>
-                        </div>
                     </div>
 
                     <!-- Tab 2: Worker Connection Settings -->
@@ -1701,7 +1631,7 @@
 
     <!-- Blog Wizard prompt modal -->
     <div id="prompt-wizard-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel flex flex-col bg-surface-container-high/90 max-h-[85vh]">
+        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel modal-glow-red flex flex-col bg-surface-container-high/90 max-h-[85vh]">
             <h3 class="text-lg font-bold mb-4 text-on-surface">AI 寫作風格客製化精靈</h3>
             <div id="prompt-wizard-content" class="space-y-6 overflow-y-auto pr-1 flex-1">
                 <!-- Struct section -->
@@ -1754,7 +1684,7 @@
 
     <!-- Social Wizard prompt modal -->
     <div id="social-prompt-wizard-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel flex flex-col bg-surface-container-high/90 max-h-[85vh]">
+        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel modal-glow-red flex flex-col bg-surface-container-high/90 max-h-[85vh]">
             <h3 class="text-lg font-bold mb-4 text-on-surface">AI 社群風格客製化精靈</h3>
             <div id="social-wizard-content" class="space-y-6 overflow-y-auto pr-1 flex-1">
                 <!-- Hook and goal section -->
@@ -1827,7 +1757,7 @@
 
     <!-- Universal Variation Hub modal -->
     <div id="variation-hub-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel flex flex-col bg-surface-container-high/90 max-h-[80vh]">
+        <div class="p-6 w-11/12 md:w-2/5 rounded-2xl shadow-2xl glass-panel modal-glow-red flex flex-col bg-surface-container-high/90 max-h-[80vh]">
             <h3 id="variation-hub-title" class="text-lg font-bold mb-4 text-on-surface">調整 AI 生成風格</h3>
             <div class="space-y-4 flex-1 overflow-y-auto pr-1">
                 <div class="space-y-1.5">
@@ -1839,7 +1769,10 @@
                     <textarea id="variation-custom-input" rows="4" placeholder="例如：請用更幽默、更年輕化的語氣重寫。&#10;請在開頭加入一個引人入勝的小故事。" class="w-full glass-input rounded-lg p-3 font-body-sm text-body-sm text-on-surface focus:outline-none resize-none"></textarea>
                 </div>
                 <div class="flex items-center mt-2">
-                    <input type="checkbox" id="variation-override-checkbox" class="custom-checkbox cursor-pointer">
+                    <div class="relative flex items-center justify-center w-5 h-5 shrink-0">
+    <input class="peer appearance-none w-5 h-5 border-2 border-outline-variant rounded bg-transparent checked:bg-primary checked:border-primary transition-colors cursor-pointer" id="variation-override-checkbox" type="checkbox">
+    <span class="material-symbols-outlined absolute text-[16px] text-on-primary opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity">check</span>
+</div>
                     <label for="variation-override-checkbox" class="ml-2.5 text-xs font-medium text-on-surface-variant cursor-pointer" title="勾選此項，AI 將完全依照上方的風格指令寫作，而忽略主畫面原本設定的語氣。">忽略主畫面語氣設定 (完全覆蓋)</label>
                 </div>
                 <div class="flex justify-end gap-2 mt-2 pt-2 border-t border-outline-variant/10">
@@ -1856,7 +1789,7 @@
 
     <!-- Universal Modal -->
     <div id="modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
-        <div class="glass-panel p-6 w-11/12 md:w-1/2 max-w-lg rounded-2xl shadow-2xl flex flex-col bg-surface-container-high/90">
+        <div class="glass-panel modal-glow-red p-6 w-11/12 md:w-1/2 max-w-lg rounded-2xl shadow-2xl flex flex-col bg-surface-container-high/90">
             <h3 id="modal-title" class="text-lg font-bold mb-4 text-on-surface">提示</h3>
             <div id="modal-content-wrapper" class="flex-grow overflow-y-auto max-h-[60vh] pr-1">
                 <p id="modal-message" class="whitespace-pre-wrap text-sm text-on-surface-variant leading-relaxed"></p>
@@ -1876,14 +1809,9 @@
     </div>
 
     <!-- Toast container -->
-    <div id="toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2"></div>
+    <div id="toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] flex flex-col items-center gap-2"></div>
 
     <!-- ==================== SCRIPTS LOADER ==================== -->
-    <script type="module">
-        import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
-        window.GoogleGenerativeAI = GoogleGenerativeAI;
-    </script>
-    
     <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
@@ -1893,20 +1821,7 @@
         }
     </script>
 
-    <!-- Project logic modules loaded from public/js -->
-    <script src="/js/state.js?v=1.1"></script>
-    <script src="/js/gemini-api.js?v=1.1"></script>
-    <script src="/js/srt-processor.js?v=1.1"></script>
-    <script src="/js/ui-components.js?v=1.1"></script>
-    <script src="/js/variation-hub.js?v=1.1"></script>
-    <script src="/js/optimization-service.js?v=1.1"></script>
-    <script src="/js/tab0-transcribe.js?v=2.3"></script>
-    <script src="/js/tab1-srt.js?v=1.1"></script>
-    <script src="/js/tab2-blog.js?v=1.1"></script>
-    <script src="/js/tab3-social.js?v=1.1"></script>
-    <script src="/js/tab4-edm.js?v=1.1"></script>
-    <script src="/js/tab5-carousel.js?v=1.1"></script>
-    <script src="/js/tab6-infographic.js?v=1.1"></script>
-    <script src="/js/app.js?v=1.1"></script>
+    <!-- Project logic modules loaded from app.js -->
+    <script type="module" src="/public/js/app.js"></script>
 </body>
 </html>

@@ -1,18 +1,23 @@
+import { showToast, showModal, hideModal } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+
 /**
  * optimization-service.js
  * 提供全局的文本優化服務。
  */
 
 // 將其包裹在一個物件中，模擬一個服務模組
-window.optimizationService = {
+export const optimizationService = {
     /**
      * 觸發 AI 文本優化流程。
      * 這是一個異步函式，會在原地顯示模態窗，並在完成後更新全局狀態。
      */
     async optimizeSourceText() {
-        const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         if (!apiKey) {
-            if (window.showApiKeyModal) window.showApiKeyModal();
+            if (showApiKeyModal) showApiKeyModal();
             return;
         }
 
@@ -40,8 +45,8 @@ window.optimizationService = {
             showToast('文本已成功優化！', { type: 'success' });
             
             // 觸發全局 UI 刷新
-            if (window.updateSourceStatusUI) window.updateSourceStatusUI();
-            if (window.updateTabAvailability) window.updateTabAvailability(); // 更新分頁按鈕狀態
+            if (updateSourceStatusUI) updateSourceStatusUI();
+            if (updateTabAvailability) updateTabAvailability(); // 更新分頁按鈕狀態
 
         } catch (error) {
             // 處理 API 錯誤

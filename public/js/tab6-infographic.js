@@ -1,15 +1,20 @@
+import { showToast, showModal, hideModal } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { VariationHub } from './variation-hub.js';
+import { updateAiButtonStatus, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+
 /**
  * js/tab6-infographic.js
  * TAB6: 資訊圖表提示詞 (Infographic) 核心邏輯
  */
 
-(function() {
     let infographicRoles = [];
     let activePromptLang = 'en'; // 'en' or 'zh'
     const INFOGRAPHIC_DRAFT_KEY = 'aliang-yttb-draft-infographic';
 
     // 初始化 TAB6
-    window.initializeTab6 = function() {
+export const initializeTab6 = function() {
         // 取得 UI 元素
         const typeSelect = document.getElementById('infographic-type');
         const addRoleBtn = document.getElementById('infographic-add-role-btn');
@@ -67,7 +72,7 @@
                     typeSelect.removeAttribute('data-is-auto-recommend');
                 } else {
                     typeSelect.dataset.isAutoRecommend = 'true';
-                    window.analyzeInfographicContent();
+                    analyzeInfographicContent();
                 }
                 saveInfographicDraft();
             });
@@ -130,13 +135,13 @@
         }
 
         // 載入草稿 (防禦性檢查)
-        if (window.hasInfographicDraft && window.hasInfographicDraft()) {
+        if (hasInfographicDraft && hasInfographicDraft()) {
             setTimeout(() => {
                 if (confirm('偵測到上次有未儲存的資訊圖表提示詞草稿，是否要恢復？')) {
-                    window.restoreInfographicDraft && window.restoreInfographicDraft();
+                    restoreInfographicDraft && restoreInfographicDraft();
                 } else {
-                    window.clearInfographicDraft && window.clearInfographicDraft();
-                    if (window.updateTabAvailability) window.updateTabAvailability();
+                    clearInfographicDraft && clearInfographicDraft();
+                    if (updateTabAvailability) updateTabAvailability();
                 }
             }, 150);
         }
@@ -196,7 +201,7 @@
     }
 
     // 自動推薦型態判定演算法
-    window.analyzeInfographicContent = function() {
+export const analyzeInfographicContent = function() {
         const smartArea = document.getElementById('smart-area');
         const statusEl = document.getElementById('infographic-ai-recommendation-status');
         const typeSelect = document.getElementById('infographic-type');
@@ -569,9 +574,9 @@
     async function handleGenerateInfographic(variationModifier = '', shouldOverride = false) {
         const generateBtn = document.getElementById('generate-infographic-btn');
         const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
-        const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         if (!apiKey) {
-            if (window.showApiKeyModal) window.showApiKeyModal();
+            if (showApiKeyModal) showApiKeyModal();
             return;
         }
 
@@ -764,11 +769,11 @@ ${sourceContent}
         } finally {
             activeBtn.disabled = false;
             activeBtn.classList.remove('btn-loading');
-            if (window.updateAiButtonStatus) window.updateAiButtonStatus();
+            if (updateAiButtonStatus) updateAiButtonStatus();
         }
     }
 
-    window.restoreInfographicDraft = function() {
+export const restoreInfographicDraft = function() {
         try {
             const draftJSON = localStorage.getItem(INFOGRAPHIC_DRAFT_KEY);
             if (!draftJSON) return;
@@ -810,21 +815,21 @@ ${sourceContent}
 
             toggleCustomStyleVisibility();
 
-            if (window.updateTabAvailability) window.updateTabAvailability();
-            if (window.updateAiButtonStatus) window.updateAiButtonStatus();
+            if (updateTabAvailability) updateTabAvailability();
+            if (updateAiButtonStatus) updateAiButtonStatus();
 
             showToast('資訊圖表提示詞草稿已成功恢復！');
         } catch (e) {
             console.error('無法讀取資訊圖表提示詞草稿:', e);
-            window.clearInfographicDraft();
+            clearInfographicDraft();
         }
     };
 
-    window.hasInfographicDraft = function() {
+export const hasInfographicDraft = function() {
         return localStorage.getItem(INFOGRAPHIC_DRAFT_KEY) !== null;
     };
 
-    window.clearInfographicDraft = function() {
+export const clearInfographicDraft = function() {
         localStorage.removeItem(INFOGRAPHIC_DRAFT_KEY);
     };
 
@@ -861,4 +866,3 @@ ${sourceContent}
             console.error('無法儲存資訊圖表提示詞草稿:', e);
         }
     }
-})();

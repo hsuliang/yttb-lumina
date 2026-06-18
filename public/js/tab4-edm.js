@@ -1,9 +1,14 @@
+import { showToast, showModal, hideModal, populateSelectWithOptions } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { VariationHub } from './variation-hub.js';
+import { getBalancedApiKey, showApiKeyModal } from './app.js';
+
 /**
  * tab4-edm.js
  * 負責管理第四分頁「電子報內容生成」的所有 UI 互動與邏輯。
  */
 
-function initializeTab4() {
     // --- 元素選擇 ---
     const generateEdmBtn = document.getElementById('generate-edm-btn');
     const generateEdmVariationBtn = document.getElementById('generate-edm-variation-btn');
@@ -68,13 +73,13 @@ function initializeTab4() {
         state.currentEdmVersionIndex = index;
         renderEdmVersionTabs();
         renderCurrentEdmVersionUI();
-        window.saveEdmDraft();
+        saveEdmDraft();
     }
 
     // --- 草稿持久化 ---
     const EDM_DRAFT_KEY = 'lumina-edm-draft';
 
-    window.saveEdmDraft = function() {
+export const saveEdmDraft = function() {
         if (state.edmVersions.length > 0) {
             localStorage.setItem(EDM_DRAFT_KEY, JSON.stringify({
                 versions: state.edmVersions,
@@ -85,7 +90,7 @@ function initializeTab4() {
         }
     }
 
-    window.restoreEdmDraft = function() {
+export const restoreEdmDraft = function() {
         const saved = localStorage.getItem(EDM_DRAFT_KEY);
         if (saved) {
             try {
@@ -104,7 +109,7 @@ function initializeTab4() {
         return false;
     }
 
-    window.clearEdmDraft = function() {
+export const clearEdmDraft = function() {
         localStorage.removeItem(EDM_DRAFT_KEY);
         state.edmVersions = [];
         state.currentEdmVersionIndex = 0;
@@ -112,7 +117,7 @@ function initializeTab4() {
         renderCurrentEdmVersionUI();
     }
     
-    window.hasEdmDraft = function() {
+export const hasEdmDraft = function() {
         return !!localStorage.getItem(EDM_DRAFT_KEY);
     }
 
@@ -165,9 +170,9 @@ function initializeTab4() {
     }
 
     async function handleGenerateEdm(variationModifier = '', shouldOverride = false) { // Changed signature
-        const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         if (!apiKey) {
-            if (window.showApiKeyModal) window.showApiKeyModal();
+            if (showApiKeyModal) showApiKeyModal();
             return;
         }
         
@@ -195,7 +200,7 @@ function initializeTab4() {
             
             renderEdmVersionTabs();
             renderCurrentEdmVersionUI();
-            window.saveEdmDraft();
+            saveEdmDraft();
 
             hideModal();
             showToast(`電子報 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
@@ -246,7 +251,8 @@ function initializeTab4() {
     // --- 初始化 ---
     populateSelectWithOptions(edmAudienceSelect, audienceOptions);
     populateSelectWithOptions(edmStyleSelect, styleOptions);
-    if (!window.restoreEdmDraft()) {
+    if (!restoreEdmDraft()) {
         renderCurrentEdmVersionUI();
     }
-}
+
+export function initializeTab4() {}

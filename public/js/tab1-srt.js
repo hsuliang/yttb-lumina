@@ -1,3 +1,9 @@
+import { processSubtitles } from './srt-processor.js';
+import { showToast, showModal, hideModal } from './ui-components.js';
+import { callGeminiAPI } from './gemini-api.js';
+import { state } from './state.js';
+import { updateAiButtonStatus, getBalancedApiKey, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
+
 /**
  * tab1-srt.js
  * 負責管理第一分頁「字幕整理與優化」的所有 UI 互動與邏輯。
@@ -92,18 +98,16 @@ function resetTab1() {
     state.processedSrtResult = '';
     state.originalFileName = '';
     exportSrtBtn.disabled = true;
-    exportSrtBtn.className = 'font-bold py-2 px-4 rounded btn-disabled';
     state.batchReplaceRules = [];
-    if (window.renderReplaceRules) window.renderReplaceRules();
+    if (renderReplaceRules) renderReplaceRules();
     updateCharCount();
     toggleEmptyState();
 }
 
 // --- 初始化函式 ---
-function initializeTab1() {
     // --- 函式定義 ---
     async function handleAiFeature(type) {
-        const apiKey = window.getBalancedApiKey ? window.getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         // ########## FIX END ##########
 
         const content = state.processedSrtResult.trim() || smartArea.value.trim();
@@ -321,13 +325,12 @@ function initializeTab1() {
                     { text: '留在本頁', class: 'btn-secondary', callback: hideModal },
                     { text: '前往生成文章 >', class: 'btn-primary', callback: () => {
                         hideModal();
-                        window.switchTab('tab2');
+                        switchTab('tab2');
                     }}
                 ]
             });
 
             exportSrtBtn.disabled = false;
-            exportSrtBtn.className = 'font-bold py-2 px-4 rounded btn-success';
         } catch (error) {
             console.error('處理時發生錯誤:', error);
             showModal({ title: '處理失敗', message: `發生未預期的錯誤: ${error.message}` });
@@ -342,7 +345,7 @@ function initializeTab1() {
         const blob = new Blob([state.processedSrtResult], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        let fileName = state.originalFileName ? `${state.originalFileName}_已處理.srt` : `AliangYTTB_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.srt`;
+        let fileName = state.originalFileName ? `${state.originalFileName}_已整理.srt` : `AliangYTTB_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.srt`;
         a.href = url;
         a.download = fileName;
         document.body.appendChild(a);
@@ -394,8 +397,8 @@ function initializeTab1() {
     smartArea.addEventListener('input', () => {
         updateCharCount(smartArea.value);
         toggleEmptyState();
-        if (window.updateTabAvailability) window.updateTabAvailability();
-        if (window.updateAiButtonStatus) window.updateAiButtonStatus();
+        if (updateTabAvailability) updateTabAvailability();
+        if (updateAiButtonStatus) updateAiButtonStatus();
     });
 
     if (tab1EmptyState) {
@@ -416,7 +419,7 @@ function initializeTab1() {
             buttons: [
                 { text: '前往設定', class: 'btn-secondary', callback: () => {
                     hideModal();
-                    if (window.showGlobalSettingsModal) window.showGlobalSettingsModal('settings-tab-dict');
+                    if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-dict');
                 }},
                 { text: '直接開始', class: 'btn-primary', callback: () => {
                     hideModal();
@@ -431,4 +434,5 @@ function initializeTab1() {
     timestampThresholdInput.disabled = !fixTimestampsCheckbox.checked;
     timestampThresholdInput.classList.toggle('opacity-50', !fixTimestampsCheckbox.checked);
     toggleEmptyState();
-}
+
+export function initializeTab1() {}

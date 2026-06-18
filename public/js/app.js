@@ -1,9 +1,21 @@
+import { optimizationService } from './optimization-service.js';
+import { initializeTab0 } from './tab0-transcribe.js';
+import { initializeTab1 } from './tab1-srt.js';
+import { hasBlogDraft, clearBlogDraft, updateStepperUI, initializeTab2 } from './tab2-blog.js';
+import { hasSocialDraft, clearSocialDraft, initializeTab3 } from './tab3-social.js';
+import { initializeTab4 } from './tab4-edm.js';
+import { initializeTab5 } from './tab5-carousel.js';
+import { initializeTab6, hasInfographicDraft, clearInfographicDraft, analyzeInfographicContent } from './tab6-infographic.js';
+import { showToast, showModal, hideModal, copyModalContent } from './ui-components.js';
+import { resolveFlashModelsList } from './gemini-api.js';
+import { state } from './state.js';
+import { VariationHub } from './variation-hub.js';
+
 /**
  * app.js
  * 應用程式主邏輯，負責初始化各模組與處理全域事件。
  */
 
-const initApp = () => {
 
     // --- 元素選擇 ---
     const appearanceBtn = document.getElementById('appearance-btn');
@@ -27,7 +39,7 @@ const initApp = () => {
     // --- 全域函式 ---
 
     // ########## REFACTORED ##########
-    window.updateAiButtonStatus = function() {
+export const updateAiButtonStatus = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
         const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         
@@ -98,7 +110,7 @@ const initApp = () => {
         if(infographicVariationBtn) infographicVariationBtn.disabled = state.infographicVersions.length === 0;
     }
     
-    window.updateSourceStatusUI = function() {
+export const updateSourceStatusUI = function() {
         const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
         const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
         
@@ -114,7 +126,7 @@ const initApp = () => {
 
         const buttonMap = {
             raw: { text: '🚀 優化文本以提升品質', action: () => optimizationService.optimizeSourceText() },
-            optimized: { text: '📝 前往生成部落格 (可選)', action: () => window.switchTab('tab2') },
+            optimized: { text: '📝 前往生成部落格 (可選)', action: () => switchTab('tab2') },
         };
 
         const updateElements = (prefix) => {
@@ -262,7 +274,7 @@ const initApp = () => {
 
 
 
-    window.getBalancedApiKey = function() {
+export const getBalancedApiKey = function() {
         try {
             const keysJson = getStorageItem('geminiApiKeys');
             if (!keysJson) {
@@ -288,7 +300,7 @@ const initApp = () => {
     };
 
     function toggleAppearancePanel() { appearancePanel.classList.toggle('hidden'); }
-    function showGlobalSettingsModal(tabId = 'settings-tab-gemini') {
+    export function showGlobalSettingsModal(tabId = 'settings-tab-gemini') {
         console.log(`[showGlobalSettingsModal] Opening settings modal to tab: ${tabId}...`);
         try {
             loadModalApiKeys();
@@ -302,8 +314,7 @@ const initApp = () => {
             console.error("[showGlobalSettingsModal] Error loading keys or opening modal:", e);
         }
     }
-    window.showGlobalSettingsModal = showGlobalSettingsModal;
-    window.showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemini'); // Backward compatibility
+export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemini'); // Backward compatibility
     function hideGlobalSettingsModal() { globalSettingsModal.classList.add('hidden'); }
     
     function switchSettingsTab(targetId) {
@@ -572,11 +583,11 @@ const initApp = () => {
             }
         }
 
-        window.updateTabAvailability();
-        window.updateAiButtonStatus();
+        updateTabAvailability();
+        updateAiButtonStatus();
     }
     
-    window.updateTabAvailability = function() {
+export const updateTabAvailability = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
         
         const tabs = [
@@ -596,21 +607,21 @@ const initApp = () => {
             }
         });
         
-        const hasTab2Draft = window.hasBlogDraft && window.hasBlogDraft();
+        const hasTab2Draft = hasBlogDraft && hasBlogDraft();
         const tab2Dot = document.getElementById('tab2-dot');
         if (tab2Dot) { tab2Dot.classList.toggle('hidden', !hasTab2Draft); }
-        const hasTab3Draft = window.hasSocialDraft && window.hasSocialDraft();
+        const hasTab3Draft = hasSocialDraft && hasSocialDraft();
         const tab3Dot = document.getElementById('tab3-dot');
         if (tab3Dot) { tab3Dot.classList.toggle('hidden', !hasTab3Draft); }
-        const hasTab6Draft = window.hasInfographicDraft && window.hasInfographicDraft();
+        const hasTab6Draft = hasInfographicDraft && hasInfographicDraft();
         const tab6Dot = document.getElementById('tab6-dot');
         if (tab6Dot) { tab6Dot.classList.toggle('hidden', !hasTab6Draft); }
         
-        window.updateSourceStatusUI();
+        updateSourceStatusUI();
     }
 
 
-    window.switchTab = (tabId) => {
+export const switchTab = (tabId) => {
         allTabButtons.forEach(btn => btn.classList.remove('active'));
         allTabContents.forEach(content => content.classList.add('hidden'));
         
@@ -621,19 +632,18 @@ const initApp = () => {
         const dot = document.getElementById(`${tabId}-dot`);
         if (dot) { dot.classList.add('hidden'); }
 
-        if (tabId === 'tab2' && window.updateStepperUI) { window.updateStepperUI(); }
-        if (tabId === 'tab6' && window.analyzeInfographicContent) { window.analyzeInfographicContent(); }
-        window.updateSourceStatusUI();
+        if (tabId === 'tab2' && updateStepperUI) { updateStepperUI(); }
+        if (tabId === 'tab6' && analyzeInfographicContent) { analyzeInfographicContent(); }
+        updateSourceStatusUI();
     }
     
-    function initialize() {
-        try { if (window.initializeTab0) { window.initializeTab0(); } } catch(e) { console.error("Error initializing Tab 0:", e); }
+        try { if (initializeTab0) { initializeTab0(); } } catch(e) { console.error("Error initializing Tab 0:", e); }
         try { initializeTab1(); } catch(e) { console.error("Error initializing Tab 1:", e); }
         try { initializeTab2(); } catch(e) { console.error("Error initializing Tab 2:", e); }
         try { initializeTab3(); } catch(e) { console.error("Error initializing Tab 3:", e); }
         try { initializeTab4(); } catch(e) { console.error("Error initializing Tab 4:", e); }
         try { initializeTab5(); } catch(e) { console.error("Error initializing Tab 5:", e); }
-        try { if (window.initializeTab6) { window.initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
+        try { if (initializeTab6) { initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
 
         try { updateApiKeyStatus(); } catch(e) { console.error("Error updating API key status:", e); }
 
@@ -760,7 +770,7 @@ const initApp = () => {
         const importRulesFileInput = document.getElementById('import-rules-file-input');
         const STORAGE_KEY_REPLACE_RULES = 'aliang-yttb-replace-rules-preset';
 
-        function renderReplaceRules() {
+        export function renderReplaceRules() {
             if (!replaceRulesList) return;
             replaceRulesList.innerHTML = '';
             if (state.batchReplaceRules.length === 0) {
@@ -786,7 +796,6 @@ const initApp = () => {
             }
         }
 
-        window.renderReplaceRules = renderReplaceRules;
 
         function addReplaceRule() {
             const original = replaceOriginalInput.value.trim();
@@ -1032,14 +1041,14 @@ const initApp = () => {
                 showToast('請先貼上或整理您的字幕/文稿內容！', { type: 'warning' });
                 return;
             }
-            window.switchTab(tabId);
+            switchTab(tabId);
         }));
         
         if (modalCloseBtn) {
             modalCloseBtn.addEventListener('click', () => {
-                if (window.currentAbortController) {
-                    window.currentAbortController.abort();
-                    window.currentAbortController = null;
+                if (state.currentAbortController) {
+                    state.currentAbortController.abort();
+state.currentAbortController = null;
                 }
                 hideModal();
             });
@@ -1049,11 +1058,14 @@ const initApp = () => {
         if (resetAppBtn) {
             resetAppBtn.addEventListener('click', () => {
                 if (confirm('您確定要重置所有內容嗎？這將會清除所有輸入和已生成的草稿。')) {
-                    if(window.clearBlogDraft) window.clearBlogDraft();
-                    if(window.clearSocialDraft) window.clearSocialDraft();
-                    if(window.clearInfographicDraft) window.clearInfographicDraft();
-                    if(window.clearEdmDraft) window.clearEdmDraft();
-                    if(window.clearCarouselDraft) window.clearCarouselDraft();
+                    if(clearBlogDraft) clearBlogDraft();
+                    if(clearSocialDraft) clearSocialDraft();
+                    if(clearInfographicDraft) clearInfographicDraft();
+                    localStorage.removeItem('lumina-edm-draft');
+                    localStorage.removeItem('lumina-carousel-draft');
+                    localStorage.removeItem('blogDraft');
+                    localStorage.removeItem('socialDraft');
+                    localStorage.removeItem('infographicDraft');
                     showToast('頁面已重置！');
                     setTimeout(() => { location.reload(); }, 500);
                 }
@@ -1068,9 +1080,9 @@ const initApp = () => {
         const portalKeySettingBtn = document.getElementById('portal-key-setting-btn');
 
         const checkDraftsAndShowResume = () => {
-            const hasBlog = window.hasBlogDraft ? window.hasBlogDraft() : !!localStorage.getItem('blogDraft');
-            const hasSocial = window.hasSocialDraft ? window.hasSocialDraft() : !!localStorage.getItem('socialDraft');
-            const hasInfo = window.hasInfographicDraft ? window.hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
+            const hasBlog = hasBlogDraft ? hasBlogDraft() : !!localStorage.getItem('blogDraft');
+            const hasSocial = hasSocialDraft ? hasSocialDraft() : !!localStorage.getItem('socialDraft');
+            const hasInfo = hasInfographicDraft ? hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
             const hasEdm = window.hasEdmDraft ? window.hasEdmDraft() : !!localStorage.getItem('lumina-edm-draft');
             const hasCarousel = window.hasCarouselDraft ? window.hasCarouselDraft() : !!localStorage.getItem('lumina-carousel-draft');
             
@@ -1089,36 +1101,17 @@ const initApp = () => {
                 e.stopPropagation();
             }
             console.log("[Portal] 開始全新創作 clicked");
-            const apiKey = getStorageItem('geminiApiKey');
-            const apiKeysJson = getStorageItem('geminiApiKeys');
-            let keysCount = 0;
-            if (apiKeysJson) {
-                try {
-                    const parsed = JSON.parse(apiKeysJson);
-                    keysCount = Array.isArray(parsed) ? parsed.length : 0;
-                } catch (e) {
-                    keysCount = 0;
-                }
+            
+            // 直接進入頁面，不管有無設定金鑰
+            if (welcomePortal) {
+                welcomePortal.classList.add('portal-fade-out');
+                setTimeout(() => {
+                    welcomePortal.style.display = 'none';
+                }, 450);
             }
-            if (keysCount === 0 && apiKey) {
-                keysCount = 1;
-            }
-
-            if (keysCount > 0) {
-                // 已設定金鑰：直接進入頁面，不出現金鑰設定
-                if (welcomePortal) {
-                    welcomePortal.classList.add('portal-fade-out');
-                    setTimeout(() => {
-                        welcomePortal.style.display = 'none';
-                    }, 450);
-                }
-                if (mainApp) {
-                    mainApp.classList.remove('hidden');
-                    mainApp.classList.add('app-fade-in');
-                }
-            } else {
-                // 未設定金鑰：出現金鑰設定視窗，提醒使用者設定金鑰
-                showApiKeyModal();
+            if (mainApp) {
+                mainApp.classList.remove('hidden');
+                mainApp.classList.add('app-fade-in');
             }
         };
 
@@ -1138,11 +1131,11 @@ const initApp = () => {
             }
             console.log("[Portal] 繼續上次編輯 clicked");
             let targetTab = 'tab1';
-            if (window.hasBlogDraft && window.hasBlogDraft()) {
+            if (hasBlogDraft && hasBlogDraft()) {
                 targetTab = 'tab2';
-            } else if (window.hasSocialDraft && window.hasSocialDraft()) {
+            } else if (hasSocialDraft && hasSocialDraft()) {
                 targetTab = 'tab3';
-            } else if (window.hasInfographicDraft && window.hasInfographicDraft()) {
+            } else if (hasInfographicDraft && hasInfographicDraft()) {
                 targetTab = 'tab6';
             } else if (localStorage.getItem('blogDraft')) {
                 targetTab = 'tab2';
@@ -1164,7 +1157,7 @@ const initApp = () => {
                 mainApp.classList.add('app-fade-in');
             }
             
-            window.switchTab(targetTab);
+            switchTab(targetTab);
             showToast('已成功恢復您上次的編輯內容！');
         };
 
@@ -1201,13 +1194,3 @@ const initApp = () => {
                 updateApiKeyStatus();
             }
         });
-    }
-
-    initialize();
-};
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    initApp();
-}
