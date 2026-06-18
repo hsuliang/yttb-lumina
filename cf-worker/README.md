@@ -1,4 +1,4 @@
-# yttb-lumina Whisper Worker 部署說明
+# ㄚ亮笑長的內容助手 Whisper Worker 部署說明
 
 ## 概覽
 
