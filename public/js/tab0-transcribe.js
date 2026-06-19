@@ -312,48 +312,124 @@ function getFileExtension(filename) {
 
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
-async function transcribeWithGemini(file, language, customDict) {
+async function transcribeWithGemini(file, language, customDict, onProgress = () => {}) {
     const apiKey = getBalancedApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
     }
 
-    const ext = getFileExtension(file.name);
-    const mimeType = TAB0_MIME_MAP[ext] || 'audio/mp3';
+    const CHUNK_DURATION = 180; // 3分鐘切段，確保 SRT 輸出不會超過 8192 token
+    const TARGET_SR = 16000;
 
-    // 轉 base64
-    const base64 = await fileToBase64(file);
+    // 1. 讀取並解碼音訊
+    onProgress({ type: 'status', message: '正在讀取音訊檔案（Gemini 模式）...' });
+    const arrayBuffer = await file.arrayBuffer();
+
+    onProgress({ type: 'status', message: '正在解碼音訊（可能需要數秒）...' });
+    const audioContext = new AudioContext();
+    let rawBuffer;
+    try {
+        rawBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    } finally {
+        await audioContext.close();
+    }
+
+    // 2. 降採樣至 16000Hz 單聲道
+    const durationMin = Math.round(rawBuffer.duration / 60);
+    onProgress({ type: 'status', message: `正在轉換格式（16kHz mono，共 ${durationMin} 分鐘）...` });
+
+    const targetLen = Math.ceil(rawBuffer.duration * TARGET_SR);
+    const offlineCtx = new OfflineAudioContext(1, targetLen, TARGET_SR);
+    const srcNode = offlineCtx.createBufferSource();
+    srcNode.buffer = rawBuffer;
+    srcNode.connect(offlineCtx.destination);
+    srcNode.start(0);
+    const resampled = await offlineCtx.startRendering();
+
+    // 3. 切段
+    const chunks = splitAudioBuffer(resampled, CHUNK_DURATION);
+    const totalChunks = chunks.length;
+
+    onProgress({
+        type: 'chunks',
+        current: 0, total: totalChunks,
+        message: `準備分段辨識，共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒）`,
+        eta: '',
+    });
+
+    const allSrtBlocks = [];
+    const allText = [];
+    let globalSeq = 1;
+    const chunkStartTimes = [];
 
     // 建構 prompt
     const prompt = buildTranscriptionPrompt(language, customDict);
 
-    // 呼叫 Gemini Audio API
-    const rawResponse = await callGeminiAudioAPI(apiKey, base64, mimeType, prompt);
+    // 4. 逐段辨識並合併 SRT
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const startMin = Math.floor(chunk.offsetSeconds / 60);
+        const startSec = Math.floor(chunk.offsetSeconds % 60);
 
-    // 驗證並修復 SRT 格式
-    const result = validateAndFixSrt(rawResponse);
+        let etaText = '';
+        if (i > 0 && chunkStartTimes.length > 0) {
+            const elapsed = (Date.now() - chunkStartTimes[0]) / 1000;
+            const avgPerChunk = elapsed / i;
+            const remaining = avgPerChunk * (totalChunks - i);
+            etaText = remaining > 60
+                ? `預估剩餘 ${Math.ceil(remaining / 60)} 分鐘`
+                : `預估剩餘 ${Math.ceil(remaining)} 秒`;
+        }
 
-    if (!result.isValid) {
-        console.warn("[Tab0] Gemini 回傳內容無法解析為 SRT，原始回應：", rawResponse);
-        // 退化為純文字模式
-        return {
-            text: rawResponse,
-            vtt: '',
-            srt: '',
-            rawResponse: rawResponse,
-            engine: 'gemini',
-            warning: 'AI 回傳的內容格式不完全符合 SRT 標準，已顯示原始文字。您可以手動修正。'
-        };
+        onProgress({
+            type: 'chunks',
+            current: i + 1, total: totalChunks,
+            message: `Gemini 辨識第 ${i + 1} 段（${startMin}:${String(startSec).padStart(2, '0')} 開始）`,
+            eta: etaText,
+        });
+
+        chunkStartTimes.push(Date.now());
+
+        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(wavBlob);
+        });
+
+        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt);
+        const result = validateAndFixSrt(rawResponse);
+
+        if (!result.isValid) {
+            console.warn(`[Tab0] Gemini 第 ${i + 1} 段回傳內容無法解析為 SRT，原始回應：`, rawResponse);
+            // 如果某段失敗，我們只能把它當純文字
+            allText.push(rawResponse);
+        } else {
+            if (result.srt.trim()) {
+                const offsetted = offsetSrtTimestamps(result.srt, chunk.offsetSeconds, globalSeq - 1);
+                const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
+                allSrtBlocks.push(...blocks);
+                globalSeq += blocks.length;
+            }
+            if (result.plainText) allText.push(result.plainText.trim());
+        }
     }
 
+    const finalSrt = allSrtBlocks.join('\n\n');
+    const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    
+    onProgress({ type: 'done', message: '全部辨識完成！' });
+
     return {
-        text: result.plainText,
-        vtt: '',
-        srt: result.srt,
-        rawResponse: rawResponse,
+        text: allText.join('\n'),
+        vtt: finalVtt,
+        srt: finalSrt,
         engine: 'gemini',
-        blockCount: result.blockCount,
-        warning: null
+        blockCount: allSrtBlocks.length,
+        warning: totalChunks > 1
+            ? `長音訊分段辨識：共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒），SRT 時間戳已自動對齊合併。`
+            : null,
     };
 }
 
@@ -848,11 +924,11 @@ export function initializeTab0() {
                         }
                     }
 
+                    // 設定進度條為靜態模式（進度由 handleWhisperProgress 控制）
+                    startProgressMessages(true);
+                    if (progressMessage) progressMessage.textContent = '正在準備音訊...';
+
                     if (state.transcribeEngine === 'whisper') {
-                        // Whisper：靜態模式（進度由 handleWhisperProgress 控制）
-                        startProgressMessages(true);
-                        if (progressMessage) progressMessage.textContent = '正在準備音訊...';
-                        
                         // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
                         let whisperPrompt = terminologyDict;
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
@@ -867,10 +943,13 @@ export function initializeTab0() {
                             handleWhisperProgress
                         );
                     } else {
-                        // Gemini：循環提示訊息與進度條
-                        const estSec = selectedFile ? selectedFile.size / 16000 : 60;
-                        startProgressMessages(false, estSec);
-                        result = await transcribeWithGemini(selectedFile, state.transcribeLanguage, terminologyDict);
+                        // Gemini 模式現在也支援切段進度條回呼
+                        result = await transcribeWithGemini(
+                            selectedFile, 
+                            state.transcribeLanguage, 
+                            terminologyDict, 
+                            handleWhisperProgress
+                        );
                     }
 
                     displayResults(result);
