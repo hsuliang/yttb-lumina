@@ -53,12 +53,13 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
    這是第二句話的內容
 
 3. 【極度重要】這是一段長度只有約 ${Math.ceil(chunkDuration)} 秒的音訊切片。你產出的所有時間戳必須從 00:00:00,000 開始計算，且「絕對不可超過 ${maxTimeStr}」。
-4. 每段字幕不超過 2 行，每行不超過 40 個字
-5. 時間戳必須精準對應音訊中的語音位置，按時間順序排列，絕對不可發生時間倒退或重疊。
-6. 序號必須從 1 開始，連續遞增
-7. 只輸出 SRT 內容，不要加任何說明文字、開頭語或 markdown 格式標記
-8. 逐字轉寫，不要遺漏或創造原始音訊中沒有的內容
-9. 如果音訊中有靜音段，不要為靜音段產生字幕`;
+4. 【強制格式】每段字幕只能有 1 行，且「每行絕對不可超過 27 個字」。如果語句過長，必須強制切分到下一個時間段。
+5. 【強制切分】你必須依照講者的「呼吸換氣點」與「句點」切分時間區塊，每一段字幕的時間長度建議在 3 到 8 秒之間。絕對不可以把幾十秒的話塞進同一個時間區塊中！
+6. 時間戳必須精準對應音訊中的語音位置，按時間順序排列，絕對不可發生時間倒退或重疊。
+7. 序號必須從 1 開始，連續遞增
+8. 只輸出 SRT 內容，不要加任何說明文字、開頭語或 markdown 格式標記
+9. 逐字轉寫，不要遺漏或創造原始音訊中沒有的內容
+10. 如果音訊中有靜音段，不要為靜音段產生字幕`;
 }
 
 // ########## SRT VALIDATION & FIX ##########
@@ -417,6 +418,12 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                 globalSeq += blocks.length;
             }
             if (result.plainText) allText.push(result.plainText.trim());
+        }
+
+        // 避免觸發 API Rate Limit (15 RPM)
+        // 每次處理完一個片段，強制延遲 4.5 秒，將 15 次請求分散到超過一分鐘
+        if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 4500));
         }
     }
 
