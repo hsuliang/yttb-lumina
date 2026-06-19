@@ -227,6 +227,7 @@ function resetTab1() {
                 } else {
                     updateContent(fullText, baseName);
                     showToast('✅ 成功匯入 PDF 文字！');
+                    window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
                 }
             } catch (error) {
                 console.error('PDF 讀取錯誤:', error);
@@ -238,6 +239,7 @@ function resetTab1() {
             reader.onload = (e) => {
                 updateContent(e.target.result, baseName);
                 showToast('✅ 成功匯入文稿！');
+                window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
             };
             reader.readAsText(file);
         }

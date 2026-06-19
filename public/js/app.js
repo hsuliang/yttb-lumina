@@ -1245,6 +1245,33 @@ state.currentAbortController = null;
             });
         }
 
+        // 自動清除下游 Tab 的事件監聽
+        window.addEventListener('lumina:clearDownstreamTabs', () => {
+            console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts.');
+            if(clearBlogDraft) clearBlogDraft();
+            if(clearSocialDraft) clearSocialDraft();
+            if(clearInfographicDraft) clearInfographicDraft();
+            
+            localStorage.removeItem('lumina-edm-draft');
+            localStorage.removeItem('lumina-carousel-draft');
+            localStorage.removeItem('blogDraft');
+            localStorage.removeItem('socialDraft');
+            localStorage.removeItem('infographicDraft');
+            
+            state.edmVersions = [];
+            state.carouselVersions = [];
+            state.infographicVersions = [];
+            state.blogArticleVersions = [];
+            state.socialPostVersions = [];
+            state.currentBlogVersionIndex = 0;
+            state.currentSocialVersionIndex = 0;
+            state.currentEdmVersionIndex = 0;
+            state.currentCarouselVersionIndex = 0;
+            state.currentInfographicVersionIndex = 0;
+            
+            showToast('已自動清除舊的產出內容，準備迎接新影片！');
+        });
+
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
         const welcomePortal = document.getElementById('welcome-portal');
         const mainApp = document.getElementById('main-app-container');
