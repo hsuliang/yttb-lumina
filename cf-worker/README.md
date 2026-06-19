@@ -2,7 +2,7 @@
 
 ## 概覽
 
-這個 Cloudflare Worker 提供 Whisper 語音辨識 API，供 yttb-lumina 前端的「字幕產生器」（Whisper 模式）使用。
+這個 Cloudflare Worker 提供 Whisper 語音辨識 API，供 ㄚ亮笑長的內容助手 前端的「字幕產生器」（Whisper 模式）使用。
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
