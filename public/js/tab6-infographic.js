@@ -833,6 +833,29 @@ export const clearInfographicDraft = function() {
         localStorage.removeItem(INFOGRAPHIC_DRAFT_KEY);
     };
 
+    function resetTab6() {
+        state.infographicVersions = [];
+        state.currentInfographicVersionIndex = 0;
+        
+        const placeholder = document.getElementById('infographic-placeholder');
+        const textContainer = document.getElementById('infographic-text-container');
+        const copyPromptBtn = document.getElementById('copy-infographic-prompt-btn');
+        const reportContainer = document.getElementById('infographic-analysis-report-container');
+        const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
+        const promptTextarea = document.getElementById('infographic-prompt-textarea');
+
+        if (placeholder) placeholder.classList.remove('hidden');
+        if (textContainer) textContainer.classList.add('hidden');
+        if (copyPromptBtn) copyPromptBtn.classList.add('hidden');
+        if (reportContainer) reportContainer.classList.add('hidden');
+        if (generateVariationBtn) generateVariationBtn.disabled = true;
+        if (promptTextarea) promptTextarea.value = '';
+
+        clearInfographicDraft();
+    }
+
+    window.addEventListener('lumina:clearDownstreamTabs', resetTab6);
+
     function saveInfographicDraft() {
         const rawContent = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
         if (rawContent.length === 0 && state.infographicVersions.length === 0) return;

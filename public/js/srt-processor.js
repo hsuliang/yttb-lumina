@@ -167,14 +167,20 @@ export const processSubtitles = function(srtContent, options) {
     });
 
     if (fixTimestamps && !isPlainText) {
+        // 修正時間倒退：依據開始時間強制排序
+        subs.sort((a, b) => a.startMs - b.startMs);
+
         for (let i = 0; i < subs.length - 1; i++) {
             let current = subs[i];
             let next = subs[i + 1];
             if (current.endMs > next.startMs) {
                 report.fixedOverlaps++;
-                const midPoint = Math.round((current.endMs + next.startMs) / 2);
-                current.endMs = midPoint;
-                next.startMs = midPoint;
+                // 修正重疊：強制截斷上一句的結束時間，不污染下一句的開始時間
+                current.endMs = next.startMs;
+                // 防呆：如果結束時間小於等於開始時間，至少給 1 毫秒
+                if (current.endMs <= current.startMs) {
+                    current.endMs = current.startMs + 1;
+                }
             }
             const gap = next.startMs - current.endMs;
             if (gap > 0 && gap <= timestampThreshold) {

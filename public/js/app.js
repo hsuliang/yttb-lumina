@@ -432,8 +432,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             } else {
                 showToast('API Key 已儲存，AI 功能已啟用！');
             }
-            hideGlobalSettingsModal();
-
+            
         } catch (err) {
             console.error("Key validation error:", err);
             showModal({ title: '驗證出錯', message: `驗證過程中發生錯誤：${err.message}` });
@@ -654,6 +653,7 @@ export const switchTab = (tabId) => {
         const workerTokenInput = document.getElementById('global-worker-token');
         const workerExpirySelect = document.getElementById('worker-expiry-select');
         const saveWorkerSettingsBtn = document.getElementById('save-worker-settings-btn');
+        const clearWorkerSettingsBtn = document.getElementById('clear-worker-settings-btn');
         const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
         const workerTestStatus = document.getElementById('worker-test-status');
 
@@ -715,6 +715,21 @@ export const switchTab = (tabId) => {
             }
         }
 
+        if (clearWorkerSettingsBtn) {
+            clearWorkerSettingsBtn.addEventListener('click', () => {
+                if (workerUrlInput) workerUrlInput.value = '';
+                if (workerTokenInput) workerTokenInput.value = '';
+                
+                localStorage.removeItem(WORKER_URL_KEY);
+                localStorage.removeItem(WORKER_TOKEN_KEY);
+                localStorage.removeItem(WORKER_EXPIRY_KEY);
+                sessionStorage.removeItem(WORKER_URL_KEY);
+                sessionStorage.removeItem(WORKER_TOKEN_KEY);
+
+                if (workerTestStatus) workerTestStatus.textContent = '';
+                showToast('已清除 Worker 設定。', { type: 'success' });
+            });
+        }
         if (saveWorkerSettingsBtn) saveWorkerSettingsBtn.addEventListener('click', saveWorkerSettings);
 
         if (testWorkerConnectionBtn) {
@@ -1122,6 +1137,17 @@ export const switchTab = (tabId) => {
                     renderModalApiKeys();
                     showToast('已從清單中移除金鑰。');
                 }
+            });
+        }
+        const clearApiKeysBtn = document.getElementById('clear-api-keys-btn');
+        if (clearApiKeysBtn) {
+            clearApiKeysBtn.addEventListener('click', () => {
+                modalApiKeys = [];
+                renderModalApiKeys();
+                removeStorageKeys();
+                updateApiKeyStatus();
+                if (apiKeyInput) apiKeyInput.value = '';
+                showToast('已清除所有 API Key。', { type: 'success' });
             });
         }
         if (saveApiKeyBtn) saveApiKeyBtn.addEventListener('click', saveApiKey);

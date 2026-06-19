@@ -2,7 +2,7 @@
 
 ## 概覽
 
-這個 Cloudflare Worker 提供 Whisper 語音辨識 API，供 yttb-lumina 前端的「字幕產生器」（Whisper 模式）使用。
+這個 Cloudflare Worker 提供 Whisper 語音辨識 API，供 ㄚ亮笑長的內容助手 前端的「字幕產生器」（Whisper 模式）使用。
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
@@ -47,7 +47,7 @@
 1. **Settings** → **Variables**
 2. 新增環境變數：
    - **Name**: `API_TOKEN`
-   - **Value**: 您自訂的密鑰（例如：`my-secret-token-2024`）
+   - **Value**: 您自訂的密鑰（例如：`my-secret-token-2026`）
 3. 點選 **Save**
 
 ---
@@ -73,7 +73,7 @@ curl https://your-worker-name.workers.dev/api/health
 
 ### 在前端測試
 
-1. 開啟 yttb-lumina 應用程式
+1. 開啟 [ㄚ亮笑長的內容助手](https://ctb.52hal.cc/) 應用程式
 2. 切換到「🎙️ AI 字幕產生器」Tab 0
 3. 選擇「Whisper 專業版」
 4. 填入 Worker URL（例如：`https://yttb-whisper.your-name.workers.dev`）

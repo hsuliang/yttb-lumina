@@ -246,6 +246,8 @@ export const clearCarouselDraft = function() {
         renderCurrentCarouselVersionUI();
     }
     
+    window.addEventListener('lumina:clearDownstreamTabs', clearCarouselDraft);
+    
 export const hasCarouselDraft = function() {
         return !!localStorage.getItem(CAROUSEL_DRAFT_KEY);
     }
