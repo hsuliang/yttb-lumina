@@ -1,5 +1,5 @@
 import { processSubtitles } from './srt-processor.js';
-import { showToast, showModal, hideModal } from './ui-components.js';
+import { showToast, showModal, hideModal, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { updateAiButtonStatus, getBalancedApiKey, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
@@ -116,47 +116,82 @@ function resetTab1() {
             return;
         }
 
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
+        state.currentAbortController = new AbortController();
+
         const btn = type === 'chapters' ? generateChaptersBtn : generateSummaryBtn;
         const originalHtml = btn.innerHTML;
-        let prompt = '';
-        let modalTitle = 'AI 處理中...';
-        let successTitle = 'AI 處理完成';
+        btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+        btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+        // btn.disabled = true; // allow abort
+        // btn.classList.add('btn-loading');
 
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
-
-        if (type === 'chapters') {
-            prompt = `你是一個專業的 YouTube 影片剪輯師。請根據以下影片字幕內容，為這部影片生成 YouTube 影片章節。\n規則：\n1. 格式必須是 "時間戳 - 標題" (例如：00:00 - 影片開頭)。\n2. 時間戳必須從 00:00 開始。\n3. 根據影片長度合理分配章節數量，30分鐘內影片最多10個章節，依此類推。\n4. 章節標題需簡潔且能總結該段落的核心內容。\n5. 不要包含前言或結語，直接輸出章節列表。\n\n字幕內容如下：\n---\n${content}\n---`;
-            successTitle = 'AI 章節生成 完成';
-        } else if (type === 'summary') {
-            prompt = `你是一位專業的 YouTube 內容策劃。請根據下方的影片逐字稿，撰寫一段約 150 字左右、引人入勝的影片摘要，用於 YouTube 的說明欄。\n規則：\n1. 摘要需包含影片的核心觀點和最吸引人的亮點。\n2. 語氣需充滿能量與好奇心，鼓勵觀眾觀看影片。\n3. 不要使用任何 markdown 語法，直接輸出純文字段落。\n4. 直接輸出摘要內容，不要有任何前言或結語 (例如不要寫「這是一段摘要」)。\n\n影片逐字稿如下：\n---\n${content}\n---`;
-            successTitle = 'AI 影片摘要 完成';
+        // Switch to the appropriate tab immediately
+        setMode('preview');
+        switchView(type);
+        const targetTextarea = document.getElementById(`display-${type}`);
+        if (targetTextarea) {
+            targetTextarea.value = '';
+            targetTextarea.classList.add('text-center', 'animate-pulse');
+            targetTextarea.style.color = '#f97316';
+            targetTextarea.style.fontSize = '1.1rem';
+            targetTextarea.style.fontWeight = '600';
         }
-        
-        showModal({ title: modalTitle, showProgressBar: true, taskType: 'chapters' });
+
+        let prompt = type === 'summary' 
+            ? `你是一位專業的內容策展人。請根據以下的影片逐字稿，寫出一段引人入勝的 YouTube 影片資訊欄摘要（約 150-200 字）。\n要求：\n1. 必須以繁體中文撰寫。\n2. 語氣要有熱情、吸引觀眾。\n3. 重點放在影片能帶給觀眾什麼價值。\n\n逐字稿如下：\n---\n${content}\n---`
+            : `你是一位專業的影片編輯。請根據以下的影片逐字稿，幫我抓出這支影片的 YouTube 章節時間軸 (Timestamps)。\n要求：\n1. 判斷話題轉換的時間點。\n2. 章節標題要簡短、吸引人，並以繁體中文撰寫。\n3. 格式必須為 "MM:SS 章節標題" 或 "HH:MM:SS 章節標題"。\n\n逐字稿如下：\n---\n${content}\n---`;
 
         try {
-            const result = await callGeminiAPI(apiKey, prompt);
-            showModal({ title: successTitle, message: result, showCopyButton: true });
+            let isFirstChunk = true;
+            const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (targetTextarea) {
+                    if (isFirstChunk && chunkText !== '') {
+                        isFirstChunk = false;
+                        targetTextarea.classList.remove('text-center', 'animate-pulse');
+                        targetTextarea.style.color = '';
+                        targetTextarea.style.fontSize = '';
+                        targetTextarea.style.fontWeight = '';
+                    }
+                    targetTextarea.value = fullText;
+                    targetTextarea.scrollTop = targetTextarea.scrollHeight;
+                }
+            }, state.currentAbortController.signal);
+            // showModal({ title: successTitle, message: result, showCopyButton: true }); // Remove modal
         } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('生成已中斷');
+                if (targetTextarea) {
+                    targetTextarea.classList.remove('text-center', 'animate-pulse');
+                    targetTextarea.style.color = '';
+                    targetTextarea.style.fontSize = '';
+                    targetTextarea.style.fontWeight = '';
+                    targetTextarea.value = '生成已中斷。';
+                }
+                return;
+            }
             if (error.message && error.message.includes('overloaded')) {
                 showModal({ 
                     title: 'AI 正在尖峰時段，請稍候！', 
-                    message: '別擔心，這不是您的程式或 API Key 有問題。\n\n這代表 Gemini AI 模型目前正處於全球使用的高峰期，就像一位超級名廚的廚房突然湧入了大量訂單一樣。\n\n建議您稍等一兩分鐘後，再點擊一次「生成」按鈕即可。\n\n感謝您的耐心！',
-                    buttons: [
-                        { text: '關閉', class: 'btn-secondary', callback: hideModal },
-                        { text: '立即重試', class: 'btn-primary', callback: () => { 
-                            hideModal(); 
-                            handleAiFeature(type); 
-                        } }
-                    ]
+                    message: `別擔心，這不是您的程式或 API Key 有問題。
+
+這代表 Gemini AI 模型目前正處於全球使用的高峰期，就像一位超級名廚的廚房突然湧入了大量訂單一樣。
+
+建議您稍等一兩分鐘後，再點擊一次「生成」按鈕即可。
+
+感謝您的耐心！`
                 });
             } else {
-                showModal({ title: 'AI 處理失敗', message: `發生錯誤：${error.message}` });
+                showModal({ title: '錯誤', message: error.message || String(error) });
             }
         } finally {
+            state.currentAbortController = null;
             btn.disabled = false;
-            btn.classList.remove('btn-loading');
+            btn.classList.remove('btn-loading', 'bg-error/10', 'text-error', 'border-error/20');
             btn.innerHTML = originalHtml;
         }
     }
@@ -172,13 +207,36 @@ function resetTab1() {
             activeBtn.classList.add('active');
         }
 
+        // Hide all views first
+        const displayOriginal = document.getElementById('display-original');
+        const displayProcessed = document.getElementById('display-processed');
+        const displaySummary = document.getElementById('display-summary');
+        const displayChapters = document.getElementById('display-chapters');
+        
+        [displayOriginal, displayProcessed, displaySummary, displayChapters].forEach(el => {
+            if (el) el.classList.add('hidden');
+        });
+
+        const tab1AiActions = document.getElementById('tab1-ai-actions');
+        if (tab1AiActions) {
+            if (viewToShow === 'summary' || viewToShow === 'chapters') {
+                tab1AiActions.classList.remove('hidden');
+            } else {
+                tab1AiActions.classList.add('hidden');
+            }
+        }
+
         if (viewToShow === 'original') {
             displayOriginal.classList.remove('hidden');
-            displayProcessed.classList.add('hidden');
             updateCharCount(state.originalContentForPreview || '');
             console.log("[switchView] Showing original content, length:", (state.originalContentForPreview || '').length);
+        } else if (viewToShow === 'summary') {
+            if (displaySummary) displaySummary.classList.remove('hidden');
+            updateCharCount(displaySummary ? displaySummary.value : '');
+        } else if (viewToShow === 'chapters') {
+            if (displayChapters) displayChapters.classList.remove('hidden');
+            updateCharCount(displayChapters ? displayChapters.value : '');
         } else {
-            displayOriginal.classList.add('hidden');
             displayProcessed.classList.remove('hidden');
             updateCharCount(state.processedSrtResult || '');
             console.log("[switchView] Showing processed content, length:", (state.processedSrtResult || '').length);
@@ -438,3 +496,50 @@ function resetTab1() {
     toggleEmptyState();
 
 export function initializeTab1() {}
+
+
+// --- 浮動按鈕事件綁定 ---
+const tab1CopyBtn = document.getElementById('tab1-copy-btn');
+const tab1DownloadBtn = document.getElementById('tab1-download-btn');
+const tab1FloatingActions = document.getElementById('tab1-floating-actions');
+
+if (tab1CopyBtn) {
+    tab1CopyBtn.addEventListener('click', () => {
+        const activeViewBtn = document.querySelector('.view-btn.active');
+        if (!activeViewBtn) return;
+        const view = activeViewBtn.dataset.view;
+        const textarea = document.getElementById(`display-${view}`);
+        if (textarea && textarea.value) {
+            navigator.clipboard.writeText(textarea.value).then(() => {
+                showToast('已複製到剪貼簿！');
+                const originalHtml = tab1CopyBtn.innerHTML;
+                tab1CopyBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span>已複製!';
+                setTimeout(() => {
+                    tab1CopyBtn.innerHTML = originalHtml;
+                }, 2000);
+            });
+        }
+    });
+}
+
+if (tab1DownloadBtn) {
+    tab1DownloadBtn.addEventListener('click', () => {
+        const activeViewBtn = document.querySelector('.view-btn.active');
+        if (!activeViewBtn) return;
+        const view = activeViewBtn.dataset.view;
+        const textarea = document.getElementById(`display-${view}`);
+        if (textarea && textarea.value) {
+            const blob = new Blob([textarea.value], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const prefix = view === 'summary' ? 'AI摘要' : 'AI章節';
+            let fileName = state.originalFileName ? `${state.originalFileName}_${prefix}.txt` : `AliangYTTB_${prefix}.txt`;
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    });
+}

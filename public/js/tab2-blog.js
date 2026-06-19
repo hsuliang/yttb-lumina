@@ -1,8 +1,8 @@
-import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOptions } from './ui-components.js';
+import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
-import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal, switchTab } from './app.js';
 
 /**
  * tab2-blog.js
@@ -545,12 +545,44 @@ export const renderTags = function () { const tagContainer = document.getElement
             btn.disabled = true;
             btn.classList.add('btn-loading');
 
+            // Switch to Tab 1 to see the streaming
+            switchTab('tab1');
+            const smartArea = document.getElementById('smart-area');
+            if (smartArea) {
+                smartArea.value = '';
+                smartArea.classList.add('text-center', 'animate-pulse');
+                smartArea.style.color = '#f97316';
+                smartArea.style.fontSize = '1.1rem';
+                smartArea.style.fontWeight = '600';
+                // Trigger view switch in Tab 1 if possible
+                const originalBtn = document.querySelector('.view-btn[data-view="original"]');
+                if (originalBtn) originalBtn.click();
+            }
+
             try {
-                const result = await callGeminiAPI(apiKey, prompt);
+                let isFirstOptChunk = true;
+                const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                    if (smartArea) {
+                        if (isFirstOptChunk && chunkText !== '') {
+                            isFirstOptChunk = false;
+                            smartArea.classList.remove('text-center', 'animate-pulse');
+                            smartArea.style.color = '';
+                            smartArea.style.fontSize = '';
+                            smartArea.style.fontWeight = '';
+                        }
+                        smartArea.value = fullText;
+                        smartArea.scrollTop = smartArea.scrollHeight;
+                    }
+                });
+                
+                // Once finished, save to state and update UI
+                state.optimizedTextForBlog = result;
+                updateSourceStatusUI();
+                showToast('文本優化完成！', { type: 'success' });
+                
                 showModal({
-                    title: '文本優化完成',
-                    message: result,
-                    showCopyButton: false,
+                    title: '優化完成',
+                    message: '文本已優化。您可以選擇複製、下載或確認使用此版本。',
                     large: true,
                     buttons: [
                         {
@@ -755,14 +787,51 @@ export const renderTags = function () { const tagContainer = document.getElement
 
         const promptOptions = { persona: blogPersonaSelect.value, tone: tone, wordCount: blogWordCountSelect.value, tagsString: state.currentBlogTags.join(', '), sourceText: sourceText, variationModifier: variationModifier, shouldOverride: shouldOverride };
 
-        showModal({ title: 'AI 生成中...', showProgressBar: true, taskType: 'blog' });
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
+        state.currentAbortController = new AbortController();
+
         const btn = isVariation ? generateBlogVariationBtn : generateBlogBtn;
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
+        const originalBtnHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+        btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+
+        // Show the output container early so streaming is visible
+        const blogPlaceholder = document.getElementById('blog-placeholder');
+        const blogOutputContainer = document.getElementById('blog-output-container');
+        if (blogPlaceholder) blogPlaceholder.classList.add('hidden');
+        if (blogOutputContainer) blogOutputContainer.classList.remove('hidden');
+
+        // Switch to Markdown view to show streaming
+        switchBlogView('markdown');
+        const markdownPreview = document.getElementById('markdown-source-preview');
+        if (markdownPreview) {
+            markdownPreview.value = '';
+            markdownPreview.classList.add('text-center', 'animate-pulse');
+            markdownPreview.style.color = '#f97316';
+            markdownPreview.style.fontSize = '1.1rem';
+            markdownPreview.style.fontWeight = '600';
+        }
 
         try {
             let prompt = assembleBlogPrompt(promptOptions);
-            let fullResponse = await callGeminiAPI(apiKey, prompt);
+            let isFirstBlogChunk = true;
+            let fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (markdownPreview) {
+                    if (isFirstBlogChunk && chunkText !== '') {
+                        isFirstBlogChunk = false;
+                        markdownPreview.classList.remove('text-center', 'animate-pulse');
+                        markdownPreview.style.color = '';
+                        markdownPreview.style.fontSize = '';
+                        markdownPreview.style.fontWeight = '';
+                    }
+                    markdownPreview.value = fullText;
+                    markdownPreview.scrollTop = markdownPreview.scrollHeight;
+                }
+            }, state.currentAbortController.signal);
 
             // Smart Retry Logic
             const requiredTags = ['[ARTICLE_START]', '[ARTICLE_END]', '[SEO_START]', '[SEO_END]'];
@@ -770,11 +839,17 @@ export const renderTags = function () { const tagContainer = document.getElement
 
             if (!isResponseValid(fullResponse)) {
                 console.warn("第一次嘗試格式不完整 (缺少部分標籤)，正在自動重試...");
-                showModal({ title: 'AI 回應校驗失敗', message: '初步回應格式不完整，正在自動為您重試一次...', showProgressBar: true, taskType: 'blog' });
+                
+                if (markdownPreview) markdownPreview.value = '初次回應格式異常，正在自動重試...';
 
                 const retryPromptOptions = { ...promptOptions, isRetry: true };
                 prompt = assembleBlogPrompt(retryPromptOptions);
-                fullResponse = await callGeminiAPI(apiKey, prompt);
+                fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                    if (markdownPreview) {
+                        markdownPreview.value = fullText;
+                        markdownPreview.scrollTop = markdownPreview.scrollHeight;
+                    }
+                }, state.currentAbortController.signal);
 
                 if (!isResponseValid(fullResponse)) {
                     // 如果重試後還是缺少標籤，嘗試用更寬鬆的方式解析，或者拋出錯誤
@@ -870,35 +945,52 @@ export const renderTags = function () { const tagContainer = document.getElement
             generateBlogVariationBtn.disabled = false;
 
             saveBlogDraft();
-            blogPlaceholder.classList.add('hidden');
-            blogOutputContainer.classList.remove('hidden');
+            // blogPlaceholder.classList.add('hidden'); // Done early
+            // blogOutputContainer.classList.remove('hidden'); // Done early
             switchBlogView('preview');
             hideModal();
             if (updateTabAvailability) updateTabAvailability();
 
         } catch (error) {
             console.error("文章生成或解析失敗:", error);
-            if (error.message && error.message.includes('overloaded')) {
-                showModal({ title: 'AI 正在尖峰時段，請稍候！', message: '別擔心...', buttons: [{ text: '關閉', class: 'btn-secondary', callback: hideModal }, { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateBlogPost(isVariation); } }] });
+            if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
+                console.log('部落格生成已中斷');
+                if (markdownPreview) {
+                    markdownPreview.classList.remove('text-center', 'animate-pulse');
+                    markdownPreview.style.color = '';
+                    markdownPreview.style.fontSize = '';
+                    markdownPreview.style.fontWeight = '';
+                    markdownPreview.value = '生成已中斷。';
+                }
+            } else if (error.message && error.message.includes('overloaded')) {
+                showModal({ title: 'AI 正在尖峰時段，請稍候！', message: '別擔心...', buttons: [{ text: '關閉', class: 'btn-secondary', callback: hideModal }, { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateBlogPost(variationModifier, shouldOverride); } }] });
             } else {
                 showModal({ title: '文章生成失敗', message: `發生錯誤，可能是 AI 回應格式不符或網路問題。\n\n錯誤詳情: ${error.message}` });
             }
         } finally {
+            state.currentAbortController = null;
             btn.disabled = false;
-            btn.classList.remove('btn-loading');
+            btn.classList.remove('btn-loading', 'bg-error/10', 'text-error', 'border-error/20');
+            btn.innerHTML = originalBtnHtml;
             updateStepperUI();
         }
     }
 
     function generateBlogPost() {
+        // If generation is active, abort it
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
         if (state.blogArticleVersions.length > 0 && !confirm("這將會清除所有已生成的版本並重新開始，您確定嗎？")) {
             return;
         }
         const rawContent = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
         if (state.blogSourceType === 'raw' && rawContent) {
-            showModal({ title: '提醒', message: '您尚未優化文本，直接生成可能會影響文章品質。確定要繼續嗎？', buttons: [{ text: '取消', class: 'btn-secondary', callback: hideModal }, { text: '確定繼續', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateBlogPost(false); } }] });
+            showModal({ title: '提醒', message: '您尚未優化文本，直接生成可能會影響文章品質。確定要繼續嗎？', buttons: [{ text: '取消', class: 'btn-secondary', callback: hideModal }, { text: '確定繼續', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateBlogPost('', false); } }] });
         } else {
-            proceedGenerateBlogPost(false);
+            proceedGenerateBlogPost('', false);
         }
     }
 
@@ -1045,6 +1137,7 @@ export const renderTags = function () { const tagContainer = document.getElement
             } else {
                 clearBlogDraft();
                 if (updateTabAvailability) updateTabAvailability();
+                window.dispatchEvent(new Event('lumina:draftCleared'));
             }
         }, 100);
     }

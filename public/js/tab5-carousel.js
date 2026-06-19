@@ -505,19 +505,59 @@ ${layoutInstructionsText}
         const prompt = assembleCarouselPrompt(variationModifier, shouldOverride);
         if (!prompt) return;
 
-        showModal({ title: 'AI 社群輪播圖提示詞生成中...', showProgressBar: true, taskType: 'carousel' });
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
+        state.currentAbortController = new AbortController();
+
         const btn = isVariation ? generateCarouselVariationBtn : generateCarouselBtn;
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
+        const originalBtnHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+        btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+        // btn.disabled = true;
+        // btn.classList.add('btn-loading');
+
+        const carouselPlaceholder = document.getElementById('carousel-placeholder');
+        const carouselOutputContainer = document.getElementById('carousel-output-container');
+        const carouselPromptTextarea = document.getElementById('carousel-prompt-textarea');
+
+        if (carouselPlaceholder) carouselPlaceholder.classList.add('hidden');
+        if (carouselOutputContainer) carouselOutputContainer.classList.remove('hidden');
+        if (carouselPromptTextarea) {
+            carouselPromptTextarea.value = '';
+            carouselPromptTextarea.classList.add('text-center', 'animate-pulse');
+            carouselPromptTextarea.style.color = '#f97316';
+            carouselPromptTextarea.style.fontSize = '1.1rem';
+            carouselPromptTextarea.style.fontWeight = '600';
+        }
 
         try {
-            const result = await callGeminiAPI(apiKey, prompt);
+            let fullResult = "";
+            let isFirstCarouselChunk = true;
+            const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                fullResult = fullText;
+                let displayText = fullText;
+
+                if (carouselPromptTextarea) {
+                    if (isFirstCarouselChunk && chunkText !== '') {
+                        isFirstCarouselChunk = false;
+                        carouselPromptTextarea.classList.remove('text-center', 'animate-pulse');
+                        carouselPromptTextarea.style.color = '';
+                        carouselPromptTextarea.style.fontSize = '';
+                        carouselPromptTextarea.style.fontWeight = '';
+                    }
+                    carouselPromptTextarea.value = displayText;
+                    carouselPromptTextarea.scrollTop = carouselPromptTextarea.scrollHeight;
+                }
+            }, state.currentAbortController.signal);
             
             // 確保生成文字最前方有固定的開頭
             let finalResult = result.trim();
-            const prefix = "生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張";
-            if (!finalResult.startsWith(prefix)) {
-                finalResult = prefix + "\n\n" + finalResult;
+            const prefix = "生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張\n\n";
+            if (!finalResult.startsWith("生成以下 4 張圖片")) {
+                finalResult = prefix + finalResult;
             }
 
             const newVersion = {
@@ -536,12 +576,20 @@ ${layoutInstructionsText}
             renderCurrentCarouselVersionUI();
             saveCarouselDraft();
 
-            hideModal();
             showToast(`社群輪播圖提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
         } catch (error) {
             console.error("社群輪播圖提示詞生成失敗:", error);
-            if (error.message && error.message.includes('overloaded')) {
+            if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
+                console.log('輪播圖提示詞生成已中斷');
+                if (carouselPromptTextarea) {
+                    carouselPromptTextarea.classList.remove('text-center', 'animate-pulse');
+                    carouselPromptTextarea.style.color = '';
+                    carouselPromptTextarea.style.fontSize = '';
+                    carouselPromptTextarea.style.fontWeight = '';
+                    carouselPromptTextarea.value = '生成已中斷。';
+                }
+            } else if (error.message && error.message.includes('overloaded')) {
                 showModal({
                     title: 'AI 正在尖峰時段，請稍候！',
                     message: '目前模型負載過高，您可以稍後再試。',
@@ -557,6 +605,9 @@ ${layoutInstructionsText}
                 renderCurrentCarouselVersionUI();
             }
         } finally {
+            state.currentAbortController = null;
+            btn.innerHTML = originalBtnHtml;
+            btn.classList.remove('bg-error/10', 'text-error', 'border-error/20');
             btn.disabled = false;
             btn.classList.remove('btn-loading');
         }

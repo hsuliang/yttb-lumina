@@ -1,4 +1,4 @@
-import { showToast, showModal, hideModal } from './ui-components.js';
+import { showToast, showModal, hideModal, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
@@ -142,6 +142,7 @@ export const initializeTab6 = function() {
                 } else {
                     clearInfographicDraft && clearInfographicDraft();
                     if (updateTabAvailability) updateTabAvailability();
+                    window.dispatchEvent(new Event('lumina:draftCleared'));
                 }
             }, 150);
         }
@@ -726,16 +727,72 @@ ${roleInstruction}${logoInstruction}
 ${sourceContent}
 `;
 
-        // 開啟載入 Modal
-        const isVariation = variationModifier !== '';
-        showModal({ title: `AI 資訊圖表提示詞${isVariation ? '新版本' : ''}生成中...`, showProgressBar: true, taskType: 'infographic' });
-        
+        const isVariation = variationModifier !== "";
+
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
+        state.currentAbortController = new AbortController();
+
         const activeBtn = isVariation ? generateVariationBtn : generateBtn;
-        activeBtn.disabled = true;
-        activeBtn.classList.add('btn-loading');
+        const originalBtnHtml = activeBtn.innerHTML;
+        activeBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+        activeBtn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+
+        const textContainer = document.getElementById('infographic-text-container');
+        const reportContent = document.getElementById('infographic-analysis-report-content');
+        const promptTextarea = document.getElementById('infographic-prompt-textarea');
+        const placeholder = document.getElementById('infographic-placeholder');
+
+        if (placeholder) placeholder.classList.add('hidden');
+        if (textContainer) textContainer.classList.remove('hidden');
+        if (reportContent) {
+            reportContent.innerHTML = '';
+            reportContent.classList.add('text-center', 'animate-pulse');
+            reportContent.style.setProperty('color', '#f97316', 'important');
+            reportContent.style.fontSize = '1.1rem';
+            reportContent.style.fontWeight = '600';
+        }
+        if (promptTextarea) {
+            promptTextarea.value = '';
+            promptTextarea.classList.add('text-center', 'animate-pulse');
+            promptTextarea.style.setProperty('color', '#f97316', 'important');
+            promptTextarea.style.fontSize = '1.1rem';
+            promptTextarea.style.fontWeight = '600';
+        }
 
         try {
-            const result = await callGeminiAPI(apiKey, prompt);
+            let isFirstInfoChunk = true;
+            const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (isFirstInfoChunk && chunkText !== '') {
+                    isFirstInfoChunk = false;
+                    if (promptTextarea) {
+                        promptTextarea.classList.remove('text-center', 'animate-pulse');
+                        promptTextarea.style.removeProperty('color');
+                        promptTextarea.style.fontSize = '';
+                        promptTextarea.style.fontWeight = '';
+                    }
+                    if (reportContent) {
+                        reportContent.classList.remove('text-center', 'animate-pulse');
+                        reportContent.style.removeProperty('color');
+                        reportContent.style.fontSize = '';
+                        reportContent.style.fontWeight = '';
+                    }
+                }
+                
+                // Keep the raw output visible in textarea temporarily while streaming
+                if (promptTextarea) {
+                    promptTextarea.value = fullText;
+                    promptTextarea.scrollTop = promptTextarea.scrollHeight;
+                }
+                
+                // Also update the report content with the text during streaming so both sides show it
+                if (reportContent) {
+                    reportContent.textContent = fullText;
+                }
+            }, state.currentAbortController.signal);
             
             // 解析三個區塊
             const parsed = parseInfographicResponse(result);
@@ -759,14 +816,26 @@ ${sourceContent}
             renderCurrentInfographicVersionUI();
             saveInfographicDraft();
 
-            hideModal();
-            showToast(`資訊圖表提示詞${isVariation ? '新版本' : ''}已生成！`, { type: 'success' });
+            showToast(`資訊圖表提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
         } catch (error) {
             console.error("資訊圖表提示詞生成失敗:", error);
-            hideModal();
-            showToast('生成失敗，請重試！');
+            if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
+                console.log('資訊圖表生成已中斷');
+                if (promptTextarea) {
+                    promptTextarea.classList.remove('text-center', 'animate-pulse');
+                    promptTextarea.style.removeProperty('color');
+                    promptTextarea.style.fontSize = '';
+                    promptTextarea.style.fontWeight = '';
+                    promptTextarea.value = '生成已中斷。';
+                }
+            } else {
+                showToast('生成失敗，請重試！');
+            }
         } finally {
+            state.currentAbortController = null;
+            activeBtn.innerHTML = originalBtnHtml;
+            activeBtn.classList.remove('bg-error/10', 'text-error', 'border-error/20');
             activeBtn.disabled = false;
             activeBtn.classList.remove('btn-loading');
             if (updateAiButtonStatus) updateAiButtonStatus();

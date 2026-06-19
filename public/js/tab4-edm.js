@@ -1,4 +1,4 @@
-import { showToast, showModal, hideModal, populateSelectWithOptions } from './ui-components.js';
+import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
@@ -183,13 +183,49 @@ export const hasEdmDraft = function() {
         const prompt = assembleEdmPrompt(variationModifier, shouldOverride); // Passed modifier directly
         if (!prompt) return;
 
-        showModal({ title: 'AI 電子報生成中...', showProgressBar: true, taskType: 'edm' });
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+            return;
+        }
+        state.currentAbortController = new AbortController();
+
         const btn = isVariation ? generateEdmVariationBtn : generateEdmBtn; // isVariation is now correct
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
+        const originalBtnHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+        btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+        // btn.disabled = true;
+        // btn.classList.add('btn-loading');
+
+        const edmPlaceholder = document.getElementById('edm-placeholder');
+        const edmOutputContainer = document.getElementById('edm-output-container');
+        const edmPreview = document.getElementById('edm-preview');
+
+        if (edmPlaceholder) edmPlaceholder.classList.add('hidden');
+        if (edmOutputContainer) edmOutputContainer.classList.remove('hidden');
+        if (edmPreview) {
+            edmPreview.style.whiteSpace = 'pre-wrap';
+            edmPreview.textContent = '';
+            edmPreview.classList.add('text-center', 'animate-pulse');
+            edmPreview.style.color = '#f97316';
+            edmPreview.style.fontSize = '1.1rem';
+            edmPreview.style.fontWeight = '600';
+        }
 
         try {
-            const result = await callGeminiAPI(apiKey, prompt);
+            let isFirstEdmChunk = true;
+            const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (edmPreview) {
+                    if (isFirstEdmChunk && chunkText !== '') {
+                        isFirstEdmChunk = false;
+                        edmPreview.classList.remove('text-center', 'animate-pulse');
+                        edmPreview.style.color = '';
+                        edmPreview.style.fontSize = '';
+                        edmPreview.style.fontWeight = '';
+                    }
+                    edmPreview.textContent = fullText;
+                }
+            }, state.currentAbortController.signal);
             const newVersion = { htmlContent: result };
 
             if (isVariation) {
@@ -201,21 +237,31 @@ export const hasEdmDraft = function() {
             }
             
             renderEdmVersionTabs();
+            // This will properly set innerHTML and remove pre-wrap
+            if (edmPreview) edmPreview.style.whiteSpace = 'normal';
             renderCurrentEdmVersionUI();
             saveEdmDraft();
 
-            hideModal();
             showToast(`電子報 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
         } catch (error) {
             console.error("電子報生成失敗:", error);
-            if (error.message && error.message.includes('overloaded')) {
+            if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
+                console.log('電子報生成已中斷');
+                if (edmPreview) {
+                    edmPreview.classList.remove('text-center', 'animate-pulse');
+                    edmPreview.style.color = '';
+                    edmPreview.style.fontSize = '';
+                    edmPreview.style.fontWeight = '';
+                    edmPreview.textContent = '生成已中斷。';
+                }
+            } else if (error.message && error.message.includes('overloaded')) {
                 showModal({
                     title: 'AI 正在尖峰時段，請稍候！',
                     message: '目前模型負載過高，您可以稍後再試。',
                     buttons: [
                         { text: '關閉', class: 'btn-secondary', callback: hideModal },
-                        { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); handleGenerateEdm(isVariation); } }
+                        { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); handleGenerateEdm(variationModifier, shouldOverride); } }
                     ]
                 });
             } else {
@@ -225,6 +271,9 @@ export const hasEdmDraft = function() {
                  renderCurrentEdmVersionUI();
             }
         } finally {
+            state.currentAbortController = null;
+            btn.innerHTML = originalBtnHtml;
+            btn.classList.remove('bg-error/10', 'text-error', 'border-error/20');
             btn.disabled = false;
             btn.classList.remove('btn-loading');
         }
@@ -242,7 +291,7 @@ export const hasEdmDraft = function() {
     }
 
     // --- 事件監聽 ---
-    generateEdmBtn.addEventListener('click', () => handleGenerateEdm(false));
+    generateEdmBtn.addEventListener('click', () => handleGenerateEdm('', false));
     generateEdmVariationBtn.addEventListener('click', () => {
         VariationHub.open('edm', (modifier, shouldOverride) => {
             handleGenerateEdm(modifier, shouldOverride);

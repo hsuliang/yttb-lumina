@@ -111,7 +111,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
  * @returns {Promise<string>} AI 生成的文本內容。
  * @throws {Error} 如果所有嘗試均失敗。
  */
-export async function callGeminiAPI(apiKey, prompt, forceJson = false) {
+export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null) {
     
 
     // 建立金鑰嘗試池
@@ -190,19 +190,39 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false) {
                     systemInstruction: systemInstruction,
                 });
 
-                const requestOptions = state.currentAbortController ? { signal: state.currentAbortController.signal } : undefined;
-                const result = await model.generateContent(prompt, requestOptions);
-                const response = result.response;
+                const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
+                let responseText = "";
 
-                if (response.promptFeedback && response.promptFeedback.blockReason) {
-                     throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                }
-                
-                if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                     throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
-                }
+                if (onStream && !forceJson) {
+                    onStream('', `${modelName} 模型思考中...`);
+                    const result = await model.generateContentStream(prompt, requestOptions);
+                    for await (const chunk of result.stream) {
+                        const chunkText = chunk.text();
+                        responseText += chunkText;
+                        onStream(chunkText, responseText);
+                    }
+                    
+                    // 為了相容後續的安全檢查，我們模擬 response 物件
+                    const response = await result.response;
+                    if (response.promptFeedback && response.promptFeedback.blockReason) {
+                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                    }
+                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
+                    }
+                } else {
+                    const result = await model.generateContent(prompt, requestOptions);
+                    const response = result.response;
 
-                const responseText = response.text();
+                    if (response.promptFeedback && response.promptFeedback.blockReason) {
+                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                    }
+                    
+                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
+                    }
+                    responseText = response.text();
+                }
 
                 // 成功後更新金鑰池的計數器
                 try {
@@ -279,7 +299,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false) {
  * @param {string} promptText - 轉寫指令 prompt。
  * @returns {Promise<string>} AI 生成的 SRT 文字。
  */
-export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText) {
+export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText, onStream = null, abortSignal = null) {
     
 
     // 建立金鑰嘗試池（與 callGeminiAPI 相同邏輯）
@@ -382,19 +402,37 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     },
                 ];
 
-                const requestOptions = state.currentAbortController ? { signal: state.currentAbortController.signal } : undefined;
-                const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
-                const response = result.response;
+                const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
+                let responseText = "";
 
-                if (response.promptFeedback && response.promptFeedback.blockReason) {
-                    throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                if (onStream) {
+                    onStream('', `${modelName} 模型思考中...`);
+                    const result = await model.generateContentStream({ contents: [{ role: "user", parts }] }, requestOptions);
+                    for await (const chunk of result.stream) {
+                        const chunkText = chunk.text();
+                        responseText += chunkText;
+                        onStream(chunkText, responseText);
+                    }
+                    const response = await result.response;
+                    if (response.promptFeedback && response.promptFeedback.blockReason) {
+                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                    }
+                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                    }
+                } else {
+                    const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
+                    const response = result.response;
+
+                    if (response.promptFeedback && response.promptFeedback.blockReason) {
+                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                    }
+
+                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                    }
+                    responseText = response.text();
                 }
-
-                if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                    throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
-                }
-
-                const responseText = response.text();
 
                 // 更新金鑰使用計數
                 try {

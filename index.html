@@ -386,21 +386,23 @@
 
                     <!-- Right Result Panel -->
                     <div class="flex-1 min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden shadow-lg shadow-black/10">
-                        <!-- Progress Area (hidden by default) -->
-                        <div id="tab0-progress-area" class="hidden flex-1 flex flex-col items-center justify-center gap-5 p-8">
-                            <div class="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                            <p id="tab0-progress-message" class="text-sm text-on-surface-variant text-center animate-pulse max-w-xs"></p>
-                            <span id="tab0-model-badge" class="hidden text-[10px] font-mono text-on-surface-variant/60 bg-surface-variant/20 px-2 py-0.5 rounded-full"></span>
-                            <!-- 分段進度（長音訊模式） -->
-                            <div id="tab0-chunk-progress" class="hidden w-full max-w-xs">
-                                <div class="flex justify-between items-center text-xs text-on-surface-variant/70 mb-2">
-                                    <span id="tab0-chunk-label">分段辨識中...</span>
-                                    <span id="tab0-chunk-counter" class="font-mono font-semibold text-primary"></span>
+                        <!-- Progress Area (Floating Overlay) -->
+                        <div id="tab0-progress-area" class="hidden absolute inset-0 z-20 pointer-events-none flex flex-col items-center justify-center p-4">
+                            <div class="bg-surface/95 backdrop-blur-md shadow-2xl rounded-2xl border border-outline-variant/20 p-6 flex flex-col items-center gap-4 pointer-events-auto w-full max-w-sm">
+                                <div class="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                                <p id="tab0-progress-message" class="text-base font-medium text-on-surface text-center animate-pulse"></p>
+                                <span id="tab0-model-badge" class="hidden text-[10px] font-mono text-on-surface-variant/60 bg-surface-variant/20 px-2 py-0.5 rounded-full"></span>
+                                <!-- 分段進度（長音訊模式） -->
+                                <div id="tab0-chunk-progress" class="hidden w-full mt-2">
+                                    <div class="flex justify-between items-center text-xs text-on-surface-variant mb-2">
+                                        <span id="tab0-chunk-label" class="font-medium">分段辨識中...</span>
+                                        <span id="tab0-chunk-counter" class="font-mono font-bold text-primary"></span>
+                                    </div>
+                                    <div class="w-full h-2.5 bg-surface-variant/50 rounded-full overflow-hidden shadow-inner">
+                                        <div id="tab0-chunk-bar" class="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
+                                    </div>
+                                    <p id="tab0-chunk-eta" class="text-[11px] text-on-surface-variant/60 mt-2 text-center font-medium"></p>
                                 </div>
-                                <div class="w-full h-2 bg-surface-variant/30 rounded-full overflow-hidden">
-                                    <div id="tab0-chunk-bar" class="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
-                                </div>
-                                <p id="tab0-chunk-eta" class="text-[10px] text-on-surface-variant/40 mt-1 text-center"></p>
                             </div>
                         </div>
 
@@ -565,21 +567,35 @@
                                 <div id="view-toggle-header" class="flex items-center gap-1 bg-surface-container-lowest border border-outline-variant/10 p-0.5 rounded-lg hidden">
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="original">原始內容</button>
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold active" data-view="processed">整理結果</button>
+                                    <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="summary">AI 摘要</button>
+                                    <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="chapters">AI 章節</button>
                                     <button id="return-to-edit-btn" class="px-2.5 py-1 rounded-md text-xs border border-outline-variant/20 text-on-surface hover:bg-surface-variant/10">返回編輯</button>
                                 </div>
                             </div>
                             <span id="char-count-display" class="glass-panel px-3 py-1 rounded-full text-label-md font-label-md text-on-surface-variant flex items-center gap-1">
                                 <span class="material-symbols-outlined text-[14px]">analytics</span>字數：0
                             </span>
+                            <div id="tab1-ai-actions" class="flex items-center gap-1.5 hidden">
+                                <button id="tab1-copy-btn" class="px-2.5 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 border border-outline-variant/20 flex items-center gap-1 transition-all">
+                                    <span class="material-symbols-outlined text-[14px]">content_copy</span>複製
+                                </button>
+                                <button id="tab1-download-btn" class="px-2.5 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 border border-outline-variant/20 flex items-center gap-1 transition-all">
+                                    <span class="material-symbols-outlined text-[14px]">download</span>下載
+                                </button>
+                            </div>
                         </div>
                         
                         <!-- Main Preview Editor Area -->
                         <div class="flex-1 relative overflow-hidden">
                             <textarea id="smart-area" class="w-full h-full p-6 bg-transparent focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 relative z-10" placeholder="直接在文字框貼上內容..."></textarea>
                             
-                            <div id="display-original" class="view-content p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
-                            <div id="display-processed" class="view-content p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
+                            <div id="display-original" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
+                            <div id="display-processed" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
+                            <textarea id="display-summary" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 摘要將在此顯示..."></textarea>
+                            <textarea id="display-chapters" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 章節將在此顯示..."></textarea>
                             
+                            <div id="tab1-floating-actions" class="hidden"></div>
+
                             <!-- Empty state display -->
                             <div id="tab1-empty-state" class="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-surface/10 pointer-events-none z-0">
                                 <span class="material-symbols-outlined text-5xl text-on-surface-variant/30 mb-3">data_object</span>

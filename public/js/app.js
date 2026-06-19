@@ -1321,6 +1321,9 @@ state.currentAbortController = null;
 
         checkDraftsAndShowResume();
 
+        // Re-check when any tab clears its draft (e.g. user cancels restore)
+        window.addEventListener('lumina:draftCleared', checkDraftsAndShowResume);
+
         const handleStartBtnClick = (e) => {
             if (e) {
                 e.preventDefault();

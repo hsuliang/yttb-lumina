@@ -317,7 +317,7 @@ function getFileExtension(filename) {
 
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
-async function transcribeWithGemini(file, language, customDict, onProgress = () => {}) {
+async function transcribeWithGemini(file, language, customDict, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
     const apiKey = getBalancedApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
@@ -403,7 +403,9 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
             reader.readAsDataURL(wavBlob);
         });
 
-        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt);
+        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
+            onStream(fullText);
+        });
         const result = validateAndFixSrt(rawResponse);
 
         if (!result.isValid) {
@@ -416,6 +418,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                 const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
                 allSrtBlocks.push(...blocks);
                 globalSeq += blocks.length;
+                onChunkComplete(blocks.join('\n\n'));
             }
             if (result.plainText) allText.push(result.plainText.trim());
         }
@@ -458,7 +461,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
  * @param {string} customDict - 自訂字典
  * @param {Function} onProgress - 進度回呼
  */
-async function transcribeWithWhisper(file, language, customDict, onProgress = () => {}) {
+async function transcribeWithWhisper(file, language, customDict, onProgress = () => {}, onChunkComplete = () => {}) {
     const workerUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
     const workerToken = localStorage.getItem('aliang-tab0-worker-token') || sessionStorage.getItem('aliang-tab0-worker-token');
 
@@ -591,6 +594,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
             const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
             allSrtBlocks.push(...blocks);
             globalSeq += blocks.length;
+            onChunkComplete(blocks.join('\n\n'));
         }
         if (data.text) allText.push(data.text.trim());
     }
@@ -736,7 +740,7 @@ export function initializeTab0() {
      */
     function startProgressMessages(staticMode = false, audioDurationSec = 60) {
         if (progressArea) progressArea.classList.remove('hidden');
-        if (resultArea) resultArea.classList.add('hidden');
+        // if (resultArea) resultArea.classList.add('hidden');
 
         if (staticMode) {
             if (chunkProgressEl) chunkProgressEl.classList.add('hidden');
@@ -939,6 +943,43 @@ export function initializeTab0() {
                     startProgressMessages(true);
                     if (progressMessage) progressMessage.textContent = '正在準備音訊...';
 
+                    const srtPanel = document.getElementById('tab0-result-srt');
+                    const emptyState = document.getElementById('tab0-empty-state');
+                    if (emptyState) emptyState.classList.add('hidden');
+                    
+                    // Hide all other panels, show SRT
+                    document.querySelectorAll('.tab0-result-panel').forEach(p => p.classList.add('hidden'));
+                    if (srtPanel) {
+                        srtPanel.classList.remove('hidden');
+                        srtPanel.textContent = '';
+                    }
+                    
+                    // Activate SRT tab
+                    document.querySelectorAll('.tab0-result-tab').forEach(t => t.classList.remove('active'));
+                    const srtTab = document.querySelector('.tab0-result-tab[data-target="tab0-result-srt"]');
+                    if (srtTab) srtTab.classList.add('active');
+
+                    let finalizedSrt = '';
+
+                    const handleChunkComplete = (srtBlock) => {
+                        if (finalizedSrt) finalizedSrt += '\n\n';
+                        finalizedSrt += srtBlock;
+                        if (srtPanel) {
+                            srtPanel.textContent = finalizedSrt;
+                            const resultArea = document.getElementById('tab0-result-area');
+                            if (resultArea) resultArea.scrollTop = resultArea.scrollHeight;
+                        }
+                    };
+
+                    const handleStream = (currentStreamText) => {
+                        const streamDisplay = finalizedSrt ? finalizedSrt + '\n\n' + currentStreamText : currentStreamText;
+                        if (srtPanel) {
+                            srtPanel.textContent = streamDisplay;
+                            const resultArea = document.getElementById('tab0-result-area');
+                            if (resultArea) resultArea.scrollTop = resultArea.scrollHeight;
+                        }
+                    };
+
                     if (state.transcribeEngine === 'whisper') {
                         // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
                         let whisperPrompt = terminologyDict;
@@ -951,7 +992,8 @@ export function initializeTab0() {
                             selectedFile,
                             state.transcribeLanguage,
                             whisperPrompt,
-                            handleWhisperProgress
+                            handleWhisperProgress,
+                            handleChunkComplete
                         );
                     } else {
                         // Gemini 模式現在也支援切段進度條回呼
@@ -959,7 +1001,9 @@ export function initializeTab0() {
                             selectedFile, 
                             state.transcribeLanguage, 
                             terminologyDict, 
-                            handleWhisperProgress
+                            handleWhisperProgress,
+                            handleChunkComplete,
+                            handleStream
                         );
                     }
 

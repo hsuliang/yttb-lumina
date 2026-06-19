@@ -1,4 +1,4 @@
-import { showToast, showModal, hideModal, populateSelectWithOptions } from './ui-components.js';
+import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
@@ -302,22 +302,56 @@ export const switchSocialTab = function(platform) {
             };
             const prompt = assembleSocialPrompt(promptOptions);
     
-            showModal({ title: 'AI 生成中...', message: '正在為您撰寫三平台社群貼文...', showProgressBar: true, taskType: 'social' });
-            const btn = isVariation ? generateSocialVariationBtn : generateSocialBtn;
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
-
-        try {
-            let fullResponse = '';
-            let isValidResponse = false;
-            for (let i = 0; i < 2; i++) {
-                fullResponse = await callGeminiAPI(apiKey, prompt);
-                if (fullResponse.includes('[FACEBOOK_POST_START]') && fullResponse.includes('[INSTAGRAM_POST_START]') && fullResponse.includes('[LINE_POST_START]')) {
-                    isValidResponse = true;
-                    break;
-                }
-                console.warn(`第 ${i+1} 次嘗試，社群貼文回應格式不完整，正在自動重試...`);
+            if (state.currentAbortController) {
+                state.currentAbortController.abort();
+                state.currentAbortController = null;
+                return;
             }
+            state.currentAbortController = new AbortController();
+
+            const btn = isVariation ? generateSocialVariationBtn : generateSocialBtn;
+            const originalBtnHtml = btn.innerHTML;
+            btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
+            btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
+            // btn.disabled = true; // DO NOT DISABLE so we can click to abort
+            // btn.classList.add('btn-loading');
+
+            socialPlaceholder.classList.add('hidden');
+            socialOutputContainer.classList.remove('hidden');
+            const activeOutput = socialPostOutputs[state.activeSocialTab];
+            if (activeOutput) {
+                activeOutput.textContent = '';
+                activeOutput.classList.add('text-center', 'animate-pulse');
+                activeOutput.style.color = '#f97316';
+                activeOutput.style.fontSize = '1.1rem';
+                activeOutput.style.fontWeight = '600';
+            }
+
+            try {
+                let fullResponse = '';
+                let isValidResponse = false;
+                let isFirstSocialChunk = true;
+                for (let i = 0; i < 2; i++) {
+                    fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                        if (activeOutput) {
+                            if (isFirstSocialChunk && chunkText !== '') {
+                                isFirstSocialChunk = false;
+                                activeOutput.classList.remove('text-center', 'animate-pulse');
+                                activeOutput.style.color = '';
+                                activeOutput.style.fontSize = '';
+                                activeOutput.style.fontWeight = '';
+                            }
+                            activeOutput.textContent = fullText;
+                            activeOutput.scrollTop = activeOutput.scrollHeight;
+                        }
+                    }, state.currentAbortController.signal);
+                    if (fullResponse.includes('[FACEBOOK_POST_START]') && fullResponse.includes('[INSTAGRAM_POST_START]') && fullResponse.includes('[LINE_POST_START]')) {
+                        isValidResponse = true;
+                        break;
+                    }
+                    console.warn(`第 ${i+1} 次嘗試，社群貼文回應格式不完整，正在自動重試...`);
+                    if (activeOutput) activeOutput.textContent = '初步回應格式不完整，正在自動重試...';
+                }
             if (!isValidResponse) {
                 throw new Error("AI 回應格式不完整，請稍後再試或生成另一版本。");
             }
@@ -345,12 +379,18 @@ export const switchSocialTab = function(platform) {
 
             generateSocialVariationBtn.disabled = false;
             saveSocialDraft();
-            socialPlaceholder.classList.add('hidden');
-            socialOutputContainer.classList.remove('hidden');
             switchSocialTab('facebook');
-            hideModal();
         } catch (error) {
-            if (error.message && error.message.includes('overloaded')) { 
+            if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
+                console.log('社群貼文生成已中斷');
+                if (activeOutput) {
+                    activeOutput.classList.remove('text-center', 'animate-pulse');
+                    activeOutput.style.color = '';
+                    activeOutput.style.fontSize = '';
+                    activeOutput.style.fontWeight = '';
+                    activeOutput.textContent = '生成已中斷。';
+                }
+            } else if (error.message && error.message.includes('overloaded')) { 
                 showModal({ 
                     title: 'AI 正在尖峰時段，請稍候！', message: '別擔心...',
                     buttons: [ { text: '關閉', class: 'btn-secondary', callback: hideModal }, { text: '立即重試', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateSocialPosts(variationModifier, shouldOverride); } } ]
@@ -359,6 +399,9 @@ export const switchSocialTab = function(platform) {
                 showModal({ title: '社群貼文生成失敗', message: `發生錯誤：${error.message}` }); 
             }
         } finally {
+            state.currentAbortController = null;
+            btn.innerHTML = originalBtnHtml;
+            btn.classList.remove('bg-error/10', 'text-error', 'border-error/20');
             btn.disabled = false;
             btn.classList.remove('btn-loading');
         }
@@ -427,6 +470,7 @@ export const switchSocialTab = function(platform) {
             } else {
                 clearSocialDraft();
                 if(updateTabAvailability) updateTabAvailability();
+                window.dispatchEvent(new Event('lumina:draftCleared'));
             }
         }, 100);
     }
