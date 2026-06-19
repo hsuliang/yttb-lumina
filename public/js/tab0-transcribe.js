@@ -24,7 +24,7 @@ const TAB0_STORAGE_KEYS = {
 };
 
 // ########## TAB 0 PROMPT ##########
-function buildTranscriptionPrompt(language, customDict) {
+function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
     const langHint = language === 'auto' ? '自動偵測語言' :
                      language === 'zh' ? '中文（繁體）' :
                      language === 'en' ? 'English' :
@@ -34,6 +34,10 @@ function buildTranscriptionPrompt(language, customDict) {
     if (customDict) {
         dictInstruction = `\n\n特別要求：\n請嚴格遵守以下專有名詞，當遇到聽起來類似的詞彙時，必須輸出以下指定的正向詞彙：\n${customDict}`;
     }
+
+    const durationMin = Math.ceil(chunkDuration / 60);
+    const durationSec = Math.ceil(chunkDuration % 60);
+    const maxTimeStr = `00:${String(durationMin).padStart(2, '0')}:${String(durationSec).padStart(2, '0')},000`;
 
     return `請將以下音訊內容轉寫為標準 SRT 字幕格式。${dictInstruction}
 
@@ -48,9 +52,9 @@ function buildTranscriptionPrompt(language, customDict) {
    00:00:05,000 --> 00:00:10,000
    這是第二句話的內容
 
-3. 時間戳必須使用 HH:MM:SS,mmm 格式（用逗號分隔毫秒）
+3. 【極度重要】這是一段長度只有約 ${Math.ceil(chunkDuration)} 秒的音訊切片。你產出的所有時間戳必須從 00:00:00,000 開始計算，且「絕對不可超過 ${maxTimeStr}」。
 4. 每段字幕不超過 2 行，每行不超過 40 個字
-5. 時間戳必須精準對應音訊中的語音位置，按時間順序排列
+5. 時間戳必須精準對應音訊中的語音位置，按時間順序排列，絕對不可發生時間倒退或重疊。
 6. 序號必須從 1 開始，連續遞增
 7. 只輸出 SRT 內容，不要加任何說明文字、開頭語或 markdown 格式標記
 8. 逐字轉寫，不要遺漏或創造原始音訊中沒有的內容
@@ -362,14 +366,14 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     let globalSeq = 1;
     const chunkStartTimes = [];
 
-    // 建構 prompt
-    const prompt = buildTranscriptionPrompt(language, customDict);
-
     // 4. 逐段辨識並合併 SRT
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const startMin = Math.floor(chunk.offsetSeconds / 60);
         const startSec = Math.floor(chunk.offsetSeconds % 60);
+        
+        // 針對每一段建立 prompt，限制其秒數
+        const prompt = buildTranscriptionPrompt(language, customDict, chunk.durationSeconds);
 
         let etaText = '';
         if (i > 0 && chunkStartTimes.length > 0) {
