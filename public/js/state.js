@@ -59,6 +59,7 @@ export let state = {
     currentBlogVersionIndex: 0, 
     blogSourceType: 'raw',
     batchReplaceRules: [],
+    aiTerminologyRules: [],
     socialPostVersions: [],
     currentSocialVersionIndex: 0,
     activeSocialTab: 'facebook',

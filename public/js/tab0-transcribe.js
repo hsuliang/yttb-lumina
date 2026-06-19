@@ -24,13 +24,18 @@ const TAB0_STORAGE_KEYS = {
 };
 
 // ########## TAB 0 PROMPT ##########
-function buildTranscriptionPrompt(language) {
+function buildTranscriptionPrompt(language, customDict) {
     const langHint = language === 'auto' ? '自動偵測語言' :
                      language === 'zh' ? '中文（繁體）' :
                      language === 'en' ? 'English' :
                      language === 'ja' ? '日本語' : '自動偵測語言';
 
-    return `請將以下音訊內容轉寫為標準 SRT 字幕格式。
+    let dictInstruction = '';
+    if (customDict) {
+        dictInstruction = `\n\n特別要求：\n請嚴格遵守以下專有名詞，當遇到聽起來類似的詞彙時，必須輸出以下指定的正向詞彙：\n${customDict}`;
+    }
+
+    return `請將以下音訊內容轉寫為標準 SRT 字幕格式。${dictInstruction}
 
 嚴格要求：
 1. 語言偏好：${langHint}
@@ -307,7 +312,7 @@ function getFileExtension(filename) {
 
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
-async function transcribeWithGemini(file, language) {
+async function transcribeWithGemini(file, language, customDict) {
     const apiKey = getBalancedApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
@@ -320,7 +325,7 @@ async function transcribeWithGemini(file, language) {
     const base64 = await fileToBase64(file);
 
     // 建構 prompt
-    const prompt = buildTranscriptionPrompt(language);
+    const prompt = buildTranscriptionPrompt(language, customDict);
 
     // 呼叫 Gemini Audio API
     const rawResponse = await callGeminiAudioAPI(apiKey, base64, mimeType, prompt);
@@ -834,25 +839,38 @@ export function initializeTab0() {
 
                 try {
                     let result;
+                    // 準備專有名詞 (只取 Positive)
+                    let terminologyDict = '';
+                    if (state.aiTerminologyRules && state.aiTerminologyRules.length > 0) {
+                        const positiveTerms = state.aiTerminologyRules.filter(r => r.type === 'positive').map(r => r.term);
+                        if (positiveTerms.length > 0) {
+                            terminologyDict = positiveTerms.join(', ');
+                        }
+                    }
+
                     if (state.transcribeEngine === 'whisper') {
                         // Whisper：靜態模式（進度由 handleWhisperProgress 控制）
                         startProgressMessages(true);
                         if (progressMessage) progressMessage.textContent = '正在準備音訊...';
-                        let customDictVal = '';
+                        
+                        // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
+                        let whisperPrompt = terminologyDict;
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
-                            customDictVal = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
+                            const replaceDict = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
+                            whisperPrompt = whisperPrompt ? whisperPrompt + '\n' + replaceDict : replaceDict;
                         }
+
                         result = await transcribeWithWhisper(
                             selectedFile,
                             state.transcribeLanguage,
-                            customDictVal,
+                            whisperPrompt,
                             handleWhisperProgress
                         );
                     } else {
                         // Gemini：循環提示訊息與進度條
                         const estSec = selectedFile ? selectedFile.size / 16000 : 60;
                         startProgressMessages(false, estSec);
-                        result = await transcribeWithGemini(selectedFile, state.transcribeLanguage);
+                        result = await transcribeWithGemini(selectedFile, state.transcribeLanguage, terminologyDict);
                     }
 
                     displayResults(result);
@@ -869,11 +887,15 @@ export function initializeTab0() {
 
             showModal({
                 title: '確認開始辨識',
-                message: '是否需要設定「專有名詞 / 錯字替換」？\n如果您已經設定過或不需要，請點擊「直接開始」。',
+                message: '是否需要設定「專有名詞」或「錯字替換」？\n(這些設定能大幅提升辨識準確度)\n如果您已經設定過或不需要，請點擊「直接開始」。',
                 buttons: [
-                    { text: '前往設定', class: 'btn-secondary', callback: () => {
+                    { text: '設定錯字', class: 'btn-secondary', callback: () => {
                         hideModal();
-                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-dict');
+                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-typo');
+                    }},
+                    { text: '設定專有名詞', class: 'btn-secondary', callback: () => {
+                        hideModal();
+                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-terminology');
                     }},
                     { text: '直接開始', class: 'btn-primary', callback: () => {
                         hideModal();
