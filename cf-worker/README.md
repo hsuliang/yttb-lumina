@@ -47,7 +47,7 @@
 1. **Settings** → **Variables**
 2. 新增環境變數：
    - **Name**: `API_TOKEN`
-   - **Value**: 您自訂的密鑰（例如：`my-secret-token-2024`）
+   - **Value**: 您自訂的密鑰（例如：`my-secret-token-2026`）
 3. 點選 **Save**
 
 ---
@@ -73,7 +73,7 @@ curl https://your-worker-name.workers.dev/api/health
 
 ### 在前端測試
 
-1. 開啟 yttb-lumina 應用程式
+1. 開啟[ㄚ亮笑長的內容助手](https://ctb.52hal.cc/)應用程式
 2. 切換到「🎙️ AI 字幕產生器」Tab 0
 3. 選擇「Whisper 專業版」
 4. 填入 Worker URL（例如：`https://yttb-whisper.your-name.workers.dev`）
