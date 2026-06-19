@@ -308,7 +308,7 @@
                 </p>
 
                 <div class="space-y-6">
-                    <!-- Step 1 & 2 -->
+                    <!-- Step 1 -->
                     <div class="flex flex-col sm:flex-row gap-4">
                         <div class="shrink-0">
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">1</span>
@@ -316,7 +316,20 @@
                         <div class="space-y-2">
                             <h3 class="text-base font-bold text-white">建立新的 Cloudflare Worker</h3>
                             <p class="text-gray-400 text-sm leading-relaxed">
-                                請前往 <a href="https://dash.cloudflare.com" target="_blank" class="text-blue-400 hover:underline">Cloudflare 儀表板</a> 並登入。在左側選單點選 <strong>Workers & Pages</strong>，接著點選 <strong>Create application</strong> -> <strong>Create Worker</strong>。為您的 Worker 取個名字（例如：<code>yttb-whisper</code>），然後點選 <strong>Deploy</strong> 進行初步部署。
+                                請前往 <a href="https://dash.cloudflare.com" target="_blank" class="text-blue-400 hover:underline">Cloudflare 儀表板</a> 並登入。在左側選單點選 <strong>Workers & Pages</strong>，接著點選 <strong>Create application</strong> -> <strong>Create Worker</strong> -> <strong>Start with Hello World!</strong>。
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <div class="shrink-0">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">2</span>
+                        </div>
+                        <div class="space-y-2">
+                            <h3 class="text-base font-bold text-white">設定 Worker 網址</h3>
+                            <p class="text-gray-400 text-sm leading-relaxed">
+                                點選 Worker name ，填入你要的網址，這是 Worker API URL，用來填寫連線設定。填好後按下 <strong>Deploy</strong>。
                             </p>
                         </div>
                     </div>
@@ -324,7 +337,7 @@
                     <!-- Step 3 -->
                     <div class="flex flex-col sm:flex-row gap-4">
                         <div class="shrink-0">
-                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">2</span>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">3</span>
                         </div>
                         <div class="space-y-2">
                             <h3 class="text-base font-bold text-white">貼上並部署程式碼</h3>
@@ -337,12 +350,12 @@
                     <!-- Step 4 -->
                     <div class="flex flex-col sm:flex-row gap-4">
                         <div class="shrink-0">
-                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">3</span>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-[#f97316] text-[#341100] font-bold text-sm">4</span>
                         </div>
                         <div class="space-y-2">
                             <h3 class="text-base font-bold text-[#f97316]">啟用 Workers AI Binding (⚠️ 非常重要)</h3>
                             <p class="text-gray-400 text-sm leading-relaxed">
-                                回到該 Worker 的設定頁面，點選 <strong>Settings</strong> -> <strong>Bindings</strong>，然後點擊 <strong>Add binding</strong>。選擇 <strong>Workers AI</strong>，並在 Variable name 欄位輸入 <code class="text-[#f97316] font-bold bg-white/5 px-1.5 py-0.5 rounded">AI</code> (必須全大寫且完全一致)。點擊 <strong>Save</strong> 儲存後，記得一定要再重新部署一次 (點選 Deployments -> Deploy) 才會生效。
+                                回到該 Worker 的設定頁面，點選畫面上方 <strong>Bindings</strong>，然後點擊 <strong>Add binding</strong>。選擇 <strong>Workers AI</strong>，並在 Variable name 欄位輸入 <code class="text-[#f97316] font-bold bg-white/5 px-1.5 py-0.5 rounded">AI</code> (必須全大寫且完全一致)。點擊 <strong>Save</strong> 儲存。
                             </p>
                         </div>
                     </div>
@@ -350,12 +363,12 @@
                     <!-- Step 5 -->
                     <div class="flex flex-col sm:flex-row gap-4">
                         <div class="shrink-0">
-                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">4</span>
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">5</span>
                         </div>
                         <div class="space-y-2">
                             <h3 class="text-base font-bold text-white">取得網址並設定驗證金鑰 (API Token)</h3>
                             <p class="text-gray-400 text-sm leading-relaxed">
-                                為了保護 Worker 不被盜用，建議到 <strong>Settings</strong> -> <strong>Variables</strong> 頁面，新增一個環境變數：Name 填寫 <code>API_TOKEN</code>，Value 填寫您自訂的密碼（例如 <code>my-secret-token-2026</code>）並點選 <strong>Save</strong> 儲存。
+                                為了保護 Worker 不被盜用，建議到 <strong>Settings</strong> -> <strong>Variables</strong> 頁面，新增一個環境變數：Type 選擇 <strong>Secret</strong>，Variable name 填寫 <code>API_TOKEN</code>，Value 填寫您自訂的密碼（例如 <code>my-secret-token-2026</code>）並點選 <strong>Deploy</strong> 儲存。
                             </p>
                             <p class="text-gray-400 text-sm leading-relaxed mt-2">
                                 最後，請回到 ㄚ亮笑長的內容助手 程式左下角的「設定金鑰」選單，將您的 <strong>Worker 網址</strong> (例如 <code>https://yttb-whisper.your-name.workers.dev</code>) 與剛剛設定的 <strong>Token</strong> 填入「Worker 連線設定」頁籤中並儲存，即可開始享受快速免費的高品質語音辨識服務！

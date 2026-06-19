@@ -19,8 +19,9 @@
 1. 點選左側選單 **Workers & Pages**
 2. 點選 **Create application**
 3. 選擇 **Create Worker**
-4. 給 Worker 取名（例如：`yttb-whisper`）
-5. 點選 **Deploy**
+4. 點選 **Start with Hello World!**
+5. 點選 Worker name，填入你要的網址（例如：`yttb-whisper`），這是 Worker API URL，用來填寫連線設定。
+6. 填好後按下 **Deploy**
 
 ### 3. 貼上程式碼
 
@@ -32,13 +33,12 @@
 
 > ⚠️ 必須完成此步驟，否則 Whisper 模型無法運作。
 
-1. 回到 Worker 設定頁
-2. 點選 **Settings** → **Bindings**
+1. 回到該 Worker 的設定頁面
+2. 點選畫面上方 **Bindings**
 3. 點選 **Add binding**
 4. 選擇 **Workers AI**
 5. Variable name 填入：`AI`（**大寫，必須完全一致**）
-6. 點選 **Save**
-7. 重新部署一次（點選 **Deployments** → **Deploy**）
+6. 點擊 **Save** 儲存
 
 ### 5. （選填）設定 API Token
 
@@ -46,9 +46,10 @@
 
 1. **Settings** → **Variables**
 2. 新增環境變數：
-   - **Name**: `API_TOKEN`
-   - **Value**: 您自訂的密鑰（例如：`my-secret-token-2026`）
-3. 點選 **Save**
+   - **Type**: 選擇 `Secret`
+   - **Variable name**: `API_TOKEN`
+   - **Value**: 您自訂的密碼（例如：`my-secret-token-2026`）
+3. 點選 **Deploy** 儲存
 
 ---
 
