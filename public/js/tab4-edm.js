@@ -117,6 +117,8 @@ export const clearEdmDraft = function() {
         renderCurrentEdmVersionUI();
     }
     
+    window.addEventListener('lumina:clearDownstreamTabs', clearEdmDraft);
+    
 export const hasEdmDraft = function() {
         return !!localStorage.getItem(EDM_DRAFT_KEY);
     }

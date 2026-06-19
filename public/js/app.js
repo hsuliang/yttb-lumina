@@ -339,8 +339,10 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                     setTimeout(() => document.getElementById('gemini-api-key')?.focus(), 50);
                 } else if (targetId === 'settings-tab-worker') {
                     setTimeout(() => document.getElementById('global-worker-url')?.focus(), 50);
-                } else if (targetId === 'settings-tab-dict') {
+                } else if (targetId === 'settings-tab-typo') {
                     setTimeout(() => document.getElementById('replace-original-input')?.focus(), 50);
+                } else if (targetId === 'settings-tab-terminology') {
+                    setTimeout(() => document.getElementById('terminology-term-input')?.focus(), 50);
                 }
             } else {
                 panel.classList.add('hidden');
@@ -430,8 +432,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             } else {
                 showToast('API Key 已儲存，AI 功能已啟用！');
             }
-            hideGlobalSettingsModal();
-
+            
         } catch (err) {
             console.error("Key validation error:", err);
             showModal({ title: '驗證出錯', message: `驗證過程中發生錯誤：${err.message}` });
@@ -652,6 +653,7 @@ export const switchTab = (tabId) => {
         const workerTokenInput = document.getElementById('global-worker-token');
         const workerExpirySelect = document.getElementById('worker-expiry-select');
         const saveWorkerSettingsBtn = document.getElementById('save-worker-settings-btn');
+        const clearWorkerSettingsBtn = document.getElementById('clear-worker-settings-btn');
         const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
         const workerTestStatus = document.getElementById('worker-test-status');
 
@@ -713,6 +715,21 @@ export const switchTab = (tabId) => {
             }
         }
 
+        if (clearWorkerSettingsBtn) {
+            clearWorkerSettingsBtn.addEventListener('click', () => {
+                if (workerUrlInput) workerUrlInput.value = '';
+                if (workerTokenInput) workerTokenInput.value = '';
+                
+                localStorage.removeItem(WORKER_URL_KEY);
+                localStorage.removeItem(WORKER_TOKEN_KEY);
+                localStorage.removeItem(WORKER_EXPIRY_KEY);
+                sessionStorage.removeItem(WORKER_URL_KEY);
+                sessionStorage.removeItem(WORKER_TOKEN_KEY);
+
+                if (workerTestStatus) workerTestStatus.textContent = '';
+                showToast('已清除 Worker 設定。', { type: 'success' });
+            });
+        }
         if (saveWorkerSettingsBtn) saveWorkerSettingsBtn.addEventListener('click', saveWorkerSettings);
 
         if (testWorkerConnectionBtn) {
@@ -922,6 +939,177 @@ export const switchTab = (tabId) => {
                 }
             });
         }
+
+
+        const termLoadPresetRulesBtn = document.getElementById('term-load-preset-rules-btn');
+        const termSavePresetRulesBtn = document.getElementById('term-save-preset-rules-btn');
+        const termExportRulesBtn = document.getElementById('term-export-rules-btn');
+        const termImportRulesBtn = document.getElementById('term-import-rules-btn');
+        const termImportRulesFileInput = document.getElementById('term-import-rules-file-input');
+
+        function saveTermPresetRules() {
+            if (state.aiTerminologyRules.length === 0) {
+                showToast('目前沒有專有名詞可儲存。', { type: 'error' });
+                return;
+            }
+            try {
+                localStorage.setItem(STORAGE_KEY_TERM_RULES, JSON.stringify(state.aiTerminologyRules));
+                showToast('✅ 已將目前專有名詞儲存為常用範本！');
+            } catch (e) {
+                console.error('儲存失敗:', e);
+                showToast('儲存失敗。', { type: 'error' });
+            }
+        }
+
+        function loadTermPresetRules() {
+            try {
+                const savedRules = localStorage.getItem(STORAGE_KEY_TERM_RULES);
+                if (!savedRules) {
+                    showToast('尚無儲存的專有名詞範本。', { type: 'error' });
+                    return;
+                }
+                const rules = JSON.parse(savedRules);
+                if (Array.isArray(rules) && rules.length > 0) {
+                    if (state.aiTerminologyRules.length > 0) {
+                        if (!confirm('載入範本將會清除目前未儲存的規則，確定要繼續嗎？')) return;
+                    }
+                    state.aiTerminologyRules = rules;
+                    renderTerminologyRules();
+                    showToast(`📥 已載入 ${rules.length} 條專有名詞！`);
+                }
+            } catch (e) {
+                showToast('載入失敗，請重試。', { type: 'error' });
+            }
+        }
+
+        function exportTermRules() {
+            if (state.aiTerminologyRules.length === 0) {
+                showToast('目前沒有規則可以匯出。', { type: 'error' });
+                return;
+            }
+            try {
+                const jsonStr = JSON.stringify(state.aiTerminologyRules, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `yttb_terminology_rules_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('📤 規則匯出成功！');
+            } catch (e) {
+                showToast('匯出失敗，請重試。', { type: 'error' });
+            }
+        }
+
+        function handleImportTermRulesFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const rules = JSON.parse(e.target.result);
+                    if (Array.isArray(rules)) {
+                        const isValid = rules.every(r => r && typeof r.term === 'string' && typeof r.type === 'string');
+                        if (!isValid) {
+                            showModal({ title: '匯入失敗', message: '格式不正確。' });
+                            return;
+                        }
+                        if (state.aiTerminologyRules.length > 0) {
+                            if (!confirm('確定要覆蓋當前的專有名詞嗎？')) return;
+                        }
+                        state.aiTerminologyRules = rules;
+                        renderTerminologyRules();
+                        showToast(`📥 成功匯入 ${rules.length} 條規則！`);
+                    }
+                } catch (error) {
+                    showModal({ title: '匯入失敗', message: '解析 JSON 失敗。' });
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        if (termLoadPresetRulesBtn) termLoadPresetRulesBtn.addEventListener('click', loadTermPresetRules);
+        if (termSavePresetRulesBtn) termSavePresetRulesBtn.addEventListener('click', saveTermPresetRules);
+        if (termExportRulesBtn) termExportRulesBtn.addEventListener('click', exportTermRules);
+        if (termImportRulesBtn) termImportRulesBtn.addEventListener('click', () => termImportRulesFileInput.click());
+        if (termImportRulesFileInput) {
+            termImportRulesFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) handleImportTermRulesFile(file);
+                e.target.value = '';
+            });
+        }
+
+        // --- Terminology Rules Logic ---
+        const addTermRuleBtn = document.getElementById('add-terminology-rule-btn');
+        const termTypeSelect = document.getElementById('terminology-type-select');
+        const termValueInput = document.getElementById('terminology-term-input');
+        const termRulesList = document.getElementById('terminology-rules-list');
+        const clearAllTermRulesBtn = document.getElementById('clear-all-terminology-rules-btn');
+        // Reusing the same preset load/save buttons but we should actually separate them or use specific IDs
+        // For simplicity, we just implement basic CRUD and save to a specific localstorage key
+        const STORAGE_KEY_TERM_RULES = 'aliang-yttb-terminology-rules-preset';
+
+        export function renderTerminologyRules() {
+            if (!termRulesList) return;
+            termRulesList.innerHTML = '';
+            if (!state.aiTerminologyRules) state.aiTerminologyRules = [];
+            if (state.aiTerminologyRules.length === 0) {
+                termRulesList.innerHTML = `<p class="p-4 text-center text-on-surface-variant/60">尚未新增任何專有名詞規則</p>`;
+                return;
+            }
+            state.aiTerminologyRules.forEach((rule, index) => {
+                const ruleEl = document.createElement('div');
+                const isPositive = rule.type === 'positive';
+                const bgClass = isPositive ? 'bg-success/10 border-success/20' : 'bg-error/10 border-error/20';
+                const textClass = isPositive ? 'text-success' : 'text-error';
+                const label = isPositive ? '🟢 必須使用' : '🔴 絕對禁用';
+                
+                ruleEl.className = `rule-item p-2 rounded mb-2 flex items-center justify-between border ${bgClass}`;
+                ruleEl.innerHTML = ` 
+                    <div class="flex items-center space-x-2 truncate">
+                        <span class="text-xs font-bold ${textClass}">${label}</span>
+                        <span class="rule-text font-mono text-on-surface">${rule.term}</span>
+                    </div>
+                    <button class="term-delete-btn text-on-surface-variant hover:text-error transition-colors" data-index="${index}" title="刪除此規則">
+                        <span class="material-symbols-outlined text-[18px]">delete</span>
+                    </button> `;
+                termRulesList.appendChild(ruleEl);
+            });
+            // Attach event listeners for delete buttons
+            document.querySelectorAll('.term-delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const idx = parseInt(e.currentTarget.dataset.index);
+                    state.aiTerminologyRules.splice(idx, 1);
+                    renderTerminologyRules();
+                });
+            });
+        }
+
+        function addTerminologyRule() {
+            const type = termTypeSelect.value;
+            const term = termValueInput.value.trim();
+            if (term) {
+                state.aiTerminologyRules.push({ type, term });
+                termValueInput.value = '';
+                termValueInput.focus();
+                renderTerminologyRules();
+            }
+        }
+
+        function clearAllTerminologyRules() {
+            state.aiTerminologyRules = [];
+            renderTerminologyRules();
+        }
+
+        if (addTermRuleBtn) addTermRuleBtn.addEventListener('click', addTerminologyRule);
+        if (clearAllTermRulesBtn) clearAllTermRulesBtn.addEventListener('click', clearAllTerminologyRules);
+        
+        // Also need to fix the replace rule delete buttons because they were rendered with a class but no listener added in renderReplaceRules.
+        // Let's modify renderReplaceRules by attaching a global listener or doing it inside the function.
+
         if (replaceRulesList) {
             replaceRulesList.addEventListener('click', (e) => {
                 const deleteBtn = e.target.closest('.rule-delete-btn');
@@ -949,6 +1137,17 @@ export const switchTab = (tabId) => {
                     renderModalApiKeys();
                     showToast('已從清單中移除金鑰。');
                 }
+            });
+        }
+        const clearApiKeysBtn = document.getElementById('clear-api-keys-btn');
+        if (clearApiKeysBtn) {
+            clearApiKeysBtn.addEventListener('click', () => {
+                modalApiKeys = [];
+                renderModalApiKeys();
+                removeStorageKeys();
+                updateApiKeyStatus();
+                if (apiKeyInput) apiKeyInput.value = '';
+                showToast('已清除所有 API Key。', { type: 'success' });
             });
         }
         if (saveApiKeyBtn) saveApiKeyBtn.addEventListener('click', saveApiKey);
@@ -1071,6 +1270,33 @@ state.currentAbortController = null;
                 }
             });
         }
+
+        // 自動清除下游 Tab 的事件監聽
+        window.addEventListener('lumina:clearDownstreamTabs', () => {
+            console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts.');
+            if(clearBlogDraft) clearBlogDraft();
+            if(clearSocialDraft) clearSocialDraft();
+            if(clearInfographicDraft) clearInfographicDraft();
+            
+            localStorage.removeItem('lumina-edm-draft');
+            localStorage.removeItem('lumina-carousel-draft');
+            localStorage.removeItem('blogDraft');
+            localStorage.removeItem('socialDraft');
+            localStorage.removeItem('infographicDraft');
+            
+            state.edmVersions = [];
+            state.carouselVersions = [];
+            state.infographicVersions = [];
+            state.blogArticleVersions = [];
+            state.socialPostVersions = [];
+            state.currentBlogVersionIndex = 0;
+            state.currentSocialVersionIndex = 0;
+            state.currentEdmVersionIndex = 0;
+            state.currentCarouselVersionIndex = 0;
+            state.currentInfographicVersionIndex = 0;
+            
+            showToast('已自動清除舊的產出內容，準備迎接新影片！');
+        });
 
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
         const welcomePortal = document.getElementById('welcome-portal');

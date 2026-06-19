@@ -63,6 +63,28 @@ export const clearSocialDraft = function() {
     localStorage.removeItem(SOCIAL_DRAFT_KEY);
 }
 
+function resetTab3() {
+    state.socialPostVersions = [];
+    state.currentSocialVersionIndex = 0;
+    const outputContainer = document.getElementById('social-output-container');
+    const placeholder = document.getElementById('social-placeholder');
+    const varBtn = document.getElementById('generate-social-variation-btn');
+    const copyBtn = document.getElementById('social-copy-btn');
+    
+    if(outputContainer) outputContainer.classList.add('hidden');
+    if(placeholder) placeholder.classList.remove('hidden');
+    if(varBtn) varBtn.disabled = true;
+    if(copyBtn) copyBtn.classList.add('hidden');
+    
+    document.getElementById('facebook-post-output').textContent = '';
+    document.getElementById('instagram-post-output').textContent = '';
+    document.getElementById('line-post-output').textContent = '';
+    
+    clearSocialDraft();
+}
+
+window.addEventListener('lumina:clearDownstreamTabs', resetTab3);
+
 function assembleSocialPrompt(options) {
     const { objective, length, tone, hashtags, cta, sourceText, variationModifier, shouldOverride = false } = options;
     const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
