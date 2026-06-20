@@ -330,7 +330,7 @@ export const analyzeInfographicContent = function() {
 
         // 更新狀態列 UI (改用直覺的推薦強度標籤，不顯示數字分數)
         if (maxScore < 1.5) {
-            statusEl.innerHTML = `💡 AI 建議：<strong>資訊與概念型 (Informational)</strong> (內容結構以概念說明為主，推薦使用文字配合視覺圖標呈現)`;
+            statusEl.innerHTML = `<span style="color: #f97316;">💡 AI 建議：<strong>資訊與概念型 (Informational)</strong> (內容結構以概念說明為主，推薦使用文字配合視覺圖標呈現)</span>`;
         } else {
             let confidenceText = '';
             if (maxScore >= 10) {
@@ -340,7 +340,7 @@ export const analyzeInfographicContent = function() {
             } else {
                 confidenceText = '👍 適合選用';
             }
-            statusEl.innerHTML = `💡 AI 建議：<strong>${typeNames[recommendedType].split(' (')[0]}</strong> (${confidenceText})`;
+            statusEl.innerHTML = `<span style="color: #f97316;">💡 AI 建議：<strong>${typeNames[recommendedType].split(' (')[0]}</strong> (${confidenceText})</span>`;
         }
 
         // 若下拉選單設定為自動，或有自動推薦狀態標記
