@@ -740,7 +740,7 @@ export function initializeTab0() {
      */
     function startProgressMessages(staticMode = false, audioDurationSec = 60) {
         if (progressArea) progressArea.classList.remove('hidden');
-        // if (resultArea) resultArea.classList.add('hidden');
+        if (resultArea) resultArea.classList.remove('hidden'); // Show it underneath the overlay to stream the text
 
         if (staticMode) {
             if (chunkProgressEl) chunkProgressEl.classList.add('hidden');
