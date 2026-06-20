@@ -16,10 +16,7 @@ export const optimizationService = {
      */
     async optimizeSourceText() {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) {
-            if (showApiKeyModal) showApiKeyModal();
-            return;
-        }
+
 
         const content = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
         if (!content) {

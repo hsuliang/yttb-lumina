@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptR
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
-import { getBalancedApiKey, showApiKeyModal } from './app.js';
+import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
 /**
  * tab4-edm.js
@@ -93,6 +93,10 @@ export const saveEdmDraft = function() {
 export const restoreEdmDraft = function() {
         const saved = localStorage.getItem(EDM_DRAFT_KEY);
         if (saved) {
+            if (!window.checkGlobalDrafts()) {
+                localStorage.removeItem(EDM_DRAFT_KEY);
+                return false;
+            }
             try {
                 const parsed = JSON.parse(saved);
                 if (parsed.versions && parsed.versions.length > 0) {
@@ -173,12 +177,9 @@ export const hasEdmDraft = function() {
 
     async function handleGenerateEdm(variationModifier = '', shouldOverride = false) { // Changed signature
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) {
-            if (showApiKeyModal) showApiKeyModal();
-            return;
-        }
+
         
-        const isVariation = variationModifier !== ''; // Derived from variationModifier
+        const isVariation = variationModifier !== null; // Derived from variationModifier
 
         const prompt = assembleEdmPrompt(variationModifier, shouldOverride); // Passed modifier directly
         if (!prompt) return;
@@ -291,7 +292,7 @@ export const hasEdmDraft = function() {
     }
 
     // --- 事件監聽 ---
-    generateEdmBtn.addEventListener('click', () => handleGenerateEdm('', false));
+    generateEdmBtn.addEventListener('click', () => handleGenerateEdm(null, false));
     generateEdmVariationBtn.addEventListener('click', () => {
         VariationHub.open('edm', (modifier, shouldOverride) => {
             handleGenerateEdm(modifier, shouldOverride);

@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal, stopPromptRotation } from './ui-compon
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
  * js/tab6-infographic.js
@@ -137,7 +137,7 @@ export const initializeTab6 = function() {
         // 載入草稿 (防禦性檢查)
         if (hasInfographicDraft && hasInfographicDraft()) {
             setTimeout(() => {
-                if (confirm('偵測到上次有未儲存的資訊圖表提示詞草稿，是否要恢復？')) {
+                if (window.checkGlobalDrafts()) {
                     restoreInfographicDraft && restoreInfographicDraft();
                 } else {
                     clearInfographicDraft && clearInfographicDraft();
@@ -576,10 +576,7 @@ export const analyzeInfographicContent = function() {
         const generateBtn = document.getElementById('generate-infographic-btn');
         const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) {
-            if (showApiKeyModal) showApiKeyModal();
-            return;
-        }
+
 
         syncRolesFromInputs();
 

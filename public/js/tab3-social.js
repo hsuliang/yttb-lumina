@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptR
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
  * tab3-social.js
@@ -280,7 +280,6 @@ export const switchSocialTab = function(platform) {
 
         async function proceedGenerateSocialPosts(variationModifier = '', shouldOverride = false) {
             const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-            if (!apiKey) { if(showApiKeyModal) showApiKeyModal(); return; }
     
             let sourceText = '';
             const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
@@ -465,7 +464,7 @@ export const switchSocialTab = function(platform) {
 
     if (hasSocialDraft()) {
         setTimeout(() => {
-            if (confirm('偵測到上次有未儲存的社群貼文草稿，是否要恢復？')) {
+            if (window.checkGlobalDrafts()) {
                 restoreSocialDraft();
             } else {
                 clearSocialDraft();

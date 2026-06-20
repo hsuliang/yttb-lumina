@@ -207,11 +207,13 @@ export default {
         }
 
         // 辨識端點
-        if (url.pathname === '/api/transcribe' && method === 'POST') {
+        if (url.pathname === "/api/transcribe" && method === "POST") {
             return handleTranscribe(request, env);
         }
-
-        return errorResponse('Not Found', 404);
+        if (url.pathname === "/api/generate-text" && method === "POST") {
+            return handleGenerateText(request, env);
+        }
+        return errorResponse("Not Found", 404);
     },
 };
 
@@ -375,4 +377,43 @@ function normalizeLanguageCode(lang) {
         'ko': 'ko',
     };
     return map[lang] || lang;
+}
+
+
+// ─── 文字生成端點 (SSE) ──────────────────────────────────────────────
+async function handleGenerateText(request, env) {
+    try {
+        const body = await request.json();
+        const prompt = body.prompt;
+        const model = body.model || '@cf/qwen/qwen2.5-coder-32b-instruct';
+        const systemPrompt = body.systemPrompt || '';
+
+        if (!prompt) {
+            return errorResponse('請提供 prompt 參數', 400);
+        }
+
+        const messages = [];
+        if (systemPrompt) {
+            messages.push({ role: 'system', content: systemPrompt });
+        }
+        messages.push({ role: 'user', content: prompt });
+
+        const stream = await env.AI.run(model, {
+            messages: messages,
+            stream: true,
+            max_tokens: 8000
+        });
+
+        return new Response(stream, {
+            headers: {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                ...corsHeaders()
+            }
+        });
+    } catch (err) {
+        console.error('[Generate Text Error]', err?.message || err);
+        return errorResponse(`文字生成失敗：${err?.message || '未知錯誤'}`, 500);
+    }
 }

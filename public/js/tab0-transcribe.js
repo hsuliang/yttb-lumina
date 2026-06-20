@@ -650,6 +650,38 @@ export function initializeTab0() {
         engineSelect.value = savedEngine;
         state.transcribeEngine = savedEngine;
 
+        const updateEngineOptions = () => {
+            const geminiOption = engineSelect.querySelector('option[value="gemini"]');
+            const whisperOption = engineSelect.querySelector('option[value="whisper"]');
+            
+            const hasGemini = typeof getBalancedApiKey !== 'undefined' && getBalancedApiKey();
+            const hasWorker = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+            
+            if (geminiOption) {
+                geminiOption.disabled = !hasGemini;
+                geminiOption.textContent = hasGemini ? 'Gemini Flash 1.5 up' : 'Gemini Flash 1.5 up (未設定金鑰)';
+            }
+            
+            if (whisperOption) {
+                whisperOption.disabled = !hasWorker;
+                whisperOption.textContent = hasWorker ? 'Whisper Large V3 Turbo' : 'Whisper Large V3 Turbo (未設定 Worker)';
+            }
+
+            if (engineSelect.value === 'gemini' && !hasGemini && hasWorker) {
+                engineSelect.value = 'whisper';
+                state.transcribeEngine = 'whisper';
+            } else if (engineSelect.value === 'whisper' && !hasWorker && hasGemini) {
+                engineSelect.value = 'gemini';
+                state.transcribeEngine = 'gemini';
+            }
+        };
+
+        // 監聽全局設定變更事件
+        window.addEventListener('settings-updated', updateEngineOptions);
+        
+        // 初始更新狀態
+        updateEngineOptions();
+
         // --- 引擎切換 ---
         engineSelect.addEventListener('change', () => {
             state.transcribeEngine = engineSelect.value;

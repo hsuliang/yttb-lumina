@@ -310,3 +310,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     applyTheme(savedTheme);
 });
+window.checkGlobalDrafts = function() {
+    if (window._draftChoice !== undefined) return window._draftChoice;
+    window._draftChoice = confirm('偵測到您有未儲存的草稿，是否要全部恢復？');
+    return window._draftChoice;
+};

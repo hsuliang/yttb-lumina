@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
-import { getBalancedApiKey, showApiKeyModal } from './app.js';
+import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
 /**
  * tab5-carousel.js
@@ -192,6 +192,7 @@ import { getBalancedApiKey, showApiKeyModal } from './app.js';
                             }, 2000);
                         });
                     });
+
                     copyContainer.appendChild(btn);
                 }
             });
@@ -222,6 +223,10 @@ export const saveCarouselDraft = function() {
 export const restoreCarouselDraft = function() {
         const saved = localStorage.getItem(CAROUSEL_DRAFT_KEY);
         if (saved) {
+            if (!window.checkGlobalDrafts()) {
+                localStorage.removeItem(CAROUSEL_DRAFT_KEY);
+                return false;
+            }
             try {
                 const parsed = JSON.parse(saved);
                 if (parsed.versions && parsed.versions.length > 0) {
@@ -496,10 +501,7 @@ ${layoutInstructionsText}
     // --- API 呼叫與生成邏輯 ---
     async function handleGenerateCarousel(variationModifier = '', shouldOverride = false) {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) {
-            if (showApiKeyModal) showApiKeyModal();
-            return;
-        }
+
 
         const isVariation = variationModifier !== '';
         const prompt = assembleCarouselPrompt(variationModifier, shouldOverride);

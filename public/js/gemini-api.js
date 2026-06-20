@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callCloudflareTextAPI } from './cf-api.js';
 
 /**
  * gemini-api.js
@@ -113,6 +114,11 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
  */
 export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null) {
     
+    const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
+
+    if (aiEngine === 'cloudflare' && !forceJson) {
+        return await callCloudflareTextAPI(prompt, onStream, abortSignal);
+    }
 
     // 建立金鑰嘗試池
     let keyPool = [];
@@ -135,6 +141,10 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     }
 
     if (keyPool.length === 0) {
+        if (aiEngine === 'auto' && !forceJson) {
+            console.warn('無 Gemini Key，直接進入 Cloudflare 備援機制');
+            return await callCloudflareTextAPI(prompt, onStream, abortSignal);
+        }
         throw new Error("找不到有效的 API Key，請先設定。");
     }
 
@@ -194,7 +204,6 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 let responseText = "";
 
                 if (onStream && !forceJson) {
-                    onStream('', `${modelName} 模型思考中...`);
                     const result = await model.generateContentStream(prompt, requestOptions);
                     for await (const chunk of result.stream) {
                         const chunkText = chunk.text();
@@ -286,6 +295,17 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     }
 
     const finalErrorMsg = lastError ? lastError.message : "未知錯誤";
+    
+    if (aiEngine === 'auto' && !forceJson) {
+        console.warn('Gemini 失敗，觸發 Cloudflare 備援機制...', finalErrorMsg);
+        try {
+            return await callCloudflareTextAPI(prompt, onStream, abortSignal);
+        } catch (cfErr) {
+            console.error('Cloudflare 備援亦失敗:', cfErr);
+            throw new Error(translateError(finalErrorMsg) + `\n(備援失敗: ${cfErr.message})`);
+        }
+    }
+
     throw new Error(translateError(finalErrorMsg));
 }
 
@@ -406,7 +426,6 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 let responseText = "";
 
                 if (onStream) {
-                    onStream('', `${modelName} 模型思考中...`);
                     const result = await model.generateContentStream({ contents: [{ role: "user", parts }] }, requestOptions);
                     for await (const chunk of result.stream) {
                         const chunkText = chunk.text();

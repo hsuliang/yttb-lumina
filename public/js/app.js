@@ -41,14 +41,11 @@ import { VariationHub } from './variation-hub.js';
     // ########## REFACTORED ##########
 export const updateAiButtonStatus = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
-        const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         
-        const isAiDisabled = !hasContent || !hasApiKey;
+        const isAiDisabled = !hasContent;
         let tooltip = '';
         if (isAiDisabled) {
-            if (!hasContent && !hasApiKey) tooltip = '請先輸入內容並設定 API Key';
-            else if (!hasContent) tooltip = '請先貼上字幕內容';
-            else tooltip = '請先設定 API Key';
+            tooltip = '請先貼上字幕內容';
         }
 
         const updateButtonState = (btn, defaultTitle, isDisabled, customTooltip, isHollow = false) => {
@@ -272,7 +269,17 @@ export const updateSourceStatusUI = function() {
         return { added, duplicates };
     }
 
-
+export const hasTextAIEnabled = function() {
+    const apiKey = getBalancedApiKey();
+    if (apiKey) return true;
+    
+    const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
+    const cfUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+    if ((aiEngine === 'auto' || aiEngine === 'cloudflare') && cfUrl) {
+        return true;
+    }
+    return false;
+};
 
 export const getBalancedApiKey = function() {
         try {
@@ -426,6 +433,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             }
 
             updateApiKeyStatus();
+            window.dispatchEvent(new Event('settings-updated'));
             
             if (invalidKeys.length > 0) {
                 showToast(`已儲存 ${validApiKeys.length} 組有效金鑰，自動排除 ${invalidKeys.length} 組無效金鑰。`);
@@ -456,7 +464,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             }
 
             if (expiryTime === 'session' || expiryTime === 'never') {
-                apiKeyCountdown.textContent = '金鑰有效。';
+                apiKeyCountdown.textContent = '金鑰有效';
                 return false;
             }
 
@@ -517,29 +525,52 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
 
         const statusBox = document.getElementById('api-key-status-box');
 
-        if (keysCount > 0) {
+        const hasCf = !!(getStorageItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url'));
+        let geminiStr = keysCount > 0 ? `Gemini: 已設定(${keysCount})` : 'Gemini: 未設';
+        let cfStr = hasCf ? 'CF: 已設定' : 'CF: 未設';
+        const engineSelect = document.getElementById('global-ai-engine');
+        const engineText = engineSelect && engineSelect.selectedIndex >= 0 ? engineSelect.options[engineSelect.selectedIndex].text : 'Auto';
+        let combinedHtml = `${geminiStr} | ${cfStr}<br><span style="color: #f97316;">${engineText}</span>`;
+        let combinedText = `${geminiStr} | ${cfStr} | ${engineText}`;
+
+        const isAllSet = keysCount > 0 && hasCf;
+        const isAnySet = keysCount > 0 || hasCf;
+
+        if (isAnySet) {
             if (statusBox) {
-                apiKeyStatus.textContent = `狀態：已設定 (共 ${keysCount} 組金鑰)`;
-                statusBox.className = 'mt-3 p-3 rounded-xl border flex flex-col items-center justify-center text-center gap-1 transition-all duration-300 border-green-500/30 bg-green-500/10 text-green-400';
-                apiKeyStatus.className = 'font-bold text-[12px] block text-green-400';
+                apiKeyStatus.innerHTML = combinedHtml;
+                if (isAllSet) {
+                    statusBox.className = 'mt-3 p-3 rounded-xl border flex flex-col items-center justify-center text-center gap-1 transition-all duration-300 border-green-500/30 bg-green-500/10 text-green-400';
+                    apiKeyStatus.className = 'font-bold text-[12px] block text-green-400';
+                } else {
+                    statusBox.className = 'mt-3 p-3 rounded-xl border flex flex-col items-center justify-center text-center gap-1 transition-all duration-300 border-yellow-500/30 bg-yellow-500/10 text-yellow-600';
+                    apiKeyStatus.className = 'font-bold text-[12px] block text-yellow-600';
+                }
                 apiKeyCountdown.className = 'text-[10px] text-green-400/80 font-mono block mt-0.5';
             } else {
-                apiKeyStatus.textContent = `狀態：已設定 (共 ${keysCount} 組金鑰)`;
+                apiKeyStatus.innerHTML = combinedHtml;
                 apiKeyStatus.classList.remove('text-[var(--text-color)]');
-                apiKeyStatus.classList.add('text-green-600');
+                apiKeyStatus.classList.add(isAllSet ? 'text-green-600' : 'text-yellow-600');
             }
-            startApiKeyCountdown();
+            if (keysCount > 0) {
+                startApiKeyCountdown();
+                apiKeyCountdown.classList.remove('hidden');
+            } else {
+                apiKeyCountdown.classList.add('hidden');
+                apiKeyCountdown.textContent = '';
+                if (state.apiKeyCountdownInterval) clearInterval(state.apiKeyCountdownInterval);
+            }
         } else {
             if (statusBox) {
-                apiKeyStatus.textContent = '金鑰未設定';
+                apiKeyStatus.innerHTML = combinedHtml;
                 statusBox.className = 'mt-3 p-3 rounded-xl border flex flex-col items-center justify-center text-center gap-1 transition-all duration-300 border-red-500/30 bg-red-500/10 text-red-400';
                 apiKeyStatus.className = 'font-bold text-[12px] block text-red-400';
                 apiKeyCountdown.className = 'text-[10px] text-green-400/80 font-mono block mt-0.5 hidden';
                 apiKeyCountdown.textContent = '';
             } else {
-                apiKeyStatus.textContent = '狀態：尚未設定';
+                apiKeyStatus.innerHTML = combinedHtml;
                 apiKeyStatus.classList.add('text-[var(--text-color)]');
-                apiKeyStatus.classList.remove('text-green-600');
+                apiKeyStatus.classList.remove('text-green-600', 'text-yellow-600');
                 apiKeyCountdown.textContent = '';
             }
             if (state.apiKeyCountdownInterval) clearInterval(state.apiKeyCountdownInterval);
@@ -646,12 +677,18 @@ export const switchTab = (tabId) => {
         try { initializeTab5(); } catch(e) { console.error("Error initializing Tab 5:", e); }
         try { if (initializeTab6) { initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
 
-        try { updateApiKeyStatus(); } catch(e) { console.error("Error updating API key status:", e); }
+        try { updateApiKeyStatus(); window.addEventListener('settings-updated', updateApiKeyStatus); } catch(e) { console.error("Error updating API key status:", e); }
 
         // --- Worker Settings Logic ---
         const workerUrlInput = document.getElementById('global-worker-url');
         const workerTokenInput = document.getElementById('global-worker-token');
         const workerExpirySelect = document.getElementById('worker-expiry-select');
+        const cfTextModelSelect = document.getElementById('global-cf-text-model');
+        const cfImageModelSelect = document.getElementById('global-cf-image-model');
+        const aiEngineSelect = document.getElementById('global-ai-engine');
+        if (aiEngineSelect) {
+            aiEngineSelect.addEventListener('change', updateApiKeyStatus);
+        }
         const saveWorkerSettingsBtn = document.getElementById('save-worker-settings-btn');
         const clearWorkerSettingsBtn = document.getElementById('clear-worker-settings-btn');
         const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
@@ -660,18 +697,29 @@ export const switchTab = (tabId) => {
         const WORKER_URL_KEY = 'aliang-tab0-worker-url';
         const WORKER_TOKEN_KEY = 'aliang-tab0-worker-token';
         const WORKER_EXPIRY_KEY = 'aliang-worker-expiry';
+        const CF_TEXT_MODEL_KEY = 'aliang-cf-text-model';
+        const CF_IMAGE_MODEL_KEY = 'aliang-cf-image-model';
+        const AI_ENGINE_KEY = 'aliang-ai-engine';
 
         function loadWorkerSettings() {
             const url = localStorage.getItem(WORKER_URL_KEY) || sessionStorage.getItem(WORKER_URL_KEY) || '';
             const token = localStorage.getItem(WORKER_TOKEN_KEY) || sessionStorage.getItem(WORKER_TOKEN_KEY) || '';
             if (workerUrlInput) workerUrlInput.value = url;
             if (workerTokenInput) workerTokenInput.value = token;
+            
+            if (cfTextModelSelect) cfTextModelSelect.value = localStorage.getItem(CF_TEXT_MODEL_KEY) || '@cf/qwen/qwen1.5-14b-chat-awq';
+            if (cfImageModelSelect) cfImageModelSelect.value = localStorage.getItem(CF_IMAGE_MODEL_KEY) || '@cf/black-forest-labs/flux-1-schnell';
+            if (aiEngineSelect) aiEngineSelect.value = localStorage.getItem(AI_ENGINE_KEY) || 'auto';
+            updateApiKeyStatus();
         }
 
         function saveWorkerSettings() {
             const url = workerUrlInput.value.trim();
             const token = workerTokenInput.value.trim();
             const expiryType = workerExpirySelect ? workerExpirySelect.value : 'session';
+            const textModel = cfTextModelSelect ? cfTextModelSelect.value : '@cf/qwen/qwen1.5-14b-chat-awq';
+            const imageModel = cfImageModelSelect ? cfImageModelSelect.value : '@cf/black-forest-labs/flux-1-schnell';
+            const aiEngine = aiEngineSelect ? aiEngineSelect.value : 'auto';
             
             // Clear old storage
             localStorage.removeItem(WORKER_URL_KEY);
@@ -679,6 +727,10 @@ export const switchTab = (tabId) => {
             localStorage.removeItem(WORKER_EXPIRY_KEY);
             sessionStorage.removeItem(WORKER_URL_KEY);
             sessionStorage.removeItem(WORKER_TOKEN_KEY);
+            
+            localStorage.setItem(CF_TEXT_MODEL_KEY, textModel);
+            localStorage.setItem(CF_IMAGE_MODEL_KEY, imageModel);
+            localStorage.setItem(AI_ENGINE_KEY, aiEngine);
 
             if (!url) {
                 showToast('已清除 Worker 設定');
@@ -700,6 +752,7 @@ export const switchTab = (tabId) => {
                     localStorage.setItem(WORKER_EXPIRY_KEY, 'never');
                 }
             }
+            window.dispatchEvent(new Event('settings-updated'));
             showToast('✅ Worker 設定已儲存');
         }
 
@@ -727,6 +780,7 @@ export const switchTab = (tabId) => {
                 sessionStorage.removeItem(WORKER_TOKEN_KEY);
 
                 if (workerTestStatus) workerTestStatus.textContent = '';
+                window.dispatchEvent(new Event('settings-updated'));
                 showToast('已清除 Worker 設定。', { type: 'success' });
             });
         }
@@ -1147,6 +1201,7 @@ export const switchTab = (tabId) => {
                 removeStorageKeys();
                 updateApiKeyStatus();
                 if (apiKeyInput) apiKeyInput.value = '';
+                window.dispatchEvent(new Event('settings-updated'));
                 showToast('已清除所有 API Key。', { type: 'success' });
             });
         }

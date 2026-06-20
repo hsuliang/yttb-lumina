@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOpt
 import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
-import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal, switchTab } from './app.js';
+import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal, switchTab } from './app.js';
 
 /**
  * tab2-blog.js
@@ -233,7 +233,7 @@ function assembleBlogPrompt(options) {
 [SEO_START]
 根據你寫好的文章內容，提供以下 SEO 建議。
 - SEO 標題: [請在此生成 SEO 標題]
-- 搜尋描述: [請在此生成一段約 150 字的搜尋描述]
+- 搜尋描述: [請在此生成一段總字數「絕對不超過150字」的搜尋描述（包含標點符號），請強迫控制字數]
 - 固定網址: [請在此生成小寫英文、單字用-連接的網址]
 - 標籤: [請根據文章內容和上方指定的標籤，生成最合適的標籤組合，用半形逗號,隔開]
 [SEO_END]
@@ -530,7 +530,6 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     async function optimizeTextForBlog() {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) { if (showApiKeyModal) showApiKeyModal(); return; }
 
         // 1. 定義來源：優先檢查是否有「已整理」的文本，若無則取用輸入框的原始文本
         const processedContent = state.processedSrtResult ? state.processedSrtResult.trim() : '';
@@ -667,7 +666,6 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     async function analyzeKeywords() {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) { if (showApiKeyModal) showApiKeyModal(); return; }
 
         const currentHtml = getLatestHtmlContent();
         if (!currentHtml) {
@@ -715,7 +713,6 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     async function analyzeInternalLinks() {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) { if (showApiKeyModal) showApiKeyModal(); return; }
 
         const currentHtml = getLatestHtmlContent();
         const linksSourceText = internalLinksSource.value.trim();
@@ -769,7 +766,6 @@ export const renderTags = function () { const tagContainer = document.getElement
     // ########## FINAL ROBUST VERSION WITH SMART RETRY ##########
     async function proceedGenerateBlogPost(variationModifier = '', shouldOverride = false) {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-        if (!apiKey) { if (showApiKeyModal) showApiKeyModal(); return; }
 
         const sourceText = (state.blogSourceType === 'optimized') ? state.optimizedTextForBlog : (state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim());
         if (!sourceText) { showModal({ title: '錯誤', message: '缺少文章生成的來源內容。' }); return; }
@@ -1132,7 +1128,7 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     if (hasBlogDraft()) {
         setTimeout(() => {
-            if (confirm('偵測到上次有未儲存的部落格文章草稿，是否要恢復？')) {
+            if (window.checkGlobalDrafts()) {
                 restoreBlogDraft();
             } else {
                 clearBlogDraft();
