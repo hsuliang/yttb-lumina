@@ -693,6 +693,23 @@ export const switchTab = (tabId) => {
         const clearWorkerSettingsBtn = document.getElementById('clear-worker-settings-btn');
         const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
         const workerTestStatus = document.getElementById('worker-test-status');
+        const toggleWorkerTokenBtn = document.getElementById('toggle-worker-token-visibility');
+        const eyeIconOpen = document.getElementById('eye-icon-open');
+        const eyeIconClosed = document.getElementById('eye-icon-closed');
+
+        if (toggleWorkerTokenBtn && workerTokenInput && eyeIconOpen && eyeIconClosed) {
+            toggleWorkerTokenBtn.addEventListener('click', () => {
+                const type = workerTokenInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                workerTokenInput.setAttribute('type', type);
+                if (type === 'password') {
+                    eyeIconOpen.classList.remove('hidden');
+                    eyeIconClosed.classList.add('hidden');
+                } else {
+                    eyeIconOpen.classList.add('hidden');
+                    eyeIconClosed.classList.remove('hidden');
+                }
+            });
+        }
 
         const WORKER_URL_KEY = 'aliang-tab0-worker-url';
         const WORKER_TOKEN_KEY = 'aliang-tab0-worker-token';
@@ -802,20 +819,39 @@ export const switchTab = (tabId) => {
                 workerTestStatus.className = 'text-sm text-on-surface-variant mt-2';
                 
                 try {
-                    const baseUrl = url.replace(/\/+$/, '');
+                    let validUrl = url;
+                    if (!/^https?:\/\//i.test(validUrl)) {
+                        validUrl = 'https://' + validUrl;
+                    }
+                    const baseUrl = validUrl.replace(/\/+$/, '');
                     const testUrl = `${baseUrl}/api/health`;
                     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
                     
-                    const response = await fetch(testUrl, { method: 'GET', headers: headers });
-                    if (response.ok) {
-                        workerTestStatus.textContent = '✅ 連線成功！';
+                    // 1. 測試連線與健康狀態
+                    const healthResp = await fetch(testUrl, { method: 'GET' });
+                    if (!healthResp.ok) {
+                        workerTestStatus.textContent = `⚠️ Worker 無法連線 (狀態碼: ${healthResp.status})`;
+                        workerTestStatus.className = 'text-sm text-error mt-2';
+                        return;
+                    }
+
+                    // 2. 測試 Token 驗證
+                    const authTestUrl = `${baseUrl}/api/generate-text`;
+                    const authResp = await fetch(authTestUrl, { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json', ...headers },
+                        body: JSON.stringify({ prompt: "" })
+                    });
+                    
+                    if (authResp.status === 401 || authResp.status === 403) {
+                        workerTestStatus.textContent = '❌ 連線成功，但 Token 驗證失敗 (密碼錯誤)';
+                        workerTestStatus.className = 'text-sm text-error mt-2';
+                    } else if (authResp.status === 400 || authResp.ok) {
+                        workerTestStatus.textContent = '✅ 連線成功，Token 驗證通過！';
                         workerTestStatus.className = 'text-sm text-success mt-2';
-                    } else if (response.status === 401 || response.status === 403) {
-                        workerTestStatus.textContent = '❌ 連線成功，但 Token 驗證失敗 (401/403)';
-                        workerTestStatus.className = 'text-sm text-error mt-2';
                     } else {
-                        workerTestStatus.textContent = `⚠️ 連線失敗 (狀態碼: ${response.status})`;
-                        workerTestStatus.className = 'text-sm text-error mt-2';
+                        workerTestStatus.textContent = `⚠️ 連線成功，但發生未知錯誤 (${authResp.status})`;
+                        workerTestStatus.className = 'text-sm text-warning mt-2';
                     }
                 } catch (error) {
                     workerTestStatus.textContent = `❌ 無法連線至 Worker (${error.message})`;
