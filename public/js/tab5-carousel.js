@@ -553,7 +553,7 @@ ${layoutInstructionsText}
                     carouselPromptTextarea.value = displayText;
                     carouselPromptTextarea.scrollTop = carouselPromptTextarea.scrollHeight;
                 }
-            }, state.currentAbortController.signal);
+            }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
             
             // 確保生成文字最前方有固定的開頭
             let finalResult = result.trim();

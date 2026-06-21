@@ -775,6 +775,7 @@ export function initializeTab0() {
         if (resultArea) resultArea.classList.remove('hidden'); // Show it underneath the overlay to stream the text
 
         if (staticMode) {
+            if (chunkLabelEl) chunkLabelEl.textContent = 'Whisper 處理中...';
             if (chunkProgressEl) chunkProgressEl.classList.add('hidden');
             if (chunkBarEl) chunkBarEl.style.width = '0%';
             return; // Whisper 模式由 onProgress 直接控制訊息
@@ -834,7 +835,10 @@ export function initializeTab0() {
             const pct = info.total > 0 ? ((info.current - 1) / info.total) * 100 : 0;
             if (chunkBarEl) chunkBarEl.style.width = `${pct}%`;
             if (chunkCounterEl) chunkCounterEl.textContent = `${info.current - 1 < 0 ? 0 : info.current - 1} / ${info.total}`;
-            if (chunkLabelEl) chunkLabelEl.textContent = '分段辨識中';
+            if (chunkLabelEl) {
+                const engineText = state.transcribeEngine === 'whisper' ? 'Whisper' : 'Gemini';
+                chunkLabelEl.textContent = `${engineText} 處理中...`;
+            }
             if (chunkEtaEl) chunkEtaEl.textContent = info.eta || '';
         } else if (info.type === 'done') {
             if (chunkBarEl) chunkBarEl.style.width = '100%';
@@ -978,6 +982,9 @@ export function initializeTab0() {
                     const srtPanel = document.getElementById('tab0-result-srt');
                     const emptyState = document.getElementById('tab0-empty-state');
                     if (emptyState) emptyState.classList.add('hidden');
+
+                    const infoEl = document.getElementById('tab0-result-info');
+                    if (infoEl) infoEl.classList.add('hidden');
                     
                     // Hide all other panels, show SRT
                     document.querySelectorAll('.tab0-result-panel').forEach(p => p.classList.add('hidden'));
@@ -1013,8 +1020,14 @@ export function initializeTab0() {
                     };
 
                     if (state.transcribeEngine === 'whisper') {
+                        const tab0Badge = document.getElementById('tab0-model-badge');
+                        if (tab0Badge) {
+                            tab0Badge.classList.remove('hidden');
+                            tab0Badge.textContent = '模型：whisper-large-v3-turbo';
+                        }
+                        
                         // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
-                        let whisperPrompt = terminologyDict;
+                        let whisperPrompt = '這是一段繁體中文字幕。' + (terminologyDict ? terminologyDict : '');
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
                             const replaceDict = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
                             whisperPrompt = whisperPrompt ? whisperPrompt + '\n' + replaceDict : replaceDict;

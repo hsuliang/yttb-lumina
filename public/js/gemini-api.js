@@ -112,12 +112,12 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
  * @returns {Promise<string>} AI 生成的文本內容。
  * @throws {Error} 如果所有嘗試均失敗。
  */
-export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null) {
+export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null) {
     
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
 
     if (aiEngine === 'cloudflare' && !forceJson) {
-        return await callCloudflareTextAPI(prompt, onStream, abortSignal);
+        return await callCloudflareTextAPI(prompt, onStream, abortSignal, forceModel);
     }
 
     // 建立金鑰嘗試池
@@ -204,6 +204,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 let responseText = "";
 
                 if (onStream && !forceJson) {
+                    onStream('', `Gemini (${modelName}) 思考中...`);
                     const result = await model.generateContentStream(prompt, requestOptions);
                     for await (const chunk of result.stream) {
                         const chunkText = chunk.text();

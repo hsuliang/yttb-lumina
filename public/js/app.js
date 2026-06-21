@@ -529,9 +529,15 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
         let geminiStr = keysCount > 0 ? `Gemini: 已設定(${keysCount})` : 'Gemini: 未設';
         let cfStr = hasCf ? 'CF: 已設定' : 'CF: 未設';
         const engineSelect = document.getElementById('global-ai-engine');
-        const engineText = engineSelect && engineSelect.selectedIndex >= 0 ? engineSelect.options[engineSelect.selectedIndex].text : 'Auto';
-        let combinedHtml = `${geminiStr} | ${cfStr}<br><span style="color: #f97316;">${engineText}</span>`;
-        let combinedText = `${geminiStr} | ${cfStr} | ${engineText}`;
+        let engineText = engineSelect && engineSelect.selectedIndex >= 0 ? engineSelect.options[engineSelect.selectedIndex].text : 'Auto';
+        engineText = engineText.split('(')[0].trim();
+        
+        const cfTextSelect = document.getElementById('global-cf-text-model');
+        let textModelText = cfTextSelect && cfTextSelect.selectedIndex >= 0 ? cfTextSelect.options[cfTextSelect.selectedIndex].text : 'Auto';
+        textModelText = textModelText.split('(')[0].trim();
+
+        let combinedHtml = `<div class="whitespace-nowrap">${geminiStr} | ${cfStr}</div><div class="text-[#f97316] whitespace-nowrap text-[10.5px] leading-tight tracking-tight mt-0.5">${textModelText} | ${engineText}</div>`;
+        let combinedText = `${geminiStr} | ${cfStr} | ${textModelText} | ${engineText}`;
 
         const isAllSet = keysCount > 0 && hasCf;
         const isAnySet = keysCount > 0 || hasCf;
@@ -623,11 +629,11 @@ export const updateTabAvailability = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
         
         const tabs = [
-            { btn: document.querySelector('.tab-btn[data-tab="tab2"]'), dot: document.getElementById('tab2-dot'), defaultTitle: '將字幕稿轉為部落格文章' },
-            { btn: document.querySelector('.tab-btn[data-tab="tab3"]'), dot: document.getElementById('tab3-dot'), defaultTitle: '為多個社群平台生成貼文' },
-            { btn: document.querySelector('.tab-btn[data-tab="tab4"]'), dot: document.getElementById('tab4-dot'), defaultTitle: '將文章內容生成電子報' },
-            { btn: document.querySelector('.tab-btn[data-tab="tab5"]'), dot: document.getElementById('tab5-dot'), defaultTitle: '社群輪播圖提示詞' },
-            { btn: document.querySelector('.tab-btn[data-tab="tab6"]'), dot: document.getElementById('tab6-dot'), defaultTitle: '資訊圖表提示詞' }
+            { btn: document.querySelector('.tab-btn[data-tab="tab2"]'), defaultTitle: '將字幕稿轉為部落格文章' },
+            { btn: document.querySelector('.tab-btn[data-tab="tab3"]'), defaultTitle: '為多個社群平台生成貼文' },
+            { btn: document.querySelector('.tab-btn[data-tab="tab4"]'), defaultTitle: '將文章內容生成電子報' },
+            { btn: document.querySelector('.tab-btn[data-tab="tab5"]'), defaultTitle: '社群輪播圖提示詞' },
+            { btn: document.querySelector('.tab-btn[data-tab="tab6"]'), defaultTitle: '資訊圖表提示詞' }
         ];
 
         tabs.forEach(tab => {
@@ -638,16 +644,6 @@ export const updateTabAvailability = function() {
                 tab.btn.classList.toggle('cursor-not-allowed', !hasContent);
             }
         });
-        
-        const hasTab2Draft = hasBlogDraft && hasBlogDraft();
-        const tab2Dot = document.getElementById('tab2-dot');
-        if (tab2Dot) { tab2Dot.classList.toggle('hidden', !hasTab2Draft); }
-        const hasTab3Draft = hasSocialDraft && hasSocialDraft();
-        const tab3Dot = document.getElementById('tab3-dot');
-        if (tab3Dot) { tab3Dot.classList.toggle('hidden', !hasTab3Draft); }
-        const hasTab6Draft = hasInfographicDraft && hasInfographicDraft();
-        const tab6Dot = document.getElementById('tab6-dot');
-        if (tab6Dot) { tab6Dot.classList.toggle('hidden', !hasTab6Draft); }
         
         updateSourceStatusUI();
     }
@@ -689,6 +685,9 @@ export const switchTab = (tabId) => {
         if (aiEngineSelect) {
             aiEngineSelect.addEventListener('change', updateApiKeyStatus);
         }
+        if (cfTextModelSelect) {
+            cfTextModelSelect.addEventListener('change', updateApiKeyStatus);
+        }
         const saveWorkerSettingsBtn = document.getElementById('save-worker-settings-btn');
         const clearWorkerSettingsBtn = document.getElementById('clear-worker-settings-btn');
         const testWorkerConnectionBtn = document.getElementById('test-worker-connection-btn');
@@ -724,7 +723,10 @@ export const switchTab = (tabId) => {
             if (workerUrlInput) workerUrlInput.value = url;
             if (workerTokenInput) workerTokenInput.value = token;
             
-            if (cfTextModelSelect) cfTextModelSelect.value = localStorage.getItem(CF_TEXT_MODEL_KEY) || '@cf/qwen/qwen1.5-14b-chat-awq';
+            if (cfTextModelSelect) {
+                cfTextModelSelect.value = localStorage.getItem(CF_TEXT_MODEL_KEY) || 'auto';
+                if (!cfTextModelSelect.value) cfTextModelSelect.value = 'auto';
+            }
             if (cfImageModelSelect) cfImageModelSelect.value = localStorage.getItem(CF_IMAGE_MODEL_KEY) || '@cf/black-forest-labs/flux-1-schnell';
             if (aiEngineSelect) aiEngineSelect.value = localStorage.getItem(AI_ENGINE_KEY) || 'auto';
             updateApiKeyStatus();
@@ -734,7 +736,7 @@ export const switchTab = (tabId) => {
             const url = workerUrlInput.value.trim();
             const token = workerTokenInput.value.trim();
             const expiryType = workerExpirySelect ? workerExpirySelect.value : 'session';
-            const textModel = cfTextModelSelect ? cfTextModelSelect.value : '@cf/qwen/qwen1.5-14b-chat-awq';
+            const textModel = cfTextModelSelect && cfTextModelSelect.value ? cfTextModelSelect.value : 'auto';
             const imageModel = cfImageModelSelect ? cfImageModelSelect.value : '@cf/black-forest-labs/flux-1-schnell';
             const aiEngine = aiEngineSelect ? aiEngineSelect.value : 'auto';
             

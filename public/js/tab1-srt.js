@@ -67,7 +67,10 @@ function setMode(mode) {
         smartArea.classList.remove('hidden');
         displayOriginal.classList.add('hidden');
         displayProcessed.classList.add('hidden');
-        // smartArea.value = ''; // 返回編輯時不清空
+        const displaySummary = document.getElementById('display-summary');
+        const displayChapters = document.getElementById('display-chapters');
+        if (displaySummary) displaySummary.classList.add('hidden');
+        if (displayChapters) displayChapters.classList.add('hidden');
         updateCharCount(smartArea.value);
         toggleEmptyState();
     } else if (mode === 'preview') {
@@ -82,7 +85,9 @@ function setMode(mode) {
 // [第二階段優化] - 新增返回編輯模式的函式
 function returnToEditMode() {
     setMode('input');
-    smartArea.value = state.originalContentForPreview;
+    if (state.originalContentForPreview) {
+        smartArea.value = state.originalContentForPreview;
+    }
     smartArea.dispatchEvent(new Event('input')); // 觸發 input 事件以更新UI
     smartArea.focus();
 }
@@ -131,6 +136,10 @@ function resetTab1() {
         // btn.classList.add('btn-loading');
 
         // Switch to the appropriate tab immediately
+        if (!state.originalContentForPreview && smartArea.value.trim()) {
+            state.originalContentForPreview = smartArea.value.trim();
+            displayOriginal.textContent = formatSrtForDisplay(state.originalContentForPreview, '');
+        }
         setMode('preview');
         switchView(type);
         const targetTextarea = document.getElementById(`display-${type}`);
@@ -169,8 +178,10 @@ function resetTab1() {
                     }
                     targetTextarea.value = displayText;
                     targetTextarea.scrollTop = targetTextarea.scrollHeight;
+                    updateCharCount(displayText);
                 }
             }, state.currentAbortController.signal);
+            if (targetTextarea) updateCharCount(targetTextarea.value);
             // showModal({ title: successTitle, message: result, showCopyButton: true }); // Remove modal
         } catch (error) {
             if (error.name === 'AbortError') {

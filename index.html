@@ -243,27 +243,22 @@
             <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab2">
                 <span class="material-symbols-outlined">article</span>
                 <span class="text-[15px] font-semibold flex-1">部落格文章</span>
-                <div id="tab2-dot" class="w-2 h-2 rounded-full bg-secondary-container hidden"></div>
             </a>
             <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab3">
                 <span class="material-symbols-outlined">share</span>
                 <span class="text-[15px] font-semibold flex-1">社群貼文</span>
-                <div id="tab3-dot" class="w-2 h-2 rounded-full bg-secondary-container hidden"></div>
             </a>
             <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab4">
                 <span class="material-symbols-outlined">mail</span>
                 <span class="text-[15px] font-semibold flex-1">電子報生成</span>
-                <div id="tab4-dot" class="w-2 h-2 rounded-full bg-secondary-container hidden"></div>
             </a>
             <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab5">
                 <span class="material-symbols-outlined">view_carousel</span>
                 <span class="text-[15px] font-semibold flex-1">輪播圖提示詞</span>
-                <div id="tab5-dot" class="w-2 h-2 rounded-full bg-secondary-container hidden"></div>
             </a>
             <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab6">
                 <span class="material-symbols-outlined">insert_chart</span>
                 <span class="text-[15px] font-semibold flex-1">資訊圖表提示詞</span>
-                <div id="tab6-dot" class="w-2 h-2 rounded-full bg-secondary-container hidden"></div>
             </a>
         </div>
 
@@ -284,7 +279,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619<span class="text-error font-bold">R3</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619<span class="text-error font-bold">R4</span>
             </div>
         </div>
     </nav>
@@ -1459,8 +1454,8 @@
                                             <span class="text-xs font-semibold text-on-surface-variant">設計提示詞 Prompt</span>
                                             <!-- Lang tabs switch -->
                                             <div class="flex bg-surface-container-lowest border border-outline-variant/10 p-0.5 rounded-lg">
-                                                <button id="infographic-tab-en" class="px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors">英</button>
-                                                <button id="infographic-tab-zh" class="px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors">中</button>
+                                                <button id="infographic-tab-en" class="px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-colors">英</button>
+                                                <button id="infographic-tab-zh" class="px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors">中</button>
                                             </div>
                                         </div>
                                         <button id="copy-infographic-prompt-btn" class="px-3 py-1 rounded-lg bg-secondary text-[#341100] hover:brightness-110 text-xs font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">content_copy</span>複製提示詞</button>
@@ -1605,8 +1600,11 @@
                             <div class="flex items-center gap-2 pt-2">
                                 <label for="global-cf-text-model" class="font-semibold text-xs text-on-surface whitespace-nowrap">文字生成模型 (CF)</label>
                                 <select id="global-cf-text-model" class="flex-grow p-2 rounded-lg bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none">
-                                    <option value="@cf/qwen/qwen2.5-coder-32b-instruct" selected>Qwen 2.5 Coder 32B (中文推薦)</option>
-                                    <option value="@cf/meta/llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B Instruct</option>
+                                    <option value="auto" selected>Auto (依長度智慧切換)</option>
+                                    <option value="@cf/qwen/qwen3-30b-a3b-fp8">Qwen 3 30B (一般)</option>
+                                    <option value="@cf/openai/gpt-oss-20b">GPT OSS 20B (進階)</option>
+                                    <option value="@cf/google/gemma-4-26b-a4b-it">Gemma 4 26B (優良)</option>
+                                    <option value="@cf/openai/gpt-oss-120b">GPT OSS 120B (高品質)</option>
                                 </select>
                             </div>
 

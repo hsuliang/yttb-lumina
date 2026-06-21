@@ -36,7 +36,7 @@ export const initializeTab6 = function() {
 
         // 初始化與重置 UI
         infographicRoles = [];
-        activePromptLang = 'en';
+        activePromptLang = 'zh';
         renderInfographicRoles();
 
         // 綁定「+ 新增角色」按鈕
@@ -789,7 +789,7 @@ ${sourceContent}
                 if (reportContent) {
                     reportContent.textContent = fullText;
                 }
-            }, state.currentAbortController.signal);
+            }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
             
             // 解析三個區塊
             const parsed = parseInfographicResponse(result);
