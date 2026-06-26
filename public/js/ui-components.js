@@ -239,9 +239,14 @@ state.currentAbortController = new AbortController();
         modalCustomButtons.innerHTML = '';
         buttons.forEach(btnInfo => {
             const button = document.createElement('button');
+            button.type = 'button';
             button.textContent = btnInfo.text;
             button.className = `font-bold py-2 px-4 rounded-lg text-xs hover:brightness-110 shadow-md transition-all ${btnInfo.class}`;
-            button.addEventListener('click', btnInfo.callback);
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                btnInfo.callback(e);
+            });
             modalCustomButtons.appendChild(button);
         });
     } else {
@@ -315,3 +320,32 @@ window.checkGlobalDrafts = function() {
     window._draftChoice = confirm('偵測到您有未儲存的草稿，是否要全部恢復？');
     return window._draftChoice;
 };
+
+/**
+ * 通用檔案下載工具（基於 FileSaver.js 的可靠實作）。
+ * 解決部分瀏覽器忽略 a.download 屬性導致檔名變成 UUID 的問題。
+ * @param {string|Blob} content - 檔案內容字串或 Blob 物件
+ * @param {string} fileName - 下載的檔案名稱（含副檔名）
+ * @param {string} [mimeType='text/plain;charset=utf-8'] - MIME 類型
+ */
+export function saveFile(content, fileName, mimeType = 'text/plain;charset=utf-8') {
+    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    
+    // 必須同步點擊！如果用 setTimeout 異步點擊，瀏覽器（特別是 Safari 和 Chrome）會因為安全性考量
+    // 將其視為非使用者主動觸發的導頁，從而忽略 a.download 屬性，導致檔名變成 Blob URL 的 UUID。
+    a.click();
+    
+    // 延遲移除元素和銷毀 URL，確保瀏覽器有足夠時間啟動下載
+    setTimeout(() => {
+        if (a.parentNode) {
+            document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(url);
+    }, 2000);
+}

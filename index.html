@@ -1659,8 +1659,15 @@
                         <div id="replace-rules-list" class="flex-grow border border-outline-variant/20 rounded-xl bg-surface-container-lowest/30 p-3 min-h-[180px] overflow-y-auto text-on-surface custom-scrollbar"></div>
                         
                         <div class="mt-4 flex flex-wrap justify-between items-center gap-4 shrink-0 border-t border-outline-variant/10 pt-4">
+                            <div class="flex flex-wrap gap-1.5">
+                                <button id="load-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📥 載入範本</button>
+                                <button id="save-preset-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">💾 存為範本</button>
+                                <button id="export-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📤 匯出規則</button>
+                                <button id="import-rules-btn" class="font-bold py-1.5 px-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 text-xs">📥 匯入規則</button>
+                                <input type="file" id="import-rules-file-input" class="hidden" accept=".json">
+                            </div>
                             <div class="flex gap-2 ml-auto">
-                                <button id="clear-all-replace-rules-btn" class="font-bold py-2 px-3 rounded-lg bg-error-container/20 border border-error/20 text-error hover:bg-error-container/40 text-xs">全部清除</button>
+                                <button id="clear-all-rules-btn" class="font-bold py-2 px-3 rounded-lg bg-error-container/20 border border-error/20 text-error hover:bg-error-container/40 text-xs">全部清除</button>
                             </div>
                         </div>
                     </div>

@@ -386,6 +386,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 const generationConfig = {
                     responseMimeType: "text/plain",
                     temperature: 0,
+                    maxOutputTokens: 65536,
                 };
 
 
@@ -437,6 +438,9 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
                         throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                     }
+                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                    }
                     if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
                         throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
                     }
@@ -447,7 +451,9 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
                         throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                     }
-
+                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                    }
                     if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
                         throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
                     }

@@ -6,7 +6,7 @@ import { hasSocialDraft, clearSocialDraft, initializeTab3 } from './tab3-social.
 import { initializeTab4 } from './tab4-edm.js';
 import { initializeTab5 } from './tab5-carousel.js';
 import { initializeTab6, hasInfographicDraft, clearInfographicDraft, analyzeInfographicContent } from './tab6-infographic.js';
-import { showToast, showModal, hideModal, copyModalContent } from './ui-components.js';
+import { showToast, showModal, hideModal, copyModalContent, saveFile } from './ui-components.js';
 import { resolveFlashModelsList } from './gemini-api.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
@@ -973,15 +973,7 @@ export const switchTab = (tabId) => {
             }
             try {
                 const jsonStr = JSON.stringify(state.batchReplaceRules, null, 2);
-                const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `yttb_replace_rules_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                saveFile(jsonStr, `Batch_Replace_Rules_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
                 showToast('📤 規則匯出成功！');
             } catch (e) {
                 console.error('匯出失敗:', e);
@@ -1032,6 +1024,20 @@ export const switchTab = (tabId) => {
             });
         }
 
+        // 頁面載入時自動還原上次儲存的錯字替換規則
+        try {
+            const savedReplaceRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
+            if (savedReplaceRules) {
+                const rules = JSON.parse(savedReplaceRules);
+                if (Array.isArray(rules) && rules.length > 0) {
+                    state.batchReplaceRules = rules;
+                    renderReplaceRules();
+                    console.log(`[Settings] 自動還原 ${rules.length} 條錯字替換規則`);
+                }
+            }
+        } catch (e) {
+            console.warn('[Settings] 還原錯字替換規則失敗:', e);
+        }
 
         const termLoadPresetRulesBtn = document.getElementById('term-load-preset-rules-btn');
         const termSavePresetRulesBtn = document.getElementById('term-save-preset-rules-btn');
@@ -1081,15 +1087,7 @@ export const switchTab = (tabId) => {
             }
             try {
                 const jsonStr = JSON.stringify(state.aiTerminologyRules, null, 2);
-                const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `yttb_terminology_rules_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.json`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                saveFile(jsonStr, `AI_Terminology_Rules_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
                 showToast('📤 規則匯出成功！');
             } catch (e) {
                 showToast('匯出失敗，請重試。', { type: 'error' });
@@ -1207,6 +1205,20 @@ export const switchTab = (tabId) => {
                 const deleteBtn = e.target.closest('.rule-delete-btn');
                 if (deleteBtn) deleteRule(parseInt(deleteBtn.dataset.index, 10));
             });
+        }
+        // 頁面載入時自動還原上次儲存的專有名詞規則
+        try {
+            const savedTermRules = localStorage.getItem(STORAGE_KEY_TERM_RULES);
+            if (savedTermRules) {
+                const rules = JSON.parse(savedTermRules);
+                if (Array.isArray(rules) && rules.length > 0) {
+                    state.aiTerminologyRules = rules;
+                    renderTerminologyRules();
+                    console.log(`[Settings] 自動還原 ${rules.length} 條專有名詞規則`);
+                }
+            }
+        } catch (e) {
+            console.warn('[Settings] 還原專有名詞規則失敗:', e);
         }
 
         // Initialize dictionary rules
@@ -1348,19 +1360,29 @@ state.currentAbortController = null;
         if (modalCopyBtn) modalCopyBtn.addEventListener('click', copyModalContent);
         
         if (resetAppBtn) {
-            resetAppBtn.addEventListener('click', () => {
-                if (confirm('您確定要重置所有內容嗎？這將會清除所有輸入和已生成的草稿。')) {
-                    if(clearBlogDraft) clearBlogDraft();
-                    if(clearSocialDraft) clearSocialDraft();
-                    if(clearInfographicDraft) clearInfographicDraft();
-                    localStorage.removeItem('lumina-edm-draft');
-                    localStorage.removeItem('lumina-carousel-draft');
-                    localStorage.removeItem('blogDraft');
-                    localStorage.removeItem('socialDraft');
-                    localStorage.removeItem('infographicDraft');
-                    showToast('頁面已重置！');
-                    setTimeout(() => { location.reload(); }, 500);
-                }
+            resetAppBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showModal({
+                    title: '確認重置',
+                    message: '您確定要重置所有內容嗎？這將會清除所有輸入和已生成的草稿。',
+                    buttons: [
+                        { text: '取消', class: 'bg-surface-variant text-on-surface', callback: () => hideModal() },
+                        { text: '確定重置', class: 'bg-error text-white', callback: () => {
+                            if(clearBlogDraft) clearBlogDraft();
+                            if(clearSocialDraft) clearSocialDraft();
+                            if(clearInfographicDraft) clearInfographicDraft();
+                            localStorage.removeItem('lumina-edm-draft');
+                            localStorage.removeItem('lumina-carousel-draft');
+                            localStorage.removeItem('blogDraft');
+                            localStorage.removeItem('socialDraft');
+                            localStorage.removeItem('infographicDraft');
+                            hideModal();
+                            showToast('頁面已重置！');
+                            setTimeout(() => { location.reload(); }, 500);
+                        }}
+                    ]
+                });
             });
         }
 

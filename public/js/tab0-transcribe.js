@@ -1,6 +1,6 @@
 import { callGeminiAudioAPI } from './gemini-api.js';
 
-import { showToast, showModal, hideModal } from './ui-components.js';
+import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
 import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
@@ -52,8 +52,8 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
    00:00:05,000 --> 00:00:10,000
    這是第二句話的內容
 
-3. 【極度重要】這是一段長度只有約 ${Math.ceil(chunkDuration)} 秒的音訊切片。你產出的所有時間戳必須從 00:00:00,000 開始計算，且「絕對不可超過 ${maxTimeStr}」。
-4. 【強制格式】每段字幕只能有 1 行，且「每行絕對不可超過 27 個字」。如果語句過長，必須強制切分到下一個時間段。
+3. 【極度重要】這是一段長度只有約 ${Math.ceil(chunkDuration)} 秒的音訊切片。你產出的所有時間戳必須從 00:00:00,000 開始計算。請確保將音訊中【最後一秒】的語音都完整辨識並加上時間戳，絕不可遺漏或截斷結尾的任何一句話。
+4. 【強制格式】每段字幕只能有 1 行，不可換行。每行字幕的理想長度為「15 到 27 個字」，不可少於 10 個字（除非是極短語句），也不可超過 30 個字。如果語句過長，必須強制切分到下一個時間段。
 5. 【強制切分】你必須依照講者的「呼吸換氣點」與「句點」切分時間區塊，每一段字幕的時間長度建議在 3 到 8 秒之間。絕對不可以把幾十秒的話塞進同一個時間區塊中！
 6. 時間戳必須精準對應音訊中的語音位置，按時間順序排列，絕對不可發生時間倒退或重疊。
 7. 序號必須從 1 開始，連續遞增
@@ -157,6 +157,27 @@ function validateAndFixSrt(rawText) {
         plainText: fixedBlocks.map(b => b.split('\n').slice(2).join(' ')).join('\n'),
         blockCount: fixedBlocks.length,
     };
+}
+
+// ########## BATCH REPLACE ON SRT (Stage 1 Post-Processing) ##########
+
+/**
+ * 對已完成的 SRT 文字做錯別字批次替換（第一階段後處理）。
+ * 只會替換字幕文字內容，不會影響時間戳。
+ * @param {string} srtText - 完整的 SRT 字串
+ * @param {Array} rules - [{original, replacement}, ...]
+ * @returns {string} 替換後的 SRT 字串
+ */
+function applyBatchReplaceToSrt(srtText, rules) {
+    if (!rules || rules.length === 0 || !srtText) return srtText;
+    let result = srtText;
+    for (const rule of rules) {
+        if (rule.original) {
+            const escaped = rule.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            result = result.replace(new RegExp(escaped, 'g'), rule.replacement);
+        }
+    }
+    return result;
 }
 
 // ########## AUDIO CHUNKING UTILITIES ##########
@@ -343,7 +364,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     const durationMin = Math.round(rawBuffer.duration / 60);
     onProgress({ type: 'status', message: `正在轉換格式（16kHz mono，共 ${durationMin} 分鐘）...` });
 
-    const targetLen = Math.ceil(rawBuffer.duration * TARGET_SR);
+    const targetLen = Math.ceil(rawBuffer.length * TARGET_SR / rawBuffer.sampleRate) + TARGET_SR;
     const offlineCtx = new OfflineAudioContext(1, targetLen, TARGET_SR);
     const srcNode = offlineCtx.createBufferSource();
     srcNode.buffer = rawBuffer;
@@ -430,7 +451,9 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         }
     }
 
-    const finalSrt = allSrtBlocks.join('\n\n');
+    let finalSrt = allSrtBlocks.join('\n\n');
+    // 第一階段：對辨識結果套用錯別字替換（後處理）
+    finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
     onProgress({ type: 'done', message: '全部辨識完成！' });
@@ -496,7 +519,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     onProgress({ type: 'status', message: `正在轉換格式（16kHz mono，共 ${durationMin} 分鐘）...` });
 
     const TARGET_SR = 16000;
-    const targetLen = Math.ceil(rawBuffer.duration * TARGET_SR);
+    const targetLen = Math.ceil(rawBuffer.length * TARGET_SR / rawBuffer.sampleRate) + TARGET_SR;
     const offlineCtx = new OfflineAudioContext(1, targetLen, TARGET_SR);
     const srcNode = offlineCtx.createBufferSource();
     srcNode.buffer = rawBuffer;
@@ -599,7 +622,9 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         if (data.text) allText.push(data.text.trim());
     }
 
-    const finalSrt = allSrtBlocks.join('\n\n');
+    let finalSrt = allSrtBlocks.join('\n\n');
+    // 第一階段：對辨識結果套用錯別字替換（後處理）
+    finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
     onProgress({ type: 'done', message: '全部辨識完成！' });
@@ -1041,11 +1066,18 @@ export function initializeTab0() {
                             handleChunkComplete
                         );
                     } else {
-                        // Gemini 模式現在也支援切段進度條回呼
+                        // Gemini 模式：結合專有名詞 + 錯字替換提示
+                        let geminiDict = terminologyDict;
+                        if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
+                            const replaceHints = state.batchReplaceRules.map(r => `「${r.original}」必須寫成「${r.replacement}」`).join('、');
+                            geminiDict = geminiDict
+                                ? geminiDict + '\n強制替換規則：' + replaceHints
+                                : '強制替換規則：' + replaceHints;
+                        }
                         result = await transcribeWithGemini(
                             selectedFile, 
                             state.transcribeLanguage, 
-                            terminologyDict, 
+                            geminiDict, 
                             handleWhisperProgress,
                             handleChunkComplete,
                             handleStream
@@ -1089,13 +1121,7 @@ export function initializeTab0() {
     if (exportSrtBtn) {
         exportSrtBtn.addEventListener('click', () => {
             if (!state.transcribeResult?.srt) return;
-            const blob = new Blob([state.transcribeResult.srt], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = (selectedFile?.name?.replace(/\.[^.]+$/, '') || 'subtitle') + '.srt';
-            a.click();
-            URL.revokeObjectURL(url);
+            saveFile(state.transcribeResult.srt, (state.originalFileName || 'subtitle') + '.srt');
             showToast('SRT 檔案已下載！');
         });
     }
@@ -1104,13 +1130,7 @@ export function initializeTab0() {
     if (exportVttBtn) {
         exportVttBtn.addEventListener('click', () => {
             if (!state.transcribeResult?.vtt) return;
-            const blob = new Blob([state.transcribeResult.vtt], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = (selectedFile?.name?.replace(/\.[^.]+$/, '') || 'subtitle') + '.vtt';
-            a.click();
-            URL.revokeObjectURL(url);
+            saveFile(state.transcribeResult.vtt, (state.originalFileName || 'subtitle') + '.vtt');
             showToast('VTT 檔案已下載！');
         });
     }
@@ -1119,13 +1139,7 @@ export function initializeTab0() {
     if (exportTxtBtn) {
         exportTxtBtn.addEventListener('click', () => {
             if (!state.transcribeResult?.text) return;
-            const blob = new Blob([state.transcribeResult.text], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = (selectedFile?.name?.replace(/\.[^.]+$/, '') || 'subtitle') + '.txt';
-            a.click();
-            URL.revokeObjectURL(url);
+            saveFile(state.transcribeResult.text, (state.originalFileName || 'subtitle') + '.txt');
             showToast('文字檔案已下載！');
         });
     }

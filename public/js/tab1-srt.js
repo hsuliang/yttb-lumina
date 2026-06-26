@@ -1,5 +1,5 @@
 import { processSubtitles } from './srt-processor.js';
-import { showToast, showModal, hideModal, stopPromptRotation } from './ui-components.js';
+import { showToast, showModal, hideModal, stopPromptRotation, saveFile } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
@@ -103,7 +103,7 @@ function resetTab1() {
     state.processedSrtResult = '';
     state.originalFileName = '';
     exportSrtBtn.disabled = true;
-    state.batchReplaceRules = [];
+    // 注意：不清空 state.batchReplaceRules，因為它是全域設定，不應被 Tab1 重置影響
     if (renderReplaceRules) renderReplaceRules();
     updateCharCount();
     toggleEmptyState();
@@ -424,15 +424,8 @@ function resetTab1() {
             return;
         }
         const blob = new Blob([state.processedSrtResult], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
         let fileName = state.originalFileName ? `${state.originalFileName}_已整理.srt` : `AliangYTTB_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.srt`;
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        saveFile(blob, fileName);
     }
 
     // --- 事件監聽 ---
@@ -500,7 +493,7 @@ function resetTab1() {
             buttons: [
                 { text: '前往設定', class: 'btn-secondary', callback: () => {
                     hideModal();
-                    if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-dict');
+                    if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-typo');
                 }},
                 { text: '直接開始', class: 'btn-primary', callback: () => {
                     hideModal();
@@ -550,17 +543,9 @@ if (tab1DownloadBtn) {
         const view = activeViewBtn.dataset.view;
         const textarea = document.getElementById(`display-${view}`);
         if (textarea && textarea.value) {
-            const blob = new Blob([textarea.value], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
             const prefix = view === 'summary' ? 'AI摘要' : 'AI章節';
             let fileName = state.originalFileName ? `${state.originalFileName}_${prefix}.txt` : `AliangYTTB_${prefix}.txt`;
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            saveFile(textarea.value, fileName);
         }
     });
 }

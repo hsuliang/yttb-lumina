@@ -1,4 +1,4 @@
-import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
+import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOptions, stopPromptRotation, saveFile } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
@@ -605,15 +605,7 @@ export const renderTags = function () { const tagContainer = document.getElement
                             text: '下載此版本',
                             class: 'btn-secondary',
                             callback: () => {
-                                const blob = new Blob([result], { type: 'text/plain;charset=utf-8' });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${document.getElementById('blog-title').value.trim() || 'optimized_text'}.txt`;
-                                document.body.appendChild(a);
-                                a.click();
-                                document.body.removeChild(a);
-                                URL.revokeObjectURL(url);
+                                saveFile(result, `${document.getElementById('blog-title').value.trim() || 'optimized_text'}.txt`);
                             }
                         },
                         { text: '取消', class: 'btn-secondary', callback: hideModal },
@@ -1014,13 +1006,7 @@ export const renderTags = function () { const tagContainer = document.getElement
         if (!htmlContent) return;
 
         const content = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${fileName}</title><style>body{font-family:sans-serif;line-height:1.6;} iframe{width:100%;aspect-ratio:16/9;} .youtube-embed{margin-bottom:1em;}</style></head><body>${htmlContent}</body></html>`;
-        const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${fileName}.html`;
-        a.click();
-        URL.revokeObjectURL(url);
+        saveFile(content, `${fileName}.html`, 'text/html;charset=utf-8');
     }
 
     function downloadAsMarkdown() {
@@ -1029,13 +1015,7 @@ export const renderTags = function () { const tagContainer = document.getElement
         if (!htmlContent) return;
 
         const content = convertHtmlToMarkdown(htmlContent);
-        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${fileName}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
+        saveFile(content, `${fileName}.md`, 'text/markdown;charset=utf-8');
     }
 
     optimizeTextForBlogBtn.addEventListener('click', optimizeTextForBlog);
