@@ -1368,7 +1368,7 @@ state.currentAbortController = null;
                     message: '您確定要重置所有內容嗎？這將會清除所有輸入和已生成的草稿。',
                     buttons: [
                         { text: '取消', class: 'bg-surface-variant text-on-surface', callback: () => hideModal() },
-                        { text: '確定重置', class: 'bg-error text-white', callback: () => {
+                        { text: '確定重置', class: 'btn-danger', callback: () => {
                             if(clearBlogDraft) clearBlogDraft();
                             if(clearSocialDraft) clearSocialDraft();
                             if(clearInfographicDraft) clearInfographicDraft();
