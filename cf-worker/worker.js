@@ -10,9 +10,221 @@
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-const WORKER_VERSION = '1.0.0';
+const WORKER_VERSION = '1.1.0';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
+
+const ENGLISH_DICT_SET = new Set([
+    'a', 'a few', 'a little', 'a lot', 'able', 'about', 'above', 'abroad',
+    'across', 'actress', 'afraid', 'after', 'afternoon', 'again', 'age', 'ago',
+    'agree', 'ahead', 'air', 'airplane', 'airport', 'all', 'almost', 'along',
+    'already', 'also', 'always', 'america', 'american', 'and', 'angry', 'animal',
+    'another', 'answer', 'ant', 'any', 'anyone', 'anything', 'apartment', 'ai', 'api',
+    'appear', 'apple', 'april', 'arm', 'around', 'arrive', 'art', 'as',
+    'ask', 'at', 'august', 'aunt', 'autumn', 'away', 'baby', 'back',
+    'bad', 'badminton', 'bag', 'bake', 'bakery', 'balcony', 'ball', 'banana',
+    'band', 'bank', 'barbecue', 'baseball', 'basket', 'basketball', 'bat', 'bath',
+    'bathroom', 'be', 'beach', 'bean', 'bear', 'beautiful', 'because', 'become',
+    'bed', 'bedroom', 'bee', 'beef', 'before', 'begin', 'behind', 'believe',
+    'bell', 'belong', 'below', 'belt', 'bench', 'beside', 'between', 'big',
+    'bike', 'bird', 'birthday', 'bite', 'black', 'blackboard', 'blanket', 'blind',
+    'block', 'blow', 'blue', 'boat', 'body', 'boil', 'book', 'bookstore',
+    'bored', 'boring', 'born', 'borrow', 'boss', 'both', 'bottle', 'bottom',
+    'bow', 'bowl', 'box', 'boy', 'bread', 'break', 'breakfast', 'bridge',
+    'bright', 'bring', 'brother', 'brown', 'brush', 'bug', 'build', 'bun',
+    'burn', 'bus', 'business', 'businessman', 'busy', 'but', 'butter', 'butterfly',
+    'buy', 'by', 'cage', 'cake', 'call', 'camera', 'camp', 'can',
+    'candle', 'candy', 'cap', 'car', 'card', 'care', 'careful', 'carry',
+    'case', 'castle', 'cat', 'catch', 'celebrate', 'cell', 'cell phone', 'cent',
+    'center', 'centimeter', 'chair', 'chalk', 'chance', 'change', 'cheap', 'cheat',
+    'check', 'cheer', 'cheese', 'chess', 'chicken', 'child', 'china', 'chinese',
+    'chocolate', 'choose', 'chopsticks', 'christmas', 'church', 'circle', 'city', 'clap',
+    'class', 'classmate', 'classroom', 'clean', 'clear', 'clerk', 'climb', 'clock',
+    'close', 'clothes', 'cloudflare', 'cloudy', 'club', 'coat', 'coffee', 'coke',
+    'cold', 'collect', 'color', 'comb', 'come', 'comfortable', 'comic', 'common',
+    'computer', 'convenient', 'cook', 'cookie', 'cool', 'copy', 'corner', 'correct',
+    'cost', 'couch', 'count', 'country', 'course', 'cousin', 'cover', 'cow',
+    'cowboy', 'crazy', 'cream', 'cross', 'cry', 'cup', 'cut', 'cute',
+    'dance', 'dangerous', 'dark', 'date', 'daughter', 'day', 'dead', 'dear',
+    'december', 'decide', 'delicious', 'dentist', 'department', 'department store', 'desk', 'dictionary',
+    'die', 'different', 'difficult', 'dig', 'dining', 'dining room', 'dinner', 'dirty',
+    'dish', 'do', 'doctor', 'dodge', 'dodge ball', 'dog', 'doll', 'dollar',
+    'door', 'dot', 'down', 'dozen', 'dragon', 'draw', 'drawer', 'dream',
+    'dress', 'drink', 'drive', 'driver', 'drop', 'drum', 'dry', 'duck',
+    'dumpling', 'during', 'e-mail', 'each', 'ear', 'early', 'earth', 'east',
+    'easter', 'easy', 'eat', 'egg', 'eight', 'eighteen', 'eighth', 'eighty',
+    'either', 'elementary', 'elementary school', 'elephant', 'eleven', 'eleventh', 'else', 'end',
+    'engineer', 'english', 'enjoy', 'enough', 'enter', 'envelope', 'eraser', 'even',
+    'evening', 'ever', 'every', 'everyone', 'everything', 'example', 'excellent', 'except',
+    'excited', 'exciting', 'excuse', 'exercise', 'expensive', 'experience', 'eye', 'face',
+    'facebook', 'fact', 'factory', 'fail', 'fall', 'family', 'famous', 'fan',
+    'far', 'farm', 'farmer', 'fast', 'fat', 'father', 'favorite', 'february',
+    'feed', 'feel', 'festival', 'fever', 'few', 'fifteen', 'fifteenth', 'fifth',
+    'fifty', 'fight', 'fill', 'finally', 'find', 'fine', 'finger', 'finish',
+    'fire', 'first', 'fish', 'fisherman', 'five', 'fix', 'floor', 'flower',
+    'flute', 'fly', 'follow', 'food', 'foot', 'for', 'foreign', 'foreigner',
+    'forget', 'fork', 'forty', 'four', 'fourteen', 'fourteenth', 'fourth', 'fox',
+    'free', 'french', 'french fries', 'fresh', 'friday', 'friend', 'friendly', 'fries',
+    'frisbee', 'frog', 'from', 'front', 'fruit', 'fry', 'full', 'fun',
+    'funny', 'future', 'game', 'garbage', 'garden', 'gas', 'gate', 'gemini',
+    'get', 'ghost', 'giant', 'gift', 'girl', 'give', 'glad', 'glass',
+    'glasses', 'glove', 'glue', 'go', 'goat', 'good', 'goodbye', 'google',
+    'goose', 'grade', 'gram', 'grandfather', 'grandmother', 'grape', 'grass', 'gray',
+    'great', 'green', 'ground', 'group', 'grow', 'guava', 'guess', 'guitar',
+    'guy', 'gym', 'habit', 'hair', 'half', 'halloween', 'ham', 'hamburger',
+    'hand', 'handsome', 'hang', 'happen', 'happy', 'hard', 'hard-working', 'hat',
+    'hate', 'have', 'he', 'head', 'headache', 'health', 'healthy', 'hear',
+    'heart', 'heat', 'heavy', 'hello', 'help', 'helpful', 'hen', 'here',
+    'hey', 'hi', 'hide', 'high', 'hike', 'hill', 'hippo', 'history',
+    'hit', 'ghost', 'hold', 'holiday', 'home', 'homework', 'honest', 'honey',
+    'hop', 'hope', 'horse', 'hospital', 'hot', 'hot dog', 'hotel', 'hour',
+    'house', 'housewife', 'how', 'however', 'hundred', 'hungry', 'hunt', 'hurry',
+    'hurt', 'husband', 'i', 'ice', 'ice cream', 'idea', 'if', 'important',
+    'in', 'insect', 'inside', 'instagram', 'interest', 'interested', 'interesting', 'internet',
+    'interview', 'into', 'invite', 'island', 'it', 'jacket', 'january', 'jeans',
+    'job', 'jog', 'join', 'joy', 'juice', 'july', 'jump', 'june',
+    'junior', 'junior high school', 'just', 'kangaroo', 'keep', 'key', 'kick', 'kid',
+    'kill', 'kilo', 'kind', 'king', 'kiss', 'kitchen', 'kite', 'knee',
+    'knife', 'knock', 'know', 'knowledge', 'koala', 'lake', 'lamp', 'land',
+    'language', 'lantern', 'large', 'last', 'late', 'later', 'laugh', 'lawyer',
+    'lazy', 'lead', 'leader', 'learn', 'least', 'leave', 'left', 'leg',
+    'lemon', 'lend', 'less', 'lesson', 'let', 'letter', 'lettuce', 'library',
+    'lid', 'lie', 'life', 'light', 'like', 'line', 'linux', 'lion',
+    'lip', 'list', 'listen', 'little', 'live', 'living', 'living room', 'lonely',
+    'long', 'look', 'lose', 'lot', 'loud', 'love', 'lovely', 'low',
+    'lucky', 'lunch', 'mac', 'machine', 'mad', 'magic', 'mail', 'mailman',
+    'make', 'man', 'many', 'map', 'march', 'mark', 'marker', 'market',
+    'married', 'mask', 'mat', 'math', 'matter', 'may', 'maybe', 'meal',
+    'mean', 'meat', 'medicine', 'medium', 'meet', 'meeting', 'menu', 'mile',
+    'milk', 'million', 'mind', 'minute', 'miss', 'mistake', 'modern', 'moment',
+    'monday', 'money', 'monkey', 'month', 'moon', 'mop', 'more', 'morning',
+    'most', 'mother', 'motorcycle', 'mountain', 'mouse', 'mouth', 'move', 'movie',
+    'mr', 'mrs', 'mrt', 'ms', 'much', 'mud', 'museum', 'music',
+    'must', 'nail', 'name', 'national', 'near', 'neck', 'need', 'neighbor',
+    'never', 'new', 'news', 'next', 'nice', 'night', 'nine', 'nineteen',
+    'nineteenth', 'ninety', 'ninth', 'no', 'nobody', 'nod', 'noise', 'noodle',
+    'noon', 'north', 'nose', 'not', 'note', 'notebook', 'nothing', 'notice',
+    'november', 'now', 'number', 'nurse', 'october', 'of', 'off', 'office',
+    'officer', 'often', 'oil', 'ok', 'old', 'on', 'once', 'one',
+    'only', 'open', 'or', 'orange', 'order', 'other', 'out', 'outside',
+    'over', 'own', 'ox', 'o’', 'o’ clock', 'p', 'pack', 'package',
+    'page', 'paint', 'pair', 'pants', 'papaya', 'paper', 'parent', 'park',
+    'part', 'party', 'pass', 'past', 'paste', 'pay', 'pe', 'peach',
+    'pear', 'pen', 'pencil', 'people', 'perhaps', 'person', 'pet', 'phone',
+    'photo', 'piano', 'pick', 'picnic', 'picture', 'pie', 'piece', 'pig',
+    'pin', 'pink', 'pipe', 'pizza', 'place', 'plan', 'planet', 'plant',
+    'plate', 'play', 'player', 'playground', 'please', 'pleasure', 'pocket', 'point',
+    'police', 'polite', 'pond', 'pool', 'poor', 'popcorn', 'popular', 'pork',
+    'possible', 'post', 'post office', 'postcard', 'pot', 'pound', 'practice', 'pray',
+    'prepare', 'present', 'pretty', 'price', 'princess', 'prize', 'problem', 'program',
+    'proud', 'public', 'pull', 'pumpkin', 'purple', 'push', 'put', 'quarter',
+    'queen', 'question', 'quick', 'quiet', 'quite', 'quiz', 'rabbit', 'race',
+    'radio', 'railroad', 'rain', 'rainbow', 'rainy', 'raise', 'rat', 'read',
+    'ready', 'real', 'really', 'recorder', 'red', 'refrigerator', 'remember', 'repeat',
+    'reporter', 'rest', 'restaurant', 'restroom', 'rice', 'rich', 'ride', 'right',
+    'ring', 'river', 'road', 'robot', 'roc', 'rock', 'roll', 'roller-skate',
+    'room', 'rope', 'rose', 'row', 'rule', 'ruler', 'run', 'sacred',
+    'sad', 'safe', 'sail', 'salad', 'sale', 'salesman', 'salt', 'same',
+    'sandwich', 'saturday', 'save', 'say', 'school', 'science', 'scooter', 'screen',
+    'sea', 'season', 'seat', 'second', 'secretary', 'see', 'seed', 'seesaw',
+    'seldom', 'sell', 'send', 'senior', 'senior high school', 'sentence', 'september', 'serious',
+    'set', 'seven', 'seventeen', 'seventeenth', 'seventh', 'seventy', 'several', 'shake',
+    'shall', 'shape', 'share', 'shark', 'she', 'ship', 'shirt', 'shoe',
+    'shop', 'shopkeeper', 'short', 'shorts', 'should', 'shoulder', 'shout', 'show',
+    'shy', 'sick', 'side', 'sidewalk', 'sight', 'sign', 'simple', 'since',
+    'sing', 'singer', 'sir', 'sister', 'sit', 'six', 'sixteen', 'sixteenth',
+    'sixth', 'sixty', 'size', 'skate', 'skirt', 'sky', 'sleep', 'slide',
+    'slim', 'slow', 'small', 'smart', 'smell', 'smile', 'smoke', 'snack',
+    'snake', 'snow', 'snowman', 'snowy', 'so', 'soccer', 'sofa', 'soldier',
+    'some', 'someone', 'something', 'sometimes', 'somewhere', 'son', 'song', 'soon',
+    'sore', 'sorry', 'sound', 'soup', 'south', 'space', 'spaghetti', 'speak',
+    'special', 'spell', 'spend', 'spider', 'spoon', 'sport', 'spring', 'square',
+    'stairs', 'stamp', 'stand', 'star', 'start', 'station', 'stay', 'steak',
+    'still', 'stomach', 'stop', 'store', 'story', 'straight', 'strange', 'stranger',
+    'strawberry', 'street', 'strong', 'student', 'study', 'stupid', 'successful', 'sugar',
+    'summer', 'sun', 'sunday', 'sunny', 'supermarket', 'sure', 'surf', 'surprise',
+    'surprised', 'sweater', 'sweet', 'swim', 'swing', 't', 't-shirt', 't-shirt t',
+    'table', 'tail', 'taiwan', 'take', 'talk', 'tall', 'tape', 'taste',
+    'taxi', 'tea', 'teach', 'teacher', 'team', 'teenager', 'telephone', 'television',
+    'tell', 'temple', 'ten', 'tennis', 'tenth', 'terrible', 'test', 'than',
+    'thank', 'that', 'the', 'theater', 'then', 'there', 'these', 'they',
+    'thick', 'thin', 'thing', 'think', 'third', 'thirsty', 'thirteen', 'thirteenth',
+    'thirty', 'this', 'those', 'though', 'thousand', 'three', 'throat', 'throw',
+    'thursday', 'ticket', 'tidy', 'tie', 'tiger', 'tiktok', 'time', 'tired',
+    'to', 'toast', 'today', 'toe', 'together', 'tomato', 'tomorrow', 'tonight',
+    'too', 'tooth', 'top', 'total', 'touch', 'towel', 'town', 'toy',
+    'traffic', 'train', 'trash', 'treat', 'tree', 'trick', 'trip', 'trouble',
+    'truck', 'true', 'try', 'tub', 'tuesday', 'turkey', 'turn', 'turtle',
+    'twelfth', 'twelve', 'twentieth', 'twenty', 'twice', 'two', 'type', 'typhoon',
+    'umbrella', 'uncle', 'under', 'understand', 'unhappy', 'uniform', 'until', 'up',
+    'usa', 'use', 'useful', 'usually', 'vacation', 'vegetable', 'very', 'vest',
+    'video', 'violin', 'visit', 'voice', 'wait', 'waiter', 'waitress', 'wake',
+    'walk', 'wall', 'wallet', 'want', 'warm', 'wash', 'watch', 'water',
+    'watermelon', 'wave', 'way', 'we', 'weak', 'wear', 'weather', 'wednesday',
+    'week', 'weekend', 'welcome', 'well', 'west', 'wet', 'whale', 'what',
+    'when', 'where', 'whether', 'which', 'whisper', 'white', 'who', 'whose',
+    'why', 'wife', 'will', 'win', 'wind', 'window', 'windows', 'windy',
+    'winter', 'wise', 'wish', 'with', 'without', 'woman', 'wonderful', 'word',
+    'work', 'workbook', 'worker', 'workers', 'world', 'worry', 'write', 'writer',
+    'wrong', 'yard', 'year', 'yellow', 'yes', 'yesterday', 'yet', 'you',
+    'young', 'youtube', 'yummy', 'zebra', 'zero', 'zoo',
+]);
+
+function shouldMergeEnglish(w1, w2, dictSet) {
+    if (!w1 || !w2) return false;
+    const l1 = w1.toLowerCase();
+    const l2 = w2.toLowerCase();
+    const combined = l1 + l2;
+
+    if (dictSet.has(combined)) return true;
+
+    const isW1Valid = dictSet.has(l1);
+    const isW2Valid = dictSet.has(l2);
+
+    if (!isW1Valid || !isW2Valid) {
+        if (/^\d+$/.test(w1) || /^\d+$/.test(w2)) return false;
+
+        const isFragment = (w) => {
+            if (w.length <= 3) return true;
+            return w.endsWith('ing') || w.endsWith('ed') || w.endsWith('ly') || w.endsWith('er') || 
+                   w.endsWith('es') || w.endsWith('tion') || w.endsWith('ment') || w.endsWith('able') || 
+                   w.endsWith('ness') || w.endsWith('ful');
+        };
+
+        if (!isW1Valid && !isW2Valid) return true;
+        if (!isW1Valid && isW2Valid) return isFragment(l1);
+        if (isW1Valid && !isW2Valid) return isFragment(l2);
+    }
+
+    return false;
+}
+
+function fixSpellingInText(text, dictSet) {
+    if (!text) return text;
+    const tokens = text.split(/([a-zA-Z0-9\-\'\’]+)/);
+    if (tokens.length < 3) return text;
+
+    let result = tokens[0];
+    let i = 1;
+    while (i < tokens.length) {
+        let curWord = tokens[i];
+        while (i + 2 < tokens.length && /^[ \t]+$/.test(tokens[i+1])) {
+            let nextWord = tokens[i+2];
+            if (shouldMergeEnglish(curWord, nextWord, dictSet)) {
+                curWord = curWord + nextWord;
+                i += 2;
+            } else {
+                break;
+            }
+        }
+        result += curWord;
+        if (i + 1 < tokens.length) {
+            result += tokens[i+1];
+        }
+        i += 2;
+    }
+    return result;
+}
 
 // ─── 時間戳處理工具 ──────────────────────────────────────────────
 function parseTimestampToMs(timeStr) {
@@ -100,7 +312,8 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
         const startMs = parseTimestampToMs(times[0]);
         const endMs = parseTimestampToMs(times[1]);
         const text = lines.slice(2).join(' ').trim();
-        parsed.push({ startMs, endMs, text });
+        const fixedText = fixSpellingInText(text, ENGLISH_DICT_SET);
+        parsed.push({ startMs, endMs, text: fixedText });
     }
 
     if (parsed.length === 0) return srtText;
@@ -128,9 +341,18 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
         // 1. 有標點且長度 >= 3
         // 2. 遇到長暫停 (無條件斷行)
         // 3. 句子太長或時間太久 (無條件斷行)
-        const shouldBreak = (hasPunctuation && cur.text.length >= 3)
+        let shouldBreak = (hasPunctuation && cur.text.length >= 3)
             || isLongPause
             || isTooLong;
+
+        // 檢查是否處於英文單字拆分的中間 (是的話強制不斷行，並消除空格)
+        const w1 = cur.text.match(/[a-zA-Z0-9\-\'\’]+$/)?.[0];
+        const w2 = blk.text.match(/^[a-zA-Z0-9\-\'\’]+/)?.[0];
+        const isMiddleOfWord = w1 && w2 && shouldMergeEnglish(w1, w2, ENGLISH_DICT_SET);
+
+        if (isMiddleOfWord) {
+            shouldBreak = false;
+        }
 
         if (shouldBreak) {
             merged.push(cur);
@@ -138,7 +360,7 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
         } else {
             cur.endMs = blk.endMs;
             const needsSpace = /[a-zA-Z0-9]$/.test(cur.text) && /^[a-zA-Z0-9]/.test(blk.text);
-            cur.text = cur.text + (needsSpace ? ' ' : '') + blk.text;
+            cur.text = cur.text + (needsSpace && !isMiddleOfWord ? ' ' : '') + blk.text;
         }
     }
     if (cur) merged.push(cur);
@@ -337,6 +559,10 @@ async function handleTranscribe(request, env) {
 
         let rawText = whisperResult.text.trim();
         let vtt = whisperResult.vtt || '';
+        
+        // 執行智慧英文單字合併，修復 rawText 與 vtt 中的英文空格問題
+        rawText = fixSpellingInText(rawText, ENGLISH_DICT_SET);
+        vtt = fixSpellingInText(vtt, ENGLISH_DICT_SET);
         
         // 執行字典事後校正替換
         if (replaceRules.length > 0) {
