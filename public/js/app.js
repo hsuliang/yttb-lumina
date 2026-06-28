@@ -3,8 +3,8 @@ import { initializeTab0 } from './tab0-transcribe.js';
 import { initializeTab1 } from './tab1-srt.js';
 import { hasBlogDraft, clearBlogDraft, updateStepperUI, initializeTab2 } from './tab2-blog.js';
 import { hasSocialDraft, clearSocialDraft, initializeTab3 } from './tab3-social.js';
-import { initializeTab4 } from './tab4-edm.js';
-import { initializeTab5 } from './tab5-carousel.js';
+import { initializeTab4, clearEdmDraft } from './tab4-edm.js';
+import { initializeTab5, clearCarouselDraft } from './tab5-carousel.js';
 import { initializeTab6, hasInfographicDraft, clearInfographicDraft, analyzeInfographicContent } from './tab6-infographic.js';
 import { showToast, showModal, hideModal, copyModalContent, saveFile } from './ui-components.js';
 import { resolveFlashModelsList } from './gemini-api.js';
@@ -1359,6 +1359,69 @@ state.currentAbortController = null;
         }
         if (modalCopyBtn) modalCopyBtn.addEventListener('click', copyModalContent);
         
+        const clearDownstreamState = (options = { notify: true }) => {
+            if (state.currentAbortController) {
+                try { state.currentAbortController.abort(); } catch (_) {}
+                state.currentAbortController = null;
+            }
+            state.originalContentForPreview = '';
+            state.optimizedTextForBlog = '';
+            state.blogArticleVersions = [];
+            state.currentBlogVersionIndex = 0;
+            state.blogSourceType = 'raw';
+            state.socialPostVersions = [];
+            state.currentSocialVersionIndex = 0;
+            state.edmVersions = [];
+            state.currentEdmVersionIndex = 0;
+            state.carouselVersions = [];
+            state.currentCarouselVersionIndex = 0;
+            state.infographicVersions = [];
+            state.currentInfographicVersionIndex = 0;
+
+            if (clearBlogDraft) clearBlogDraft();
+            if (clearSocialDraft) clearSocialDraft();
+            if (clearInfographicDraft) clearInfographicDraft();
+            if (clearEdmDraft) clearEdmDraft();
+            if (clearCarouselDraft) clearCarouselDraft();
+
+            localStorage.removeItem('lumina-edm-draft');
+            localStorage.removeItem('lumina-carousel-draft');
+            localStorage.removeItem('blogDraft');
+            localStorage.removeItem('socialDraft');
+            localStorage.removeItem('infographicDraft');
+
+            if (options.notify) {
+                showToast('已自動清除舊的產出內容，準備迎接新創作！');
+            }
+        };
+
+        const performDeepReset = (options = { reloadPage: false, notify: true }) => {
+            clearDownstreamState({ notify: false });
+
+            state.originalFileName = '';
+            state.processedSrtResult = '';
+            state.transcribeResult = null;
+
+            const smartArea = document.getElementById('smart-area');
+            if (smartArea) smartArea.value = '';
+            const tab0Srt = document.getElementById('tab0-result-srt');
+            if (tab0Srt) tab0Srt.textContent = '';
+            const tab0Text = document.getElementById('tab0-result-text');
+            if (tab0Text) tab0Text.textContent = '';
+            const tab0Vtt = document.getElementById('tab0-result-vtt');
+            if (tab0Vtt) tab0Vtt.textContent = '';
+            const tab0Empty = document.getElementById('tab0-empty-state');
+            if (tab0Empty) tab0Empty.classList.remove('hidden');
+
+            if (options.notify) {
+                showToast('頁面已重置！');
+            }
+
+            if (options.reloadPage) {
+                setTimeout(() => { location.reload(); }, 400);
+            }
+        };
+
         if (resetAppBtn) {
             resetAppBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -1369,17 +1432,8 @@ state.currentAbortController = null;
                     buttons: [
                         { text: '取消', class: 'bg-surface-variant text-on-surface', callback: () => hideModal() },
                         { text: '確定重置', class: 'btn-danger', callback: () => {
-                            if(clearBlogDraft) clearBlogDraft();
-                            if(clearSocialDraft) clearSocialDraft();
-                            if(clearInfographicDraft) clearInfographicDraft();
-                            localStorage.removeItem('lumina-edm-draft');
-                            localStorage.removeItem('lumina-carousel-draft');
-                            localStorage.removeItem('blogDraft');
-                            localStorage.removeItem('socialDraft');
-                            localStorage.removeItem('infographicDraft');
                             hideModal();
-                            showToast('頁面已重置！');
-                            setTimeout(() => { location.reload(); }, 500);
+                            performDeepReset({ reloadPage: true, notify: true });
                         }}
                     ]
                 });
@@ -1388,29 +1442,8 @@ state.currentAbortController = null;
 
         // 自動清除下游 Tab 的事件監聽
         window.addEventListener('lumina:clearDownstreamTabs', () => {
-            console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts.');
-            if(clearBlogDraft) clearBlogDraft();
-            if(clearSocialDraft) clearSocialDraft();
-            if(clearInfographicDraft) clearInfographicDraft();
-            
-            localStorage.removeItem('lumina-edm-draft');
-            localStorage.removeItem('lumina-carousel-draft');
-            localStorage.removeItem('blogDraft');
-            localStorage.removeItem('socialDraft');
-            localStorage.removeItem('infographicDraft');
-            
-            state.edmVersions = [];
-            state.carouselVersions = [];
-            state.infographicVersions = [];
-            state.blogArticleVersions = [];
-            state.socialPostVersions = [];
-            state.currentBlogVersionIndex = 0;
-            state.currentSocialVersionIndex = 0;
-            state.currentEdmVersionIndex = 0;
-            state.currentCarouselVersionIndex = 0;
-            state.currentInfographicVersionIndex = 0;
-            
-            showToast('已自動清除舊的產出內容，準備迎接新影片！');
+            console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts & state.');
+            clearDownstreamState({ notify: true });
         });
 
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
@@ -1445,6 +1478,7 @@ state.currentAbortController = null;
                 e.stopPropagation();
             }
             console.log("[Portal] 開始全新創作 clicked");
+            performDeepReset({ reloadPage: false, notify: false });
             
             // 直接進入頁面，不管有無設定金鑰
             if (welcomePortal) {

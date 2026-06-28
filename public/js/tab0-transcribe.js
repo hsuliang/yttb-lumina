@@ -1152,13 +1152,18 @@ export function initializeTab0() {
                 showToast('沒有可傳入的內容。', { type: 'warning' });
                 return;
             }
+            if (state.currentAbortController) {
+                try { state.currentAbortController.abort(); } catch (_) {}
+                state.currentAbortController = null;
+            }
+            window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
             const smartArea = document.getElementById('smart-area');
             if (smartArea) {
                 smartArea.value = content;
                 smartArea.dispatchEvent(new Event('input', { bubbles: true }));
             }
             switchTab('tab1');
-            showToast('✅ 字幕已傳入 Tab1，可以開始整理！');
+            showToast('✅ 字幕已傳入 Tab1，準備開始整理！');
         });
     }
 
