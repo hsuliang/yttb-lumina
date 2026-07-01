@@ -654,6 +654,15 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000, dictSet =
 }
 
 
+function safeDecodeHeader(value) {
+    if (!value) return '';
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+}
+
 // ─── CORS ─────────────────────────────────────────────────────────
 function corsHeaders() {
     return {
@@ -800,7 +809,7 @@ async function handleTranscribe(request, env) {
         // 我們測試過 Base64 字串是可以成功通過驗證的，所以直接採用原本成功的 Base64 寫法
         
         const customDictHeader = request.headers.get('X-Custom-Dict') || '';
-        const customDict = customDictHeader ? decodeURIComponent(customDictHeader) : '';
+        const customDict = safeDecodeHeader(customDictHeader);
         
         let promptWords = [];
         let replaceRules = [];
@@ -892,13 +901,10 @@ async function handleTranscribe(request, env) {
         
         // 2. 對 VTT 執行結構化安全清理、標點修復與簡繁轉換，避免破壞時間軸
         let vtt = cleanVttContent(rawVtt, activeDictSet, protectedTerms, replaceRules);
-        vtt = applyReplacementRules(vtt, replaceRules);
         
+        // 3. 從 VTT 產生 SRT，並合併與做最後的替換
         const rawSrt = vtt ? vttToSrt(vtt) : '';
-        const replacedRawSrt = applyReplacementRules(rawSrt, replaceRules);
-
-        // 合併字元級段落為自然句子（解決 Whisper 中文每字一段問題）
-        const srt = mergeSrtBlocks(replacedRawSrt, 800, 5000, activeDictSet);
+        const srt = mergeSrtBlocks(rawSrt, 800, 5000, activeDictSet);
         const finalSrt = applyReplacementRules(srt, replaceRules);
 
         return jsonResponse({
