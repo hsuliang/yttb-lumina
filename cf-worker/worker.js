@@ -10,7 +10,7 @@
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-const WORKER_VERSION = '1.1.0';
+const WORKER_VERSION = '1.2.0-dict-pipeline';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
 
@@ -265,8 +265,8 @@ const S2T_MAP = {
     '写': '寫', '层': '層', '请': '請', '点': '點', '赞': '贊', '订': '訂', '阅': '閱', '转': '轉', '发': '發', '赏': '賞', '镜': '鏡', '与': '與', '栏': '欄', '识': '識', '后': '後', '没': '沒', '样': '樣', '这': '這', '国': '國', '会': '會', '时': '時', '间': '間', '轴': '軸', '错': '錯', '误': '誤', '现': '現', '简': '簡', '体': '體', '个': '個', '万': '萬', '专': '專', '业': '業', '东': '東', '两': '兩', '严': '嚴', '么': '麼', '义': '義', '乐': '樂', '习': '習', '乡': '鄉', '书': '書', '买': '買', '乱': '亂', '争': '爭', '于': '於', '亚': '亞', '产': '產', '亲': '親', '亿': '億', '仅': '僅', '从': '從', '仓': '倉', '仪': '儀', '们': '們', '价': '價', '众': '眾', '优': '優', '伟': '偉', '传': '傳', '伤': '傷', '儿': '兒', '党': '黨', '兰': '蘭', '关': '關', '兴': '興', '养': '養', '兽': '獸', '军': '軍', '农': '農', '决': '決', '况': '況', '冻': '凍', '净': '淨', '准': '準', '凉': '涼', '减': '減', '几': '幾', '凤': '鳳', '凭': '憑', '凯': '凱', '击': '擊', '刘': '劉', '创': '創', '刚': '剛', '剂': '劑', '饰': '飾', '剑': '劍', '剧': '劇', '劝': '勸', '办': '辦', '务': '務', '动': '動', '励': '勵', '劳': '勞', '势': '勢', '勋': '勳', '医': '醫', '华': '華', '协': '協', '单': '單', '卖': '賣', '卢': '盧', '卫': '衛', '厂': '廠', '厅': '廳', '历': '歷', '厉': '厲', '压': '壓', '厌': '厭', '厕': '廁', '县': '縣', '参': '參', '双': '雙', '变': '變', '只': '只', '号': '號', '听': '聽', '启': '啟', '员': '員', '响': '響', '哑': '啞', '哗': '嘩', '哟': '喲', '唠': '嘮', '唤': '喚', '啧': '嘖', '啸': '嘯', '喷': '噴', '嘱': '囑', '阻': '阻', '噜': '嚕', '园': '園', '围': '圍', '图': '圖', '圆': '圓', '圣': '聖', '坚': '堅', '垫': '墊', '墙': '牆', '壮': '壯', '声': '聲', '头': '頭', '夺': '奪', '奖': '獎', '妇': '婦', '妈': '媽', '学': '學', '孙': '孫', '宝': '寶', '实': '實', '宠': '寵', '审': '審', '宪': '憲', '宫': '宮', '宽': '寬', '宾': '賓', '导': '導', '寻': '尋', '寿': '壽', '将': '將', '岁': '歲', '岂': '豈', '岗': '崗', '岛': '島', '岭': '嶺', '屿': '嶼', '带': '帶', '帮': '幫', '广': '廣', '庄': '莊', '庆': '慶', '库': '庫', '应': '應', '废': '廢', '开': '開', '异': '異', '弃': '棄', '张': '張', '弥': '彌', '弯': '彎', '弹': '彈', '归': '歸', '录': '錄', '律': '律', '得': '得', '御': '御', '忆': '憶', '忧': '憂', '怀': '懷', '态': '態', '怜': '憐', '恶': '惡', '惊': '驚', '惨': '慘', '想': '想', '意': '意', '感': '感', '愿': '願', '懂': '懂', '懒': '懶', '戏': '戲', '成': '成', '战': '戰', '戴': '戴', '户': '戶', '房': '房', '所': '所', '扁': '扁', '扇': '扇', '才': '才', '扑': '撲', '打': '打', '执': '執', '扩': '擴', '扫': '掃', '扬': '揚', '扰': '擾', '抚': '撫', '抛': '拋', '拔': '拔', '择': '擇', '抢': '搶', '护': '護', '报': '報', '担': '擔', '拆': '拆', '拉': '拉', '拌': '拌', '拍': '拍', '拒': '拒', '拖': '拖', '拼': '拼', '招': '招', '拜': '拜', '拟': '擬', '拢': '攏', '拣': '揀', '拥': '擁', '拦': '攔', '拨': '撥', '挂': '掛', '指': '指', '按': '按', '挑': '挑', '挖': '挖', '挚': '摯', '挝': '撾', '挞': '撻', '挟': '挾', '挠': '撓', '挡': '擋', '挣': '掙', '挤': '擠', '挥': '揮', '捞': '撈', '损': '損', '捡': '撿', '换': '換', '据': '據', '掳': '擄', '掷': '擲', '掸': '撣', '掺': '摻', '揽': '攬', '提': '提', '插': '插', '握': '握', '揭': '揭', '援': '援', '搁': '擱', '搂': '摟', '搅': '攪', '携': '攜', '摆': '擺', '摇': '搖', '摊': '攤', '撑': '撐', '撕': '撕', '撒': '撒', '撞': '撞', '撤': '撤', '播': '播', '操': '操', '擅': '擅', '擎': '擎', '擒': '擒', '擦': '擦', '攀': '攀', '收': '收', '改': '改', '攻': '攻', '放': '放', '政': '政', '故': '故', '效': '效', '敌': '敵', '敏': '敏', '救': '救', '教': '教', '数': '數', '整': '整', '文': '文', '断': '斷', '新': '新', '方': '方', '施': '施', '旁': '旁', '旅': '旅', '旋': '旋', '族': '族', '无': '無', '既': '既', '日': '日', '旧': '舊', '时': '時', '旷': '曠', '旺': '旺', '明': '明', '是': '是', '显': '顯', '晃': '晃', '晒': '曬', '晓': '曉', '晕': '暈', '喜': '喜', '晚': '晚', '晨': '晨', '普': '普', '景': '景', '晰': '晰', '晴': '晴', '晶': '晶', '智': '智', '晾': '晾', '暂': '暫', '暑': '暑', '暖': '暖', '暗': '暗', '暴': '暴', '曜': '曜', '书': '書', '曾': '曾', '替': '替', '最': '最', '会': '會', '月': '月', '有': '有', '朋': '朋', '服': '服', '朗': '朗', '望': '望', '朝': '朝', '期': '期', '本': '本', '术': '術', '朱': '朱', '条': '條', '来': '來', '杨': '楊', '极': '極', '杰': '傑', '松': '松', '板': '板', '构': '構', '林': '林', '果': '果', '枝': '枝', '枢': '樞', '枣': '棗', '枫': '楓', '某': '某', '染': '染', '柔': '柔', '柜': '櫃', '查': '查', '柯': '柯', '柱': '柱', '柳': '柳', '标': '標', '栈': '棧', '栋': '棟', '树': '樹', '栖': '棲', '栗': '栗', '校': '校', '样': '樣', '核': '核', '根': '根', '格': '格', '栽': '栽', '桂': '桂', '桃': '桃', '案': '案', '框': '框', '桌': '桌', '桥': '橋', '梁': '梁', '梅': '梅', '梦': '夢', '梯': '梯', '械': '械', '梳': '梳', '检': '檢', '棉': '棉', '棋': '棋', '棍': '棍', '棒': '棒', '森': '森', '阻': '阻', '椅': '椅', '植': '植', '椰': '椰', '楚': '楚', '榆': '榆', '荣': '榮', '模': '模', '槛': '檻', '榻': '榻', '榜': '榜', '槐': '槐', '样': '樣', '横': '橫', '樱': '櫻', '橘': '橘', '橙': '橙', '橡': '橡', '橱': '櫥', '橹': '櫓', '檐': '檐', '欣': '欣', '欧': '歐', '欲': '欲', '欺': '欺', '款': '款', '歌': '歌', '叹': '嘆', '欢': '歡', '正': '正', '此': '此', '步': '步', '武': '武', '歧': '歧', '歪': '歪', '岁': '歲', '归': '歸', '死': '死', '残': '殘', '殒': '殞', '殓': '殮', '殖': '殖', '殚': '殫', '导': '導', '将': '將', '率': '率', '段': '段', '殿': '殿', '毁': '毀', '毅': '毅', '每': '每', '毒': '毒', '比': '比', '毕': '畢', '毙': '斃', '毛': '毛', '毡': '氈', '毫': '毫', '毯': '毯', '气': '氣', '氢': '氫', '氧': '氧', '氮': '氮', '氯': '氯', '氟': '氟', '水': '水', '永': '永', '求': '求', '汇': '匯', '汉': '漢', '汗': '汗', '污': '污', '池': '池', '汤': '湯', '汪': '汪', '汰': '汰', '汹': '洶', '汽': '汽', '沁': '沁', '沃': '沃', '沈': '沈', '沉': '沉', '沐': '沐', '沙': '沙', '沛': '沛', '沟': '溝', '没': '沒', '沤': '漚', '机': '機', '极': '極', '仅': '僅', '从': '從', '仓': '倉', '仪': '儀', '们': '們', '价': '價', '众': '眾', '优': '優', '伟': '偉', '传': '傳', '伤': '傷', '认': '認', '说': '說', '话': '話', '语': '語', '议': '議', '论': '論', '让': '讓', '设': '設', '边': '邊', '这': '這', '进': '進', '运': '運', '还': '還', '过': '過', '远': '遠', '选': '選', '违': '違', '逊': '遜', '遥': '遙', '递': '遞', '适': '適', '迟': '遲', '读': '讀', '谁': '誰', '调': '調', '谢': '謝', '课': '課', '诚': '誠', '证': '證', '评': '評', '诉': '訴', '该': '該', '详': '詳', '诸': '諸', '诺': '諾', '谤': '謗', '谦': '謙', '阻': '阻', '谨': '謹', '谬': '謬', '谱': '譜', '谴': '譴', '赞': '贊', '纠': '糾', '纪': '紀', '约': '約', '红': '紅', '纳': '納', '纸': '紙', '级': '級', '纷': '紛', '细': '細', '终': '終', '组': '組', '结': '結', '给': '給', '绝': '絕', '统': '統', '绪': '緒', '续': '續', '维': '維', '绵': '綿', '编': '編', '缓': '緩', '缔': '締', '缘': '緣', '缠': '纏', '樱': '櫻', '视频': '影片', '频道': '頻道', '知识': '知識', '订阅': '訂閱', '转发': '轉發', '打赏': '打賞', '支持': '支持', '明镜': '明鏡', '栏目': '欄目', '其次': '其次'
 };
 
-function applyContextRules(text) {
-    if (!text) return text;
+function applyBuiltInProjectRules(text, profile = '') {
+    if (!text || profile !== 'lumina') return text;
     return text
         // 修正 YouTube / YT 的常見誤聽
         .replace(/發\s*out/gi, '發 YouTube')
@@ -317,11 +317,23 @@ function convertSimplifiedToTraditional(text) {
 function cleanHallucinatedPunctuation(text) {
     if (!text) return text;
     let cleaned = text;
-    // 1. 將常被 Whisper 幻覺用作逗號的全形字元 (Ｂ、Ｏ、６、４、＞) 替換為中文逗號
-    cleaned = cleaned.replace(/[ＢＯ６４＞]/g, '，');
-    // 2. 將連續的多個逗號/頓號/冒號合併並修正
+    // 1. Ｂ、Ｏ 僅在被中文字元包圍時（如：我Ｂ所以）才保守地轉換為逗號
+    cleaned = cleaned.replace(/([\u4e00-\u9fa5])Ｂ([\u4e00-\u9fa5])/g, '$1，$2');
+    cleaned = cleaned.replace(/([\u4e00-\u9fa5])Ｏ([\u4e00-\u9fa5])/g, '$1，$2');
+    // 其餘孤立全形 Ｂ、Ｏ 恢復為英文半形 B、O
+    cleaned = cleaned.replace(/Ｂ/g, 'B');
+    cleaned = cleaned.replace(/Ｏ/g, 'O');
+    
+    // 2. ６、４ 轉換為半形數字 6、4，不強制轉為逗號
+    cleaned = cleaned.replace(/６/g, '6');
+    cleaned = cleaned.replace(/４/g, '4');
+    
+    // 3. ＞ 轉換為半形 >，不強制轉為逗號
+    cleaned = cleaned.replace(/＞/g, '>');
+    
+    // 4. 將連續的多個逗號/頓號/冒號合併並修正
     cleaned = cleaned.replace(/[，,：:]+/g, '，');
-    // 3. 移除每句結尾多餘的逗號或冒號，以句號代替
+    // 5. 移除每句結尾多餘的逗號或冒號，以句號代替
     cleaned = cleaned.replace(/[，：,:]+$/g, '。');
     return cleaned;
 }
@@ -329,13 +341,34 @@ function cleanHallucinatedPunctuation(text) {
 function applyReplacementRules(text, replaceRules) {
     if (!text || !replaceRules?.length) return text;
     let out = text;
-    for (const rule of replaceRules) {
+    // 依 wrong/original 長度由長到短排序，防止短詞先替換破壞長詞結構
+    const sortedRules = [...replaceRules].sort((a, b) => {
+        const lenA = (a.wrong || a.original || '').length;
+        const lenB = (b.wrong || b.original || '').length;
+        return lenB - lenA;
+    });
+    
+    const placeholders = [];
+    for (let i = 0; i < sortedRules.length; i++) {
+        const rule = sortedRules[i];
         const wrong = rule.wrong || rule.original;
         const correct = rule.correct || rule.replacement;
         if (!wrong || !correct || wrong === correct) continue;
+        
         const escapedWrong = wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        out = out.replace(new RegExp(escapedWrong, 'g'), correct);
+        const regex = new RegExp(escapedWrong, 'g');
+        if (regex.test(out)) {
+            const placeholder = `___REPL_PLACEHOLDER_${i}___`;
+            placeholders.push({ placeholder, correct });
+            out = out.replace(regex, placeholder);
+        }
     }
+    
+    // 將佔位符還原為正確字
+    for (const p of placeholders) {
+        out = out.replace(new RegExp(p.placeholder, 'g'), p.correct);
+    }
+    
     return out;
 }
 
@@ -428,7 +461,7 @@ function cleanGarbledText(text, dictSet, protectedTerms = new Set()) {
     return result;
 }
 
-function cleanVttContent(vttText, dictSet, protectedTerms = new Set()) {
+function cleanVttContent(vttText, dictSet, protectedTerms = new Set(), replaceRules = []) {
     if (!vttText) return '';
     
     let header = 'WEBVTT\n\n';
@@ -456,12 +489,12 @@ function cleanVttContent(vttText, dictSet, protectedTerms = new Set()) {
         
         if (!subtitleText) continue;
         
-        let cleanedText = applyContextRules(subtitleText);
-        cleanedText = fixSpellingInText(cleanedText, dictSet);
+        // 僅執行通用清理，不執行寫死的特化規則
+        let cleanedText = fixSpellingInText(subtitleText, dictSet);
         cleanedText = cleanGarbledText(cleanedText, dictSet, protectedTerms);
         cleanedText = cleanHallucinatedPunctuation(cleanedText);
         cleanedText = convertSimplifiedToTraditional(cleanedText);
-        cleanedText = applyContextRules(cleanedText);
+        cleanedText = applyReplacementRules(cleanedText, replaceRules);
         
         if (!cleanedText) continue;
         
@@ -851,16 +884,14 @@ async function handleTranscribe(request, env) {
         }
 
         // 1. 對 rawText 執行智慧合併、清理、標點修復與簡繁轉換
-        rawText = applyContextRules(rawText);
         rawText = fixSpellingInText(rawText, activeDictSet);
         rawText = cleanGarbledText(rawText, activeDictSet, protectedTerms);
         rawText = cleanHallucinatedPunctuation(rawText);
         rawText = convertSimplifiedToTraditional(rawText);
-        rawText = applyContextRules(rawText);
         rawText = applyReplacementRules(rawText, replaceRules);
         
         // 2. 對 VTT 執行結構化安全清理、標點修復與簡繁轉換，避免破壞時間軸
-        let vtt = cleanVttContent(rawVtt, activeDictSet, protectedTerms);
+        let vtt = cleanVttContent(rawVtt, activeDictSet, protectedTerms, replaceRules);
         vtt = applyReplacementRules(vtt, replaceRules);
         
         const rawSrt = vtt ? vttToSrt(vtt) : '';
@@ -876,6 +907,11 @@ async function handleTranscribe(request, env) {
             srt: finalSrt,
             wordCount: whisperResult.word_count || 0,
             debug: {
+                workerVersion: WORKER_VERSION,
+                customDictLength: customDict ? customDict.length : 0,
+                activeDictSize: activeDictSet.size,
+                protectedTermsCount: protectedTerms.size,
+                cleanGarbledMode: "conservative",
                 customDictReceived: !!customDict,
                 promptWordsCount: promptWords.length,
                 replaceRulesCount: replaceRules.length,
