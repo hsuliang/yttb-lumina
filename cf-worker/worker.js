@@ -326,7 +326,20 @@ function cleanHallucinatedPunctuation(text) {
     return cleaned;
 }
 
-function cleanGarbledText(text, dictSet) {
+function applyReplacementRules(text, replaceRules) {
+    if (!text || !replaceRules?.length) return text;
+    let out = text;
+    for (const rule of replaceRules) {
+        const wrong = rule.wrong || rule.original;
+        const correct = rule.correct || rule.replacement;
+        if (!wrong || !correct || wrong === correct) continue;
+        const escapedWrong = wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(escapedWrong, 'g'), correct);
+    }
+    return out;
+}
+
+function cleanGarbledText(text, dictSet, protectedTerms = new Set()) {
     if (!text) return text;
     
     // 1. 移除 Unicode 亂碼字元
@@ -339,71 +352,73 @@ function cleanGarbledText(text, dictSet) {
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i];
         if (i % 2 === 0) {
-            // 偶數索引是中文或標點符號，保留
+            // 偶數索引是中文、標點符號或非英數字元，保留
             result += token;
         } else {
             // 奇數索引是英文/數字字詞
             const lowerToken = token.toLowerCase();
             
-            // 檢查是否是純數字 (如 123)
+            // A. 優先保留受保護的詞或字典詞
+            if (protectedTerms.has(lowerToken) || dictSet.has(lowerToken)) {
+                result += token;
+                continue;
+            }
+            
+            // B. 檢查是否為純數字
             if (/^\d+$/.test(token)) {
                 result += token;
                 continue;
             }
             
-            // 檢查是否在合法英文字典中
-            const isValid = dictSet.has(lowerToken);
+            // C. 檢查是否包含非 ASCII 異常字元
+            if (/[^\x00-\x7F]/.test(token)) {
+                continue;
+            }
             
-            if (isValid) {
-                result += token;
-            } else {
-                // 如果不在字典中：
-                // A. 檢查是否含有數字（例如 butterfly99arrangements），若是則判定為亂碼，丟棄
-                if (/[0-9]/.test(token)) {
-                    continue; 
-                }
-                
-                // B. 或者是長度極短（小於等於 2 個字且非字典字，可能是單個字母亂碼，如 b, c 等）
-                if (token.length <= 2) {
-                    continue; 
-                }
-                
-                // C. 檢查是否為「孤立字詞」（前後是中文或邊界，而不是跟其他英文單字相連）
-                let hasEnglishNeighbor = false;
+            // D. 處理單獨的 1-2 個字母 (非字典、非保護字)
+            if (token.length <= 2 && /^[a-zA-Z]+$/.test(token)) {
+                let isIsolated = true;
                 if (i > 1) {
-                    const prevPrevToken = tokens[i - 2];
-                    const prevSeparator = tokens[i - 1];
-                    // 如果前前 token 是英文，且中間只有空白
-                    if (prevPrevToken && /^[ \t]+$/.test(prevSeparator)) {
-                        const prevLower = prevPrevToken.toLowerCase();
-                        if (dictSet.has(prevLower) && !/^\d+$/.test(prevPrevToken)) {
-                            hasEnglishNeighbor = true;
-                        }
+                    const prevSep = tokens[i - 1];
+                    if (!/^[ \t\r\n]*$/.test(prevSep)) {
+                        isIsolated = false;
                     }
                 }
                 if (i < tokens.length - 2) {
-                    const nextNextToken = tokens[i + 2];
-                    const nextSeparator = tokens[i + 1];
-                    // 如果後後 token 是英文，且中間只有空白
-                    if (nextNextToken && /^[ \t]+$/.test(nextSeparator)) {
-                        const nextLower = nextNextToken.toLowerCase();
-                        if (dictSet.has(nextLower) && !/^\d+$/.test(nextNextToken)) {
-                            hasEnglishNeighbor = true;
-                        }
+                    const nextSep = tokens[i + 1];
+                    if (!/^[ \t\r\n]*$/.test(nextSep)) {
+                        isIsolated = false;
                     }
                 }
-                
-                if (hasEnglishNeighbor) {
-                    // 有相鄰的合法英文，保留以維護句子
-                    result += token;
-                } else {
-                    // 孤立非字典字，高機率是 hallucination 幻覺，丟棄
-                    // 清理 result 尾端的空格
+                if (isIsolated) {
+                    // 孤立單個字母判定為亂碼，丟棄，並清理 result 尾部的空格
                     if (result.endsWith(' ')) {
                         result = result.slice(0, -1);
                     }
+                    continue;
                 }
             }
+            
+            // E. 超長且無母音的單字，通常是亂碼
+            if (token.length > 8 && /^[a-zA-Z]+$/.test(token) && !/[aeiouyAEIOUY]/.test(token)) {
+                continue;
+            }
+            
+            // F. 檢查字元重複率過高 (例如 "xxxxxxx")
+            if (token.length > 6) {
+                const charCounts = {};
+                let maxCount = 0;
+                for (const char of lowerToken) {
+                    charCounts[char] = (charCounts[char] || 0) + 1;
+                    if (charCounts[char] > maxCount) maxCount = charCounts[char];
+                }
+                if (maxCount / token.length > 0.7) {
+                    continue;
+                }
+            }
+            
+            // G. 其它正常語音詞彙（即使不在預設字典中）也應予以保留，不作為刪除依據
+            result += token;
         }
     }
     
@@ -413,7 +428,7 @@ function cleanGarbledText(text, dictSet) {
     return result;
 }
 
-function cleanVttContent(vttText, dictSet) {
+function cleanVttContent(vttText, dictSet, protectedTerms = new Set()) {
     if (!vttText) return '';
     
     let header = 'WEBVTT\n\n';
@@ -443,7 +458,7 @@ function cleanVttContent(vttText, dictSet) {
         
         let cleanedText = applyContextRules(subtitleText);
         cleanedText = fixSpellingInText(cleanedText, dictSet);
-        cleanedText = cleanGarbledText(cleanedText, dictSet);
+        cleanedText = cleanGarbledText(cleanedText, dictSet, protectedTerms);
         cleanedText = cleanHallucinatedPunctuation(cleanedText);
         cleanedText = convertSimplifiedToTraditional(cleanedText);
         cleanedText = applyContextRules(cleanedText);
@@ -530,7 +545,7 @@ function vttToSrt(vttText) {
 //   2. 時間間距 > maxGapMs ms（長暫停） → 強制斷段
 //   3. 單句時長超過 maxDurationMs（避免字幕過長） → 強制斷段
 //   ❌ 不用字數當基準，保持完整語意
-function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
+function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000, dictSet = ENGLISH_DICT_SET) {
     if (!srtText || !srtText.trim()) return srtText;
 
     // 解析 SRT 塊
@@ -547,7 +562,7 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
         const startMs = parseTimestampToMs(times[0]);
         const endMs = parseTimestampToMs(times[1]);
         const text = lines.slice(2).join(' ').trim();
-        const fixedText = fixSpellingInText(text, ENGLISH_DICT_SET);
+        const fixedText = fixSpellingInText(text, dictSet);
         parsed.push({ startMs, endMs, text: fixedText });
     }
 
@@ -583,7 +598,7 @@ function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
         // 檢查是否處於英文單字拆分的中間 (是的話強制不斷行，並消除空格)
         const w1 = cur.text.match(/[a-zA-Z0-9\-\'\’]+$/)?.[0];
         const w2 = blk.text.match(/^[a-zA-Z0-9\-\'\’]+/)?.[0];
-        const isMiddleOfWord = w1 && w2 && shouldMergeEnglish(w1, w2, ENGLISH_DICT_SET);
+        const isMiddleOfWord = w1 && w2 && shouldMergeEnglish(w1, w2, dictSet);
 
         if (isMiddleOfWord) {
             shouldBreak = false;
@@ -758,20 +773,37 @@ async function handleTranscribe(request, env) {
         let replaceRules = [];
         
         if (customDict) {
-            const items = customDict.split(/[\n,，]+/).map(i => i.trim()).filter(i => i);
-            for (const item of items) {
-                if (item.includes('=') || item.includes('＝')) {
-                    const parts = item.split(/=|＝/);
+            const lines = customDict.split('\n').map(l => l.trim()).filter(l => l);
+            for (const line of lines) {
+                if (line.includes('=') || line.includes('＝')) {
+                    const parts = line.split(/=|＝/);
                     if (parts.length >= 2) {
                         const wrong = parts[0].trim();
                         const correct = parts.slice(1).join('=').trim();
                         if (wrong && correct) {
                             replaceRules.push({ wrong, correct });
-                            promptWords.push(correct); // 也把正確字加進 prompt
+                            promptWords.push(correct);
                         }
                     }
                 } else {
-                    promptWords.push(item);
+                    const items = line.split(/[,，、]+/).map(i => i.trim()).filter(i => i);
+                    for (const item of items) {
+                        promptWords.push(item);
+                    }
+                }
+            }
+        }
+        
+        // 建立 protectedTerms 保護機制
+        const protectedTerms = new Set();
+        if (promptWords.length > 0) {
+            for (const word of promptWords) {
+                protectedTerms.add(word.toLowerCase());
+                const subWords = word.match(/[a-zA-Z0-9\-\'\’]+/g);
+                if (subWords) {
+                    for (const sw of subWords) {
+                        protectedTerms.add(sw.toLowerCase());
+                    }
                 }
             }
         }
@@ -821,33 +853,35 @@ async function handleTranscribe(request, env) {
         // 1. 對 rawText 執行智慧合併、清理、標點修復與簡繁轉換
         rawText = applyContextRules(rawText);
         rawText = fixSpellingInText(rawText, activeDictSet);
-        rawText = cleanGarbledText(rawText, activeDictSet);
+        rawText = cleanGarbledText(rawText, activeDictSet, protectedTerms);
         rawText = cleanHallucinatedPunctuation(rawText);
         rawText = convertSimplifiedToTraditional(rawText);
         rawText = applyContextRules(rawText);
+        rawText = applyReplacementRules(rawText, replaceRules);
         
         // 2. 對 VTT 執行結構化安全清理、標點修復與簡繁轉換，避免破壞時間軸
-        let vtt = cleanVttContent(rawVtt, activeDictSet);
+        let vtt = cleanVttContent(rawVtt, activeDictSet, protectedTerms);
+        vtt = applyReplacementRules(vtt, replaceRules);
         
-        // 執行字典事後校正替換
-        if (replaceRules.length > 0) {
-            for (const rule of replaceRules) {
-                const escapedWrong = rule.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(escapedWrong, 'g');
-                rawText = rawText.replace(regex, rule.correct);
-                vtt = vtt.replace(regex, rule.correct);
-            }
-        }
-
         const rawSrt = vtt ? vttToSrt(vtt) : '';
+        const replacedRawSrt = applyReplacementRules(rawSrt, replaceRules);
+
         // 合併字元級段落為自然句子（解決 Whisper 中文每字一段問題）
-        const srt = mergeSrtBlocks(rawSrt);
+        const srt = mergeSrtBlocks(replacedRawSrt, 800, 5000, activeDictSet);
+        const finalSrt = applyReplacementRules(srt, replaceRules);
 
         return jsonResponse({
             text: rawText,
             vtt: vtt,
-            srt,
+            srt: finalSrt,
             wordCount: whisperResult.word_count || 0,
+            debug: {
+                customDictReceived: !!customDict,
+                promptWordsCount: promptWords.length,
+                replaceRulesCount: replaceRules.length,
+                promptWords,
+                replaceRules
+            }
         });
 
     } catch (err) {
