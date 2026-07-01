@@ -341,6 +341,51 @@ function cleanGarbledText(text, dictSet) {
     return result;
 }
 
+function cleanVttContent(vttText, dictSet) {
+    if (!vttText) return '';
+    
+    let header = 'WEBVTT\n\n';
+    let body = vttText.trim();
+    if (body.startsWith('WEBVTT')) {
+        const parts = body.split(/\n\s*\n/);
+        header = parts[0].trim() + '\n\n';
+        body = parts.slice(1).join('\n\n');
+    }
+    
+    const blocks = body.split(/\n\s*\n/).filter(b => b.trim());
+    const cleanedBlocks = [];
+    
+    for (const block of blocks) {
+        const lines = block.trim().split('\n');
+        const timeLineIdx = lines.findIndex(l => l.includes('-->'));
+        if (timeLineIdx === -1) {
+            cleanedBlocks.push(block);
+            continue;
+        }
+        
+        const timeLine = lines[timeLineIdx];
+        const beforeTime = lines.slice(0, timeLineIdx);
+        const subtitleText = lines.slice(timeLineIdx + 1).join('\n').trim();
+        
+        if (!subtitleText) continue;
+        
+        let cleanedText = fixSpellingInText(subtitleText, dictSet);
+        cleanedText = cleanGarbledText(cleanedText, dictSet);
+        cleanedText = convertSimplifiedToTraditional(cleanedText);
+        
+        if (!cleanedText) continue;
+        
+        const reconstructedLines = [
+            ...beforeTime,
+            timeLine,
+            cleanedText
+        ];
+        cleanedBlocks.push(reconstructedLines.join('\n'));
+    }
+    
+    return header + cleanedBlocks.join('\n\n');
+}
+
 // ─── 時間戳處理工具 ──────────────────────────────────────────────
 function parseTimestampToMs(timeStr) {
     const cleaned = timeStr.replace(',', '.').trim();
@@ -673,19 +718,15 @@ async function handleTranscribe(request, env) {
         }
 
         let rawText = whisperResult.text.trim();
-        let vtt = whisperResult.vtt || '';
+        const rawVtt = whisperResult.vtt || '';
         
-        // 執行智慧英文單字合併，修復 rawText 與 vtt 中的英文空格問題
+        // 1. 對 rawText 執行智慧合併與清理簡繁轉換
         rawText = fixSpellingInText(rawText, ENGLISH_DICT_SET);
-        vtt = fixSpellingInText(vtt, ENGLISH_DICT_SET);
-        
-        // 執行英文字詞與亂碼清理後處理，避免 Whisper 英文幻覺與無效字元
         rawText = cleanGarbledText(rawText, ENGLISH_DICT_SET);
-        vtt = cleanGarbledText(vtt, ENGLISH_DICT_SET);
-
-        // 執行簡繁轉換，消除簡體字
         rawText = convertSimplifiedToTraditional(rawText);
-        vtt = convertSimplifiedToTraditional(vtt);
+        
+        // 2. 對 VTT 執行結構化安全清理簡繁轉換，避免破壞時間軸
+        let vtt = cleanVttContent(rawVtt, ENGLISH_DICT_SET);
         
         // 執行字典事後校正替換
         if (replaceRules.length > 0) {
