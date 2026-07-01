@@ -169,8 +169,39 @@ const ENGLISH_DICT_SET = new Set([
     'wrong', 'yard', 'year', 'yellow', 'yes', 'yesterday', 'yet', 'you',
     'young', 'youtube', 'yummy', 'zebra', 'zero', 'zoo',
     'github', 'git', 'cursor', 'copilot', 'gpt', 'opencc', 'srt', 'vtt',
-    'pdf', 'url', 'http', 'https', 'json', 'web', 'app', 'nextjs',
+    'pdf', 'url', 'http', 'https', 'json', 'web', 'app', 'apps', 'nextjs',
     'nodejs', 'npm', 'vite', 'tailwind', 'css', 'html', 'js', 'prompt',
+    'podcast', 'podcasts', 'podcaster', 'yt', 'youtube', 'fb', 'ig', 'line',
+    'meet', 'google', 'zoom', 'slack', 'teams', 'discord', 'tiktok', 'ai',
+    'apis', 'ppt', 'excel', 'word', 'mrt', 'wifi', 'mac', 'windows', 'ios',
+    'android', 'pc', 'ok', 'vs', 'pm', 'rd', 'ui', 'ux', 'qa', 'hr', 'pr',
+    'ceo', 'cto', 'coo', 'cfo', 'vp', 'tv', 'mv', 'av', 'wav', 'mp3', 'm4a',
+    'blog', 'blogger', 'vlog', 'vlogger', 'streamer', 'live', 'channel', 'sub',
+    'subscriber', 'like', 'share', 'follow', 'post', 'story', 'reel', 'reels',
+    'shorts', 'video', 'audio', 'music', 'sound', 'voice', 'chat', 'group',
+    'call', 'meeting', 'link', 'click', 'page', 'site', 'website', 'internet',
+    'online', 'offline', 'network', 'system', 'code', 'data', 'file', 'folder',
+    'download', 'upload', 'save', 'load', 'play', 'pause', 'stop', 'skip',
+    'next', 'prev', 'back', 'forward', 'home', 'menu', 'search', 'find', 'get',
+    'set', 'go', 'do', 'make', 'take', 'give', 'keep', 'have', 'has', 'had',
+    'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'does', 'did',
+    'done', 'doing', 'can', 'could', 'will', 'would', 'shall', 'should', 'may',
+    'might', 'must', 'ought', 'need', 'dare', 'use', 'used', 'using', 'user',
+    'member', 'admin', 'guest', 'login', 'logout', 'signin', 'signout', 'signup',
+    'register', 'account', 'profile', 'settings', 'options', 'tools', 'help',
+    'info', 'about', 'contact', 'email', 'phone', 'address', 'name', 'title',
+    'subject', 'message', 'text', 'content', 'comment', 'reply', 'send',
+    'receive', 'delete', 'remove', 'clear', 'reset', 'cancel', 'true', 'false',
+    'null', 'undefined', 'nan', 'error', 'warning', 'success', 'retry', 'try',
+    'catch', 'throw', 'if', 'else', 'for', 'while', 'switch', 'case', 'break',
+    'continue', 'return', 'function', 'class', 'const', 'let', 'var', 'import',
+    'export', 'require', 'module', 'dependency', 'library', 'framework', 'plugin',
+    'extension', 'theme', 'template', 'layout', 'design', 'style', 'font', 'width',
+    'height', 'display', 'position', 'float', 'flex', 'grid', 'column', 'row',
+    'gap', 'wrap', 'justify', 'items', 'auto', 'hidden', 'visible', 'scroll',
+    'clip', 'nowrap', 'reverse', 'direction', 'start', 'end', 'space', 'between',
+    'around', 'evenly', 'stretch', 'baseline', 'safe', 'unsafe', 'inherit',
+    'initial', 'unset', 'revert'
 ]);
 
 function shouldMergeEnglish(w1, w2, dictSet) {
@@ -252,6 +283,18 @@ function convertSimplifiedToTraditional(text) {
         out += S2T_MAP[char] || char;
     }
     return out;
+}
+
+function cleanHallucinatedPunctuation(text) {
+    if (!text) return text;
+    let cleaned = text;
+    // 1. 將常被 Whisper 幻覺用作逗號的全形 B (Ｂ) 與 O (Ｏ) 替換為中文逗號
+    cleaned = cleaned.replace(/[ＢＯ]/g, '，');
+    // 2. 將連續的多個逗號/頓號/冒號合併並修正
+    cleaned = cleaned.replace(/[，,：:]+/g, '，');
+    // 3. 移除每句結尾多餘的逗號或冒號，以句號代替
+    cleaned = cleaned.replace(/[，：,:]+$/g, '。');
+    return cleaned;
 }
 
 function cleanGarbledText(text, dictSet) {
@@ -371,6 +414,7 @@ function cleanVttContent(vttText, dictSet) {
         
         let cleanedText = fixSpellingInText(subtitleText, dictSet);
         cleanedText = cleanGarbledText(cleanedText, dictSet);
+        cleanedText = cleanHallucinatedPunctuation(cleanedText);
         cleanedText = convertSimplifiedToTraditional(cleanedText);
         
         if (!cleanedText) continue;
@@ -720,13 +764,37 @@ async function handleTranscribe(request, env) {
         let rawText = whisperResult.text.trim();
         const rawVtt = whisperResult.vtt || '';
         
-        // 1. 對 rawText 執行智慧合併與清理簡繁轉換
-        rawText = fixSpellingInText(rawText, ENGLISH_DICT_SET);
-        rawText = cleanGarbledText(rawText, ENGLISH_DICT_SET);
+        // 建立結合自訂專有名詞與詞彙的動態字典，防止正確英文詞彙被過濾
+        const activeDictSet = new Set(ENGLISH_DICT_SET);
+        if (promptWords.length > 0) {
+            for (const word of promptWords) {
+                const words = word.match(/[a-zA-Z0-9\-\'\’]+/g);
+                if (words) {
+                    for (const w of words) activeDictSet.add(w.toLowerCase());
+                }
+            }
+        }
+        if (replaceRules.length > 0) {
+            for (const rule of replaceRules) {
+                const w1 = rule.wrong.match(/[a-zA-Z0-9\-\'\’]+/g);
+                if (w1) {
+                    for (const w of w1) activeDictSet.add(w.toLowerCase());
+                }
+                const w2 = rule.correct.match(/[a-zA-Z0-9\-\'\’]+/g);
+                if (w2) {
+                    for (const w of w2) activeDictSet.add(w.toLowerCase());
+                }
+            }
+        }
+
+        // 1. 對 rawText 執行智慧合併、清理、標點修復與簡繁轉換
+        rawText = fixSpellingInText(rawText, activeDictSet);
+        rawText = cleanGarbledText(rawText, activeDictSet);
+        rawText = cleanHallucinatedPunctuation(rawText);
         rawText = convertSimplifiedToTraditional(rawText);
         
-        // 2. 對 VTT 執行結構化安全清理簡繁轉換，避免破壞時間軸
-        let vtt = cleanVttContent(rawVtt, ENGLISH_DICT_SET);
+        // 2. 對 VTT 執行結構化安全清理、標點修復與簡繁轉換，避免破壞時間軸
+        let vtt = cleanVttContent(rawVtt, activeDictSet);
         
         // 執行字典事後校正替換
         if (replaceRules.length > 0) {
