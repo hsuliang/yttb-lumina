@@ -1261,6 +1261,9 @@ export function initializeTab0() {
                             handleChunkComplete,
                             handleStream
                         );
+                        window.lastPreciseAlignmentResult = result;
+                        window.lastAlignmentReport = result ? result.alignmentReport : undefined;
+                        console.log('[超精準字幕][外層] result:', result);
                     } else {
                         // Gemini 模式：結合專有名詞 + 錯字替換提示
                         let geminiDict = '';
@@ -1385,6 +1388,283 @@ export function initializeTab0() {
 
 // ########## PRECISE ALIGNMENT TRANSCRIBER ##########
 
+function stripReviewMarkers(text) {
+    if (!text) return '';
+    return String(text)
+        .replace(/\s*\[請人工確認\]\s*/g, '')
+        .replace(/\s*\[疑似辨識異常\]\s*/g, '')
+        .replace(/\s*\[HIGH_DISAGREEMENT\]\s*/g, '')
+        .trim();
+}
+
+function isSuspiciousGarbageText(text) {
+    if (!text) return false;
+    // 1. 含有 \uFFFD
+    if (text.includes('\uFFFD')) {
+        return true;
+    }
+    // 2. 單一字元連續重複 5 次以上，例如 "啊啊啊啊啊"、"啦啦啦啦啦"
+    if (/(.)\1{4,}/.test(text)) {
+        return true;
+    }
+    // 3. 雙字或多字詞連續重複 3 次以上，例如 "對對對對對對"
+    const cleanStr = text.replace(/[\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '');
+    if (cleanStr.length > 0) {
+        if (/(.{2,4})\1{2,}/.test(cleanStr)) {
+            return true;
+        }
+    }
+    // 4. 特殊罕見/控制字元或非英數非中文的字元佔比大於 15% (長度大於 20 時)
+    const nonAlphaNumHan = text.replace(/[A-Za-z0-9\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '');
+    if (text.length > 20 && nonAlphaNumHan.length > 0 && (nonAlphaNumHan.length / text.length) > 0.15) {
+        return true;
+    }
+    return false;
+}
+
+function getSimilarity(s1, s2) {
+    if (!s1 || !s2) return 0;
+    const clean1 = s1.replace(/[\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '').toLowerCase();
+    const clean2 = s2.replace(/[\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '').toLowerCase();
+    if (!clean1 || !clean2) return 0;
+    if (clean1 === clean2) return 1.0;
+    
+    const m = clean1.length;
+    const n = clean2.length;
+    const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (clean1[i - 1] === clean2[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                dp[i][j] = Math.min(
+                    dp[i - 1][j] + 1,
+                    dp[i][j - 1] + 1,
+                    dp[i - 1][j - 1] + 1
+                );
+            }
+        }
+    }
+    const distance = dp[m][n];
+    const maxLength = Math.max(m, n);
+    return (maxLength - distance) / maxLength;
+}
+
+function validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, alignmentReport) {
+    const warnings = [];
+
+    // 1. final SRT block 數是否等於 whisperBlocks.length
+    const finalBlocks = parseSrtToBlocks(finalSrt);
+    if (finalBlocks.length !== whisperBlocks.length) {
+        warnings.push(`最終 SRT 段數 (${finalBlocks.length}) 與 Whisper 原始段數 (${whisperBlocks.length}) 不一致`);
+    }
+
+    // 2. final SRT 每段 id / startTime / endTime 是否與 whisperBlocks 完全一致
+    // 4. 是否有 missing id
+    const whisperBlocksMap = {};
+    for (const wb of whisperBlocks) {
+        whisperBlocksMap[wb.id] = wb;
+    }
+
+    const finalBlocksMap = {};
+    for (const fb of finalBlocks) {
+        finalBlocksMap[fb.id] = fb;
+    }
+
+    for (const wb of whisperBlocks) {
+        const fb = finalBlocksMap[wb.id];
+        if (!fb) {
+            warnings.push(`最終 SRT 缺少 ID: ${wb.id}`);
+        } else {
+            if (fb.id !== wb.id) {
+                warnings.push(`最終 SRT 段落 ID 順序或對應不一致。預期 ID: ${wb.id}`);
+            }
+            if (fb.startTime !== wb.startTime || fb.endTime !== wb.endTime) {
+                warnings.push(`ID ${wb.id} 的時間戳與原始不一致。原始: ${wb.startTime} --> ${wb.endTime}, 最終: ${fb.startTime} --> ${fb.endTime}`);
+            }
+        }
+    }
+
+    for (const fb of finalBlocks) {
+        if (!whisperBlocksMap[fb.id]) {
+            warnings.push(`最終 SRT 多出未知 ID: ${fb.id}`);
+        }
+    }
+
+    // 3. finalSrt / finalTxt 是否含有 [請人工確認]、[疑似辨識異常]、[HIGH_DISAGREEMENT]
+    const forbiddenMarkers = ['[請人工確認]', '[疑似辨識異常]', '[HIGH_DISAGREEMENT]'];
+    for (const marker of forbiddenMarkers) {
+        if (finalSrt.includes(marker)) {
+            warnings.push(`最終 SRT 含有不應存在的標記: ${marker}`);
+        }
+        if (finalTxt.includes(marker)) {
+            warnings.push(`最終純文字 含有不應存在的標記: ${marker}`);
+        }
+    }
+
+    // 5. 是否有疑似亂碼
+    for (const fb of finalBlocks) {
+        if (isSuspiciousGarbageText(fb.text)) {
+            warnings.push(`ID ${fb.id} 的最終內容疑似亂碼: "${fb.text}"`);
+        }
+    }
+
+    // 6. 是否有相鄰段落高度重複
+    for (let i = 1; i < finalBlocks.length; i++) {
+        const prevBlock = finalBlocks[i - 1];
+        const currBlock = finalBlocks[i];
+        if (getSimilarity(prevBlock.text, currBlock.text) >= 0.8) {
+            warnings.push(`ID ${currBlock.id} 的文字與前一段 ID ${prevBlock.id} 高度重複: "${currBlock.text}"`);
+        }
+    }
+
+    return warnings;
+}
+window.validatePreciseAlignmentOutput = validatePreciseAlignmentOutput;
+
+
+function timeToMs(timeStr) {
+    if (!timeStr) return 0;
+    const parts = timeStr.replace('.', ',').split(':');
+    if (parts.length !== 3) return 0;
+    const hrs = parseInt(parts[0], 10);
+    const mins = parseInt(parts[1], 10);
+    const secsParts = parts[2].split(',');
+    const secs = parseInt(secsParts[0], 10);
+    const ms = secsParts[1] ? parseInt(secsParts[1], 10) : 0;
+    return hrs * 3600000 + mins * 60000 + secs * 1000 + ms;
+}
+
+function buildSemanticAlignmentGroups(blocks, options = {}) {
+    const {
+        maxGroupDurationMs = 12000,
+        maxGroupChars = 220,
+        maxGroupBlocks = 8,
+        overlapBlocks = 2
+    } = options;
+
+    const groups = [];
+    let currentGroupId = 1;
+    let i = 0;
+    const total = blocks.length;
+
+    while (i < total) {
+        const groupBlocks = [];
+        let groupText = '';
+        let startMs = 0;
+        const startIndex = i;
+        
+        let j = i;
+        while (j < total) {
+            const block = blocks[j];
+            const blockText = block.text || '';
+            
+            if (groupBlocks.length > 0) {
+                if (groupBlocks.length >= maxGroupBlocks) break;
+                
+                const currentDuration = timeToMs(block.endTime) - startMs;
+                if (currentDuration > maxGroupDurationMs) break;
+
+                if ((groupText.length + blockText.length) > maxGroupChars) break;
+            } else {
+                startMs = timeToMs(block.startTime);
+            }
+
+            groupBlocks.push(block);
+            groupText += (groupText ? ' ' : '') + blockText;
+
+            // 遇到句尾標點且已累積至少 3 段則提前結束該群
+            const endsWithPunct = /[。！？?！]/.test(blockText);
+            if (endsWithPunct && groupBlocks.length >= 3) {
+                j++;
+                break;
+            }
+
+            j++;
+        }
+
+        const endIndex = j - 1;
+        groups.push({
+            groupId: currentGroupId++,
+            startIndex,
+            endIndex,
+            blockIds: groupBlocks.map(b => b.id),
+            startTime: groupBlocks[0].startTime,
+            endTime: groupBlocks[groupBlocks.length - 1].endTime,
+            contextText: groupText,
+            blocks: groupBlocks.map(b => ({ id: b.id, text: b.text }))
+        });
+
+        if (j >= total) {
+            break;
+        }
+
+        // 下一次的索引加上 overlap
+        const nextStart = j - overlapBlocks;
+        if (nextStart > i) {
+            i = nextStart;
+        } else {
+            i = i + 1; // 防呆防死循環
+        }
+    }
+
+    return groups;
+}
+
+function mergeAlignedGroupResults(existingMap, newItems, originalBlocksById) {
+    if (!Array.isArray(newItems)) return existingMap;
+    
+    const confidenceRank = {
+        'high': 3,
+        'medium': 2,
+        'low': 1
+    };
+
+    for (const newItem of newItems) {
+        if (!newItem || typeof newItem.id !== 'number') continue;
+        if (originalBlocksById && !originalBlocksById[newItem.id]) continue;
+        
+        const text = typeof newItem.text === 'string' ? newItem.text : '';
+        const cleanText = stripReviewMarkers(text);
+        const confidence = ['high', 'medium', 'low'].includes(newItem.confidence) ? newItem.confidence : 'low';
+        const source = ['main', 'reference', 'merged'].includes(newItem.source) ? newItem.source : 'main';
+        const flags = Array.isArray(newItem.flags) ? newItem.flags : [];
+        const note = typeof newItem.note === 'string' ? newItem.note : '';
+
+        const validatedItem = {
+            id: newItem.id,
+            text: cleanText,
+            confidence,
+            source,
+            flags,
+            note
+        };
+
+        const existing = existingMap[newItem.id];
+        if (!existing) {
+            existingMap[newItem.id] = validatedItem;
+        } else {
+            const rankNew = confidenceRank[validatedItem.confidence] || 1;
+            const rankExisting = confidenceRank[existing.confidence] || 1;
+
+            if (rankNew > rankExisting) {
+                existingMap[newItem.id] = validatedItem;
+            } else if (rankNew === rankExisting) {
+                const flagsCountNew = validatedItem.flags.length;
+                const flagsCountExisting = existing.flags.length;
+
+                if (flagsCountNew < flagsCountExisting) {
+                    existingMap[newItem.id] = validatedItem;
+                }
+            }
+        }
+    }
+    return existingMap;
+}
+
 function parseSrtToBlocks(srtText) {
     if (!srtText) return [];
     const blocks = [];
@@ -1411,77 +1691,196 @@ function escapeHtml(text) {
         .replace(/'/g, "&#039;");
 }
 
+function generateAlignmentReportText(report) {
+    const lines = [];
+    lines.push('超精準字幕對齊報告');
+    lines.push('');
+    lines.push(`總段數：${report.totalSegments}`);
+    lines.push(`Gemini 修正：${report.geminiCorrected}`);
+    lines.push(`Whisper 保留：${report.whisperRetained}`);
+    lines.push(`待人工確認：${report.manualCheck}`);
+    lines.push(`失敗段數：${report.failedSegments}`);
+    lines.push('');
+    
+    lines.push('Validation Warnings：');
+    if (report.validationWarnings && report.validationWarnings.length > 0) {
+        report.validationWarnings.forEach(w => {
+            lines.push(w);
+        });
+    } else {
+        lines.push('時間軸與輸出驗證通過');
+    }
+    lines.push('');
+    
+    lines.push('可疑段落：');
+    if (report.suspicious && report.suspicious.length > 0) {
+        report.suspicious.forEach(item => {
+            lines.push(`ID：${item.id}`);
+            lines.push(`時間：${item.timeRange}`);
+            lines.push(`Whisper 原文：${item.whisperText}`);
+            lines.push(`校正後文字：${item.alignedText}`);
+            lines.push(`confidence：${item.confidence}`);
+            lines.push(`source：${item.source}`);
+            lines.push(`flags：${Array.isArray(item.flags) ? item.flags.join(', ') : ''}`);
+            lines.push(`note：${item.note || ''}`);
+            lines.push('---');
+        });
+    } else {
+        lines.push('無需人工確認段落');
+    }
+    
+    return lines.join('\n');
+}
+
 function renderAlignmentReport(report, container) {
     if (!container || !report) return;
+    
+    const warningsCount = report.validationWarnings?.length || 0;
+    const suspiciousCount = report.suspicious?.length || 0;
+    
     container.innerHTML = `
-        <div class="glass-card p-5 rounded-xl border border-outline-variant/10 shadow-lg text-on-surface bg-surface-container-low/40 backdrop-blur-md">
-            <h3 class="text-sm font-semibold flex items-center gap-2 mb-3">
-                <span class="material-symbols-outlined text-[18px] text-primary">analytics</span>雙稿對齊校正報告
-            </h3>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-center mb-4">
-                <div class="bg-surface-variant/20 p-2.5 rounded-lg">
-                    <div class="text-[10px] text-on-surface-variant">總段數</div>
-                    <div class="text-base font-bold">${report.totalSegments}</div>
+        <details class="glass-card rounded-xl border border-outline-variant/10 shadow-lg text-on-surface bg-surface-container-low/40 backdrop-blur-md overflow-hidden group" open>
+            <summary class="cursor-pointer font-semibold flex items-center justify-between text-on-surface select-none p-4 hover:bg-surface-variant/10 transition-all text-sm list-none [&::-webkit-details-marker]:hidden">
+                <span class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[18px] text-primary">analytics</span>超精準字幕對齊報告
+                </span>
+                <span class="material-symbols-outlined transition-transform duration-300 group-open:rotate-180">expand_more</span>
+            </summary>
+            <div class="p-4 border-t border-outline-variant/10 bg-surface-container/20">
+                <!-- Stats Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-center mb-4">
+                    <div class="bg-surface-variant/20 p-2.5 rounded-lg flex flex-col justify-between">
+                        <div class="text-[10px] text-on-surface-variant mb-1">總段數</div>
+                        <div class="text-base font-bold">${report.totalSegments}</div>
+                    </div>
+                    <div class="bg-primary/10 p-2.5 rounded-lg text-primary flex flex-col justify-between">
+                        <div class="text-[10px] text-primary/80 mb-1">Gemini 修正</div>
+                        <div class="text-base font-bold">${report.geminiCorrected}</div>
+                    </div>
+                    <div class="bg-success/15 p-2.5 rounded-lg text-success flex flex-col justify-between">
+                        <div class="text-[10px] text-success/80 mb-1">Whisper 保留</div>
+                        <div class="text-base font-bold">${report.whisperRetained}</div>
+                    </div>
+                    <div class="bg-warning/15 p-2.5 rounded-lg text-warning flex flex-col justify-between">
+                        <div class="text-[10px] text-warning/80 mb-1">待人工確認</div>
+                        <div class="text-base font-bold">${report.manualCheck}</div>
+                    </div>
+                    <div class="bg-error/10 p-2.5 rounded-lg text-error flex flex-col justify-between">
+                        <div class="text-[10px] text-error/80 mb-1">失敗段數</div>
+                        <div class="text-base font-bold">${report.failedSegments}</div>
+                    </div>
+                    <div class="bg-outline-variant/20 p-2.5 rounded-lg text-on-surface flex flex-col justify-between">
+                        <div class="text-[10px] text-on-surface/80 mb-1">驗證警告</div>
+                        <div class="text-base font-bold">${warningsCount}</div>
+                    </div>
+                    <div class="bg-error/15 p-2.5 rounded-lg text-error flex flex-col justify-between">
+                        <div class="text-[10px] text-error/80 mb-1">可疑段落</div>
+                        <div class="text-base font-bold">${suspiciousCount}</div>
+                    </div>
                 </div>
-                <div class="bg-primary/10 p-2.5 rounded-lg text-primary">
-                    <div class="text-[10px] text-primary/80">Gemini 修正</div>
-                    <div class="text-base font-bold">${report.geminiCorrected}</div>
+
+                <!-- Download Button Row -->
+                <div class="flex justify-end mb-4">
+                    <button id="tab0-download-alignment-report" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all flex items-center gap-1.5 cursor-pointer">
+                        <span class="material-symbols-outlined text-[16px]">download</span>下載對齊報告
+                    </button>
                 </div>
-                <div class="bg-secondary/10 p-2.5 rounded-lg text-secondary">
-                    <div class="text-[10px] text-secondary/80">Whisper 原文</div>
-                    <div class="text-base font-bold">${report.whisperRetained}</div>
+
+                <!-- Validation Warnings Section -->
+                <div class="mb-4">
+                    ${warningsCount === 0 ? `
+                        <div class="p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success flex items-center gap-1.5 font-medium">
+                            <span>✅ 時間軸與輸出驗證通過</span>
+                        </div>
+                    ` : `
+                        <div class="p-3 bg-warning/10 border border-warning/20 rounded-lg text-xs text-warning">
+                            <div class="font-semibold flex items-center gap-1 mb-1.5">
+                                <span class="material-symbols-outlined text-[16px]">warning</span>時間軸與輸出驗證警告 (${warningsCount} 項)
+                            </div>
+                            <ul class="list-disc pl-4 space-y-1">
+                                ${report.validationWarnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                            </ul>
+                        </div>
+                    `}
                 </div>
-                <div class="bg-error/10 p-2.5 rounded-lg text-error">
-                    <div class="text-[10px] text-error/80">失敗段數</div>
-                    <div class="text-base font-bold">${report.failedSegments}</div>
-                </div>
-                <div class="bg-warning/10 p-2.5 rounded-lg text-warning">
-                    <div class="text-[10px] text-warning/80">待人工確認</div>
-                    <div class="text-base font-bold">${report.manualCheck}</div>
+
+                <!-- Suspicious Section -->
+                <div>
+                    ${suspiciousCount === 0 ? `
+                        <div class="p-3 bg-success/10 border border-success/20 rounded-lg text-xs text-success flex items-center gap-1.5 font-medium">
+                            <span>✅ 無需人工確認段落</span>
+                        </div>
+                    ` : `
+                        <div class="text-xs bg-surface-variant/10 border border-outline-variant/10 rounded-lg p-3">
+                            <div class="font-semibold text-on-surface-variant mb-2">可疑段落列表 (${suspiciousCount} 段)</div>
+                            <div class="overflow-x-auto max-h-[350px]">
+                                <table class="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr class="border-b border-outline-variant/20 text-on-surface-variant font-semibold">
+                                            <th class="py-2 px-2 w-12 text-center">ID</th>
+                                            <th class="py-2 px-2 w-28 text-center font-mono">時間軸</th>
+                                            <th class="py-2 px-2">Whisper 原文</th>
+                                            <th class="py-2 px-2">校正後文字</th>
+                                            <th class="py-2 px-2 text-center font-mono">信賴度 / 來源</th>
+                                            <th class="py-2 px-2">對齊備註 / 旗標</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${report.suspicious.map(item => {
+                                            const hasManual = item.flags?.includes('HIGH_DISAGREEMENT') || item.flags?.includes('UNCERTAIN');
+                                            const badgeClass = hasManual ? 'bg-error/20 text-error' : 'bg-primary/20 text-primary';
+                                            const flagsText = Array.isArray(item.flags) ? item.flags.join(', ') : '';
+                                            return `
+                                            <tr class="border-b border-outline-variant/10 hover:bg-surface-variant/10 transition-colors">
+                                                <td class="py-2 px-2 text-center text-on-surface-variant font-semibold">${item.id}</td>
+                                                <td class="py-2 px-2 text-center text-on-surface-variant font-mono text-[11px] whitespace-nowrap">${item.timeRange}</td>
+                                                <td class="py-2 px-2 text-error/80 line-through">${escapeHtml(item.whisperText)}</td>
+                                                <td class="py-2 px-2 text-success font-semibold">${escapeHtml(item.alignedText)}</td>
+                                                <td class="py-2 px-2 text-center text-on-surface-variant font-mono text-[10px]">${item.confidence} / ${item.source}</td>
+                                                <td class="py-2 px-2">
+                                                    ${flagsText ? `<span class="px-1.5 py-0.5 rounded font-semibold text-[10px] ${badgeClass} inline-block mb-1">${flagsText}</span>` : ''}
+                                                    <div class="text-[10px] text-on-surface-variant/70">${escapeHtml(item.note || '')}</div>
+                                                </td>
+                                            </tr>
+                                            `;
+                                        }).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `}
                 </div>
             </div>
-            
-            ${report.suspicious && report.suspicious.length > 0 ? `
-            <details class="text-xs bg-surface-variant/10 rounded-lg p-3">
-                <summary class="cursor-pointer font-semibold flex items-center justify-between text-on-surface-variant select-none">
-                    <span>可疑或已校正段落列表 (${report.suspicious.length} 段)</span>
-                    <span class="material-symbols-outlined text-[14px]">expand_more</span>
-                </summary>
-                <div class="mt-2 overflow-x-auto max-h-[300px]">
-                    <table class="w-full text-left border-collapse mt-1">
-                        <thead>
-                            <tr class="border-b border-outline-variant/10 text-on-surface-variant font-semibold">
-                                <th class="py-1.5 px-2 w-12 text-center">ID</th>
-                                <th class="py-1.5 px-2 w-28 text-center">時間軸</th>
-                                <th class="py-1.5 px-2">Whisper 原文</th>
-                                <th class="py-1.5 px-2">校正後文字</th>
-                                <th class="py-1.5 px-2">對齊備註 / 旗標</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${report.suspicious.map(item => {
-                                const hasManual = item.flags.includes('HIGH_DISAGREEMENT') || item.alignedText.includes('[請人工確認]');
-                                const badgeClass = hasManual ? 'bg-error/20 text-error' : 'bg-primary/20 text-primary';
-                                return `
-                                <tr class="border-b border-outline-variant/5 hover:bg-surface-variant/20">
-                                    <td class="py-2 px-2 text-center text-on-surface-variant">${item.id}</td>
-                                    <td class="py-2 px-2 text-center text-on-surface-variant font-mono">${item.timeRange}</td>
-                                    <td class="py-2 px-2 text-error/80 line-through">${escapeHtml(item.whisperText)}</td>
-                                    <td class="py-2 px-2 text-success font-semibold">${escapeHtml(item.alignedText)}</td>
-                                    <td class="py-2 px-2">
-                                        <span class="px-1.5 py-0.5 rounded font-semibold text-[10px] ${badgeClass}">${item.flags.join(', ')}</span>
-                                        <div class="text-[10px] text-on-surface-variant/70 mt-0.5">${escapeHtml(item.note || '')}</div>
-                                    </td>
-                                </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </details>
-            ` : `<div class="text-xs text-success text-center">🎉 無可疑或需要人工確認的段落，雙稿對齊完美！</div>`}
-        </div>
+        </details>
     `;
+    
+    // Bind click event for download button
+    const downloadBtn = document.getElementById('tab0-download-alignment-report');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', () => {
+            const reportText = generateAlignmentReportText(report);
+            saveFile(reportText, (state.originalFileName || 'subtitle') + '_alignment_report.txt');
+            showToast('對齊報告下載成功！');
+        });
+    }
+}
+
+function shouldAddToSuspicious(aligned) {
+    if (!aligned) return false;
+
+    const flags = Array.isArray(aligned.flags) ? aligned.flags : [];
+    const confidence = aligned.confidence || '';
+
+    return (
+        confidence === 'low' ||
+        flags.includes('HIGH_DISAGREEMENT') ||
+        flags.includes('UNCERTAIN') ||
+        flags.includes('GARBAGE_TEXT_REJECTED') ||
+        flags.includes('POSSIBLE_DUPLICATE') ||
+        flags.includes('FAILED') ||
+        flags.includes('REFERENCE_MISSING') ||
+        flags.includes('MAIN_GARBLED_REFERENCE_USED')
+    );
 }
 
 async function transcribeWithPreciseAlignment(file, language, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
@@ -1719,10 +2118,26 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
     }
 
     // ==========================================
-    // PHASE 3: 雙稿精準校對 (Batching 40 blocks)
+    // PHASE 3: 雙稿精準校對 (導入語意群上下文對齊)
     // ==========================================
-    const BATCH_SIZE = 40;
-    const totalBatches = Math.ceil(whisperBlocks.length / BATCH_SIZE);
+    const semanticGroups = buildSemanticAlignmentGroups(whisperBlocks, {
+        maxGroupDurationMs: 12000,
+        maxGroupChars: 220,
+        maxGroupBlocks: 8,
+        overlapBlocks: 2
+    });
+
+    const blockToGroupMap = {};
+    for (const group of semanticGroups) {
+        for (const id of group.blockIds) {
+            if (!blockToGroupMap[id]) {
+                blockToGroupMap[id] = group.groupId;
+            }
+        }
+    }
+
+    const BATCH_GROUPS_COUNT = 6; // 每次對齊發送 6 個語意群，提供最穩定的 Context
+    const totalBatches = Math.ceil(semanticGroups.length / BATCH_GROUPS_COUNT);
     const alignedResultsMap = {};
 
     let geminiCorrected = 0;
@@ -1756,22 +2171,32 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         onProgress({
             type: 'chunks',
             current: b + 1, total: totalBatches,
-            message: `3/3：正在校對第 ${b + 1} 批次字幕段落...`,
+            message: `3/3：正在以語意群對齊第 ${b + 1} 批次字幕...`,
             eta: '',
         });
 
-        const startIdx = b * BATCH_SIZE;
-        const endIdx = Math.min(startIdx + BATCH_SIZE, whisperBlocks.length);
-        const batchBlocks = whisperBlocks.slice(startIdx, endIdx);
+        const startIdx = b * BATCH_GROUPS_COUNT;
+        const endIdx = Math.min(startIdx + BATCH_GROUPS_COUNT, semanticGroups.length);
+        const batchGroups = semanticGroups.slice(startIdx, endIdx);
+
+        // 收集這一批次所有的 block ids 做後續校驗與 Fallback
+        const batchBlockIds = new Set();
+        for (const group of batchGroups) {
+            for (const id of group.blockIds) {
+                batchBlockIds.add(id);
+            }
+        }
 
         const prompt = `你是一位專業字幕對齊與校稿師。
 
 現在有兩份資料：
 
-A. Whisper blocks：
-這份字幕的時間碼比較準，但文字可能有音近錯字、漏字、多字、亂碼或專有名詞錯誤。
+A. Whisper targetGroups:
+這是需要被校正的字幕語意群組。
+每個語意群都有 groupId、contextText (完整句子上下文) 和 blocks 陣列。
 每個 block 都有 id 與 text。
 id 對應的時間碼已由程式鎖定，你不得修改。
+contextText 只是幫助你理解前後文。
 
 B. Gemini 參考稿：
 這份文字通常比較準，但時間碼可能不準，段落也可能較粗。
@@ -1781,24 +2206,23 @@ B. Gemini 參考稿：
 針對每個 Whisper block 的 id，根據 Gemini 參考稿修正 text。
 
 重要規則：
-1. 必須回傳所有 id。
+1. 必須回傳所有 blocks 中的 id。
 2. 不得新增 id。
 3. 不得刪除 id。
-4. 不得合併多個 id。
+4. 不得合併多個 id 或是重新分配時間。
 5. 不得拆分 id。
-6. 不得輸出時間碼。
-7. 不得輸出 SRT。
-8. 不得輸出說明文字。
+6. 不得輸出時間碼與 SRT 格式。
+7. 不得輸出說明文字與任何 markdown 外包裝。
+8. text 欄位只能包含正式字幕文字，不得包含 [請人工確認]、[疑似辨識異常]、[HIGH_DISAGREEMENT] 等任何人工確認與警示標記文字。所有可疑狀態必須放在 flags 與 note，不得寫進 text。
 9. 不得新增 A 和 B 都沒有支持的內容。
 10. 如果 A 有內容但 B 疑似漏掉，請保留 A 的內容，flags 加上 "REFERENCE_MISSING"。
 11. 如果 A 明顯是音近錯字，而 B 有合理對應文字，請使用 B 的文字，flags 加上 "REFERENCE_USED"。
 12. 如果 A 明顯是亂碼或多餘插入字，而 B 有合理對應，請使用 B 的文字，flags 加上 "MAIN_GARBLED_REFERENCE_USED"。
-13. 如果 A 和 B 差異過大，請選擇較可信的文字，並在 text 後加上「[請人工確認]」，flags 加上 "HIGH_DISAGREEMENT"。
+13. 如果 A 和 B 差異過大，請選擇較可信的文字，但不得在 text 中加入任何人工確認標記。請將 flags 加上 "HIGH_DISAGREEMENT"，並在 note 中說明「兩稿差異較大，請人工確認」。
 14. 如果無法判斷，請保留 A 的文字，flags 加上 "UNCERTAIN"。
-15. 使用繁體中文。
-16. 只輸出合法 JSON array。
-17. 不要輸出 markdown。
-18. 不要輸出任何說明文字。
+15. 如果某一句話橫跨多個 blocks，請依照原 blocks 的切分方式，將文字合理保留在對應 id 中，不得把整句都塞到第一個 id。
+16. 使用繁體中文。
+17. 只輸出合法 JSON array。
 
 回傳格式：
 [
@@ -1812,9 +2236,9 @@ B. Gemini 參考稿：
   }
 ]
 
-以下是 Whisper blocks：
+以下是 Whisper targetGroups：
 ---
-${JSON.stringify(batchBlocks, null, 2)}
+${JSON.stringify({ targetGroups: batchGroups.map(g => ({ groupId: g.groupId, contextText: g.contextText, blocks: g.blocks })) }, null, 2)}
 ---
 
 以下是 Gemini 參考稿：
@@ -1836,63 +2260,26 @@ ${settingsText}
             console.warn(`[Precise Transcribe] Batch ${b + 1} Gemini 對齊失敗：`, err);
         }
 
-        const batchResultMap = {};
-        if (Array.isArray(batchResult)) {
-            for (const item of batchResult) {
-                if (item && typeof item.id === 'number') {
-                    batchResultMap[item.id] = item;
-                }
-            }
+        const originalBlocksById = {};
+        for (const block of whisperBlocks) {
+            originalBlocksById[block.id] = block;
         }
 
-        for (const block of batchBlocks) {
-            const aligned = batchResultMap[block.id];
-            const isValid = aligned && 
-                            typeof aligned.text === 'string' &&
-                            ['high', 'medium', 'low'].includes(aligned.confidence) &&
-                            ['main', 'reference', 'merged'].includes(aligned.source) &&
-                            Array.isArray(aligned.flags);
+        mergeAlignedGroupResults(alignedResultsMap, batchResult, originalBlocksById);
 
-            if (isValid) {
-                alignedResultsMap[block.id] = aligned;
-                
-                const isCorrected = aligned.source === 'reference' || aligned.source === 'merged' || aligned.text !== block.text;
-                const isManual = aligned.flags.includes('HIGH_DISAGREEMENT') || aligned.text.includes('[請人工確認]');
-
-                if (isManual) {
-                    manualCheck++;
-                    suspicious.push({
-                        id: block.id,
-                        timeRange: `${block.startTime} --> ${block.endTime}`,
-                        whisperText: block.text,
-                        alignedText: aligned.text,
-                        flags: aligned.flags,
-                        note: aligned.note || '高差異度，需要人工核對'
-                    });
-                } else if (isCorrected) {
-                    geminiCorrected++;
-                    suspicious.push({
-                        id: block.id,
-                        timeRange: `${block.startTime} --> ${block.endTime}`,
-                        whisperText: block.text,
-                        alignedText: aligned.text,
-                        flags: aligned.flags,
-                        note: aligned.note || '自動對齊修正'
-                    });
-                } else {
-                    whisperRetained++;
-                }
-            } else {
+        // 針對批次中缺失的 ID 進行 Fallback 安全機制
+        for (const id of batchBlockIds) {
+            if (!alignedResultsMap[id]) {
                 failedSegments++;
-                const fallbackAligned = {
-                    id: block.id,
-                    text: block.text,
+                const block = originalBlocksById[id];
+                alignedResultsMap[id] = {
+                    id: id,
+                    text: block ? block.text : '',
                     confidence: 'low',
                     source: 'main',
                     flags: ['FAILED'],
-                    note: 'Gemini 回傳格式錯誤或遺失，已使用原 Whisper 文字'
+                    note: 'Gemini 未回傳此 ID 資訊，已自動使用原 Whisper 文字'
                 };
-                alignedResultsMap[block.id] = fallbackAligned;
             }
         }
 
@@ -1902,20 +2289,117 @@ ${settingsText}
     }
 
     // ==========================================
-    // Step 6: 重組最終 SRT / VTT / TXT
+    // 統計與產生報告
+    // ==========================================
+    const validationWarnings = [];
+    let prevAlignedInfo = null;
+
+    // 第一階段：逐一檢查品質規則（疑似亂碼、相鄰重複）並修正 alignedResultsMap 欄位
+    for (let index = 0; index < whisperBlocks.length; index++) {
+        const block = whisperBlocks[index];
+        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
+        
+        if (!Array.isArray(aligned.flags)) {
+            aligned.flags = [];
+        }
+
+        const cleanAlignedText = stripReviewMarkers(aligned.text || '');
+        aligned.text = cleanAlignedText;
+
+        // 1. 檢查 Gemini 回傳是否疑似亂碼
+        if (isSuspiciousGarbageText(cleanAlignedText)) {
+            aligned.text = block.text; // 不採用 Gemini text，改用原 Whisper block.text
+            aligned.source = 'main';
+            aligned.confidence = 'low';
+            if (!aligned.flags.includes('GARBAGE_TEXT_REJECTED')) {
+                aligned.flags.push('GARBAGE_TEXT_REJECTED');
+            }
+            aligned.note = 'Gemini 回傳疑似亂碼，已保留 Whisper 原文';
+            
+            validationWarnings.push(`[疑似亂碼] ID ${block.id}: Gemini 回傳疑似亂碼，已自動保留 Whisper 原文 ("${block.text}")。`);
+        }
+
+        // 2. 檢查相鄰段落是否高度重複
+        if (prevAlignedInfo) {
+            const currentText = aligned.text || '';
+            const prevText = prevAlignedInfo.aligned.text || '';
+            if (getSimilarity(currentText, prevText) >= 0.8) {
+                if (!aligned.flags.includes('POSSIBLE_DUPLICATE')) {
+                    aligned.flags.push('POSSIBLE_DUPLICATE');
+                }
+                aligned.note = '相鄰字幕文字高度重複，請人工確認';
+                
+                validationWarnings.push(`[重複警告] ID ${block.id}: 文字與前一段 (ID ${prevAlignedInfo.block.id}) 高度重複 ("${currentText}")，請人工確認。`);
+            }
+        }
+
+        prevAlignedInfo = { block, aligned };
+    }
+
+    // 第二階段：計算統計指標並收集 suspicious 陣列
+    for (const block of whisperBlocks) {
+        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
+        const cleanAlignedText = aligned.text || block.text;
+
+        const isCorrected = aligned.source === 'reference' || aligned.source === 'merged' || cleanAlignedText !== block.text;
+        if (isCorrected) {
+            geminiCorrected++;
+        } else {
+            whisperRetained++;
+        }
+
+        const flags = Array.isArray(aligned.flags) ? aligned.flags : [];
+        const confidence = aligned.confidence || '';
+        const isManual = confidence === 'low' || flags.includes('HIGH_DISAGREEMENT') || flags.includes('UNCERTAIN');
+        if (isManual) {
+            manualCheck++;
+        }
+
+        if (shouldAddToSuspicious(aligned)) {
+            let note = aligned.note;
+            if (!note) {
+                if (flags.includes('HIGH_DISAGREEMENT')) {
+                    note = '兩稿差異較大，請人工確認';
+                } else if (flags.includes('UNCERTAIN')) {
+                    note = '不確定對齊內容';
+                } else {
+                    note = '一般異常，需要人工作業確認';
+                }
+            }
+            suspicious.push({
+                id: block.id,
+                timeRange: `${block.startTime} --> ${block.endTime}`,
+                whisperText: block.text,
+                alignedText: cleanAlignedText,
+                confidence: aligned.confidence,
+                source: aligned.source,
+                flags: aligned.flags,
+                note: note,
+                groupId: blockToGroupMap[block.id] || null
+            });
+        }
+    }
+
+    // ==========================================
+    // Step 6: 重組最終 SRT / VTT / TXT (進行最終防呆清除)
     // ==========================================
     const finalSrtBlocks = [];
     const finalPlainTexts = [];
 
     for (const block of whisperBlocks) {
         const aligned = alignedResultsMap[block.id] || { text: block.text };
-        finalSrtBlocks.push(`${block.id}\n${block.startTime} --> ${block.endTime}\n${aligned.text}`);
-        finalPlainTexts.push(aligned.text);
+        const cleanText = stripReviewMarkers(aligned.text || block.text);
+        finalSrtBlocks.push(`${block.id}\n${block.startTime} --> ${block.endTime}\n${cleanText}`);
+        finalPlainTexts.push(cleanText);
     }
 
     const finalSrt = finalSrtBlocks.join('\n\n');
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     const finalTxt = finalPlainTexts.join('\n');
+
+    // 進行最終格式與品質輸出驗證
+    const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null);
+    const allUniqueWarnings = [...new Set([...validationWarnings, ...outputWarnings])];
 
     const alignmentReport = {
         totalSegments: whisperBlocks.length,
@@ -1923,15 +2407,14 @@ ${settingsText}
         whisperRetained,
         manualCheck,
         failedSegments,
-        suspicious
+        suspicious,
+        validationWarnings: allUniqueWarnings
     };
 
-    onProgress({ type: 'done', message: '對齊辨識完成！' });
+    // 暴露至全域以利 Console 查詢
+    alignmentReport.validationWarnings = alignmentReport.validationWarnings || [];
 
-    const srtPanel = document.getElementById('tab0-result-srt');
-    if (srtPanel) srtPanel.textContent = finalSrt;
-
-    return {
+    const preciseAlignmentResult = {
         text: finalTxt,
         vtt: finalVtt,
         srt: finalSrt,
@@ -1939,4 +2422,32 @@ ${settingsText}
         blockCount: whisperBlocks.length,
         alignmentReport
     };
+
+    window.lastAlignmentReport = alignmentReport;
+    window.lastPreciseAlignmentResult = preciseAlignmentResult;
+
+    window.lastPreciseAlignmentDebug = {
+        hasResult: !!window.lastPreciseAlignmentResult,
+        hasSrt: typeof finalSrt === 'string' && finalSrt.length > 0,
+        srtLength: finalSrt ? finalSrt.length : 0,
+        containsReviewMarkers: {
+            manualCheck: finalSrt.includes('[請人工確認]'),
+            uncertain: finalSrt.includes('[疑似辨識異常]'),
+            highDisagreement: finalSrt.includes('[HIGH_DISAGREEMENT]')
+        },
+        totalSegments: whisperBlocks.length,
+        reportSuspiciousCount: alignmentReport.suspicious?.length || 0,
+        validationWarningsCount: alignmentReport.validationWarnings?.length || 0
+    };
+
+    console.log('[超精準字幕] lastPreciseAlignmentResult:', window.lastPreciseAlignmentResult);
+    console.log('[超精準字幕] alignmentReport:', window.lastAlignmentReport);
+    console.log('[超精準字幕] debug:', window.lastPreciseAlignmentDebug);
+
+    onProgress({ type: 'done', message: '對齊辨識完成！' });
+
+    const srtPanel = document.getElementById('tab0-result-srt');
+    if (srtPanel) srtPanel.textContent = finalSrt;
+
+    return preciseAlignmentResult;
 }
