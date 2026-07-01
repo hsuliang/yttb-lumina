@@ -75,39 +75,59 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
 function fixTimecode(tc) {
     tc = tc.trim();
 
-    // 已經是標準格式 HH:MM:SS,mmm → 直接回傳
-    if (/^\d{2}:\d{2}:\d{2},\d{3}$/.test(tc)) return tc;
+    // 1. 先做一般的格式修復
+    let standardTc = null;
 
-    // 格式: HH:MM:SS.mmm → 換點為逗號
-    if (/^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(tc)) {
-        return tc.replace('.', ',');
+    if (/^\d{2}:\d{2}:\d{2},\d{3}$/.test(tc)) {
+        standardTc = tc;
+    } else if (/^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(tc)) {
+        standardTc = tc.replace('.', ',');
+    } else {
+        const mmssmmm = tc.match(/^(\d{1,2}):(\d{2}):(\d{3})$/);
+        if (mmssmmm) {
+            const mm = mmssmmm[1].padStart(2, '0');
+            const ss = mmssmmm[2];
+            const ms = mmssmmm[3];
+            standardTc = `00:${mm}:${ss},${ms}`;
+        } else {
+            const mmssdotmmm = tc.match(/^(\d{1,2}):(\d{2})\.(\d{3})$/);
+            if (mmssdotmmm) {
+                const mm = mmssdotmmm[1].padStart(2, '0');
+                const ss = mmssdotmmm[2];
+                const ms = mmssdotmmm[3];
+                standardTc = `00:${mm}:${ss},${ms}`;
+            } else {
+                const hmmss = tc.match(/^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})$/);
+                if (hmmss) {
+                    standardTc = `${hmmss[1].padStart(2, '0')}:${hmmss[2]}:${hmmss[3]},${hmmss[4]}`;
+                }
+            }
+        }
     }
 
-    // 格式: MM:SS:mmm (如 00:01:400) → 補小時，冒號改逗號
-    const mmssmmm = tc.match(/^(\d{1,2}):(\d{2}):(\d{3})$/);
-    if (mmssmmm) {
-        const mm = mmssmmm[1].padStart(2, '0');
-        const ss = mmssmmm[2];
-        const ms = mmssmmm[3];
-        return `00:${mm}:${ss},${ms}`;
+    if (!standardTc) return null;
+
+    // 2. 檢測並修正 Gemini 的時間碼欄位右移 (Column Shift) 幻想
+    // 例如：01:40:00,000 (代表 1分40秒) 應該是 00:01:40,000
+    // 例如：01:43:50,000 (代表 1分43.5秒) 應該是 00:01:43,500
+    const m = standardTc.match(/^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/);
+    if (m) {
+        const h = parseInt(m[1], 10);
+        const min = parseInt(m[2], 10);
+        const sec = parseInt(m[3], 10);
+        const ms = parseInt(m[4], 10);
+
+        if (h > 0 && h < 60) {
+            const newMin = h;
+            const newSec = min;
+            const newMs = (sec > 0 && ms === 0) ? (sec * 10) : ms;
+
+            const pad = (n, len = 2) => String(n).padStart(len, '0');
+            return `00:${pad(newMin)}:${pad(newSec)},${pad(newMs, 3)}`;
+        }
     }
 
-    // 格式: MM:SS.mmm (如 01:23.456) → 補小時
-    const mmssdotmmm = tc.match(/^(\d{1,2}):(\d{2})\.(\d{3})$/);
-    if (mmssdotmmm) {
-        const mm = mmssdotmmm[1].padStart(2, '0');
-        const ss = mmssdotmmm[2];
-        const ms = mmssdotmmm[3];
-        return `00:${mm}:${ss},${ms}`;
-    }
-
-    // 格式: H:MM:SS,mmm 或 H:MM:SS.mmm → 補零
-    const hmmss = tc.match(/^(\d{1,2}):(\d{2}):(\d{2})[,.](\d{3})$/);
-    if (hmmss) {
-        return `${hmmss[1].padStart(2, '0')}:${hmmss[2]}:${hmmss[3]},${hmmss[4]}`;
-    }
-
-    return null; // 無法識別
+    return standardTc;
 }
 
 function validateAndFixSrt(rawText) {
@@ -384,11 +404,28 @@ function convertVttToSrt(vttText) {
         if (timeLineIdx === -1) continue;
 
         let timeLine = lines[timeLineIdx];
-        // VTT 用 . 分隔毫秒，SRT 用 , 分隔
-        timeLine = timeLine.replace(/(\d{2}:\d{2}:\d{2})\.(\d{3})/g, '$1,$2');
-        // 如果時間碼缺少小時，補上 00:
-        timeLine = timeLine.replace(/^(\d{2}:\d{2},\d{3})/g, '00:$1');
-        timeLine = timeLine.replace(/--> (\d{2}:\d{2},\d{3})/g, '--> 00:$1');
+        const times = timeLine.split('-->').map(t => t.trim());
+        if (times.length === 2) {
+            const formatTime = (tc) => {
+                if (/^\d{2}:\d{2}:\d{2},\d{3}$/.test(tc)) return tc;
+                if (/^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(tc)) return tc.replace('.', ',');
+                
+                const mmssdot = tc.match(/^(\d{1,2}):(\d{2})\.(\d{3})$/);
+                if (mmssdot) return `00:${mmssdot[1].padStart(2, '0')}:${mmssdot[2]},${mmssdot[3]}`;
+                
+                const mmsscomma = tc.match(/^(\d{1,2}):(\d{2}),(\d{3})$/);
+                if (mmsscomma) return `00:${mmsscomma[1].padStart(2, '0')}:${mmsscomma[2]},${mmsscomma[3]}`;
+                
+                const hmmssdot = tc.match(/^(\d{1,2}):(\d{2}):(\d{2})\.(\d{3})$/);
+                if (hmmssdot) return `${hmmssdot[1].padStart(2, '0')}:${hmmssdot[2]}:${hmmssdot[3]},${hmmssdot[4]}`;
+
+                const hmmsscomma = tc.match(/^(\d{1,2}):(\d{2}):(\d{2}),(\d{3})$/);
+                if (hmmsscomma) return `${hmmsscomma[1].padStart(2, '0')}:${hmmsscomma[2]}:${hmmsscomma[3]},${hmmsscomma[4]}`;
+                
+                return tc;
+            };
+            timeLine = `${formatTime(times[0])} --> ${formatTime(times[1])}`;
+        }
 
         const subtitleText = lines.slice(timeLineIdx + 1).join('\n');
         if (!subtitleText.trim()) continue;
