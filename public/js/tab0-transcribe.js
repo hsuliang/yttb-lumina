@@ -1175,8 +1175,12 @@ export function initializeTab0() {
                             tab0Badge.textContent = '模型：whisper-large-v3-turbo';
                         }
                         
+                        // 默認注入噗噗聊聊專屬 Podcast 專有名詞引導，作為通用框架下的預設語境
+                        const defaultVocab = '噗噗聊聊, ㄚ亮笑長, 小壁虎老師, 三師爸, 新竹市光武國中, 數位教學, 生成式 AI, 代理人 AI, AI Agent, Google Meet, YouTube, YT, Podcast, HK3R, Happiness, Knowledge, Response, Rhythm, Resonance, 演算法, 同溫層, 健腦房';
+                        let finalTerminology = terminologyDict ? `${terminologyDict}, ${defaultVocab}` : defaultVocab;
+
                         // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
-                        let whisperPrompt = '這是一段繁體中文字幕。' + (terminologyDict ? terminologyDict : '');
+                        let whisperPrompt = '這是一段繁體中文字幕。' + finalTerminology;
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
                             const replaceDict = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
                             whisperPrompt = whisperPrompt ? whisperPrompt + '\n' + replaceDict : replaceDict;
@@ -1191,7 +1195,8 @@ export function initializeTab0() {
                         );
                     } else {
                         // Gemini 模式：結合專有名詞 + 錯字替換提示
-                        let geminiDict = terminologyDict;
+                        const defaultVocab = '噗噗聊聊, ㄚ亮笑長, 小壁虎老師, 三師爸, 新竹市光武國中, 數位教學, 生成式 AI, 代理人 AI, AI Agent, Google Meet, YouTube, YT, Podcast, HK3R, Happiness, Knowledge, Response, Rhythm, Resonance, 演算法, 同溫層, 健腦房';
+                        let geminiDict = terminologyDict ? `${terminologyDict}, ${defaultVocab}` : defaultVocab;
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
                             const replaceHints = state.batchReplaceRules.map(r => `「${r.original}」必須寫成「${r.replacement}」`).join('、');
                             geminiDict = geminiDict

@@ -777,7 +777,7 @@ async function handleTranscribe(request, env) {
         }
         
         // 加入 prompt 和 language
-        let basePrompt = '以下是一段臺灣繁體中文 Podcast 訪談逐字稿，請使用繁體中文輸出。節目：噗噗聊聊。主持人：ㄚ亮笑長、小壁虎老師。來賓：三師爸。專有名詞：新竹市光武國中、數位教學、生成式 AI、代理人 AI、AI Agent、Google Meet、YouTube、YT、Podcast、HK3R、Happiness、Knowledge、Response、Rhythm、Resonance、演算法、同溫層、健腦房';
+        let basePrompt = '以下是一段繁體中文的語音內容，請使用繁體中文輸出。常見詞彙包含：的、是、我、你、他、這個、那個、然後、所以、因為、可以、沒有、知道、什麼、怎麼、為什麼';
         if (promptWords.length > 0) {
             basePrompt += `\n包含專有名詞：${promptWords.join('、')}`;
         }
