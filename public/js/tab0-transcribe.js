@@ -244,6 +244,87 @@ function splitAudioBuffer(resampledBuffer, chunkDurationSeconds = 600) {
     return chunks;
 }
 
+// ─── 時間戳單調遞增與修復工具 ──────────────────────────────────
+function parseTimestampToMs(timeStr) {
+    const cleaned = timeStr.replace(',', ':').replace('.', ':').trim();
+    const parts = cleaned.split(':');
+    if (parts.length === 4) {
+        return (
+            parseInt(parts[0], 10) * 3600000 +
+            parseInt(parts[1], 10) * 60000 +
+            parseInt(parts[2], 10) * 1000 +
+            parseInt(parts[3], 10)
+        );
+    }
+    return 0;
+}
+
+function formatMsToSrtTime(ms) {
+    const h = Math.floor(ms / 3600000);
+    const min = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    const ms2 = ms % 1000;
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms2).padStart(3, '0')}`;
+}
+
+function enforceMonotonicTimestamps(srtText) {
+    if (!srtText || !srtText.trim()) return srtText;
+
+    const blocks = srtText.trim().split(/\n\s*\n/).filter(b => b.trim());
+    const parsed = [];
+
+    for (const block of blocks) {
+        const lines = block.trim().split('\n');
+        if (lines.length < 3) continue;
+        
+        const timeLineIdx = lines.findIndex(l => l.includes('-->'));
+        if (timeLineIdx === -1) continue;
+        
+        const timeLine = lines[timeLineIdx];
+        const times = timeLine.split('-->');
+        if (times.length !== 2) continue;
+
+        const startMs = parseTimestampToMs(times[0]);
+        const endMs = parseTimestampToMs(times[1]);
+        const text = lines.slice(timeLineIdx + 1).join('\n').trim();
+        parsed.push({ startMs, endMs, text });
+    }
+
+    if (parsed.length === 0) return srtText;
+
+    let lastEndMs = 0;
+    const fixed = [];
+
+    for (let i = 0; i < parsed.length; i++) {
+        const item = parsed[i];
+        let currentStartMs = item.startMs;
+        let currentEndMs = item.endMs;
+
+        // 確保 startTime >= 前一筆的 endTime
+        if (currentStartMs < lastEndMs) {
+            currentStartMs = lastEndMs + 50; 
+        }
+
+        // 確保 endTime > startTime
+        if (currentEndMs <= currentStartMs) {
+            const minDuration = Math.max(800, item.text.length * 150);
+            currentEndMs = currentStartMs + minDuration;
+        }
+
+        fixed.push({
+            startMs: currentStartMs,
+            endMs: currentEndMs,
+            text: item.text
+        });
+
+        lastEndMs = currentEndMs;
+    }
+
+    return fixed
+        .map((b, i) => `${i + 1}\n${formatMsToSrtTime(b.startMs)} --> ${formatMsToSrtTime(b.endMs)}\n${b.text}`)
+        .join('\n\n');
+}
+
 /**
  * 對 SRT 字串內所有時間戳加上偏移秒數，並重新編號
  * @param {string} srt - 原始 SRT 字串
@@ -344,7 +425,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         throw new Error("請先設定 Gemini API Key。");
     }
 
-    const CHUNK_DURATION = 180; // 3分鐘切段，確保 SRT 輸出不會超過 8192 token
+    const CHUNK_DURATION = 60; // 60秒切段，顯著提升時間軸精度並防超長漂移
     const TARGET_SR = 16000;
 
     // 1. 讀取並解碼音訊
@@ -435,7 +516,8 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
             allText.push(rawResponse);
         } else {
             if (result.srt.trim()) {
-                const offsetted = offsetSrtTimestamps(result.srt, chunk.offsetSeconds, globalSeq - 1);
+                const monotonicChunkSrt = enforceMonotonicTimestamps(result.srt);
+                const offsetted = offsetSrtTimestamps(monotonicChunkSrt, chunk.offsetSeconds, globalSeq - 1);
                 const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
                 allSrtBlocks.push(...blocks);
                 globalSeq += blocks.length;
@@ -452,6 +534,8 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     }
 
     let finalSrt = allSrtBlocks.join('\n\n');
+    // 全局時間戳單調性強化與重疊修復
+    finalSrt = enforceMonotonicTimestamps(finalSrt);
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
@@ -613,7 +697,8 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         const chunkSrt = data.srt || (data.vtt ? convertVttToSrt(data.vtt) : '');
 
         if (chunkSrt.trim()) {
-            const offsetted = offsetSrtTimestamps(chunkSrt, chunk.offsetSeconds, globalSeq - 1);
+            const monotonicChunkSrt = enforceMonotonicTimestamps(chunkSrt);
+            const offsetted = offsetSrtTimestamps(monotonicChunkSrt, chunk.offsetSeconds, globalSeq - 1);
             const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
             allSrtBlocks.push(...blocks);
             globalSeq += blocks.length;
@@ -623,6 +708,8 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     }
 
     let finalSrt = allSrtBlocks.join('\n\n');
+    // 全局時間戳單調性強化與重疊修復
+    finalSrt = enforceMonotonicTimestamps(finalSrt);
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
