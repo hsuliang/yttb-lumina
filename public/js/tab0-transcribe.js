@@ -1,4 +1,4 @@
-import { callGeminiAudioAPI } from './gemini-api.js';
+import { callGeminiAudioAPI, callGeminiAPI } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
@@ -1052,9 +1052,28 @@ export function initializeTab0() {
         // 顯示引擎與字幕數資訊
         const infoEl = document.getElementById('tab0-result-info');
         if (infoEl) {
-            const engineLabel = isWhisper ? 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)' : 'Gemini AI (gemini-1.5-flash)';
+            let engineLabel = '';
+            if (isWhisper) {
+                engineLabel = 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)';
+            } else if (data.engine === 'precise') {
+                engineLabel = '雙稿對齊超精準模式 (Whisper + Gemini)';
+            } else {
+                engineLabel = 'Gemini AI (gemini-1.5-flash)';
+            }
             infoEl.textContent = `引擎：${engineLabel}${data.blockCount ? ` | 字幕段數：${data.blockCount}` : ''}`;
             infoEl.classList.remove('hidden');
+        }
+
+        // 渲染 alignmentReport (如果是 precise 模式且有 report)
+        const reportContainer = document.getElementById('tab0-alignment-report-container');
+        if (reportContainer) {
+            if (data.engine === 'precise' && data.alignmentReport) {
+                renderAlignmentReport(data.alignmentReport, reportContainer);
+                reportContainer.classList.remove('hidden');
+            } else {
+                reportContainer.classList.add('hidden');
+                reportContainer.innerHTML = '';
+            }
         }
     }
 
@@ -1104,6 +1123,35 @@ export function initializeTab0() {
                             { text: '前往設定', class: 'btn-primary', callback: () => {
                                 hideModal();
                                 if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-gemini');
+                            }}
+                        ]
+                    });
+                    return;
+                }
+            } else if (state.transcribeEngine === 'precise') {
+                const hasWorkerUrl = !!(localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url'));
+                const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+                if (!hasWorkerUrl || !hasApiKey) {
+                    let missingMsg = '';
+                    let targetTab = '';
+                    if (!hasApiKey && !hasWorkerUrl) {
+                        missingMsg = '使用超精準字幕模式需要同時設定 Gemini API Key 與 Cloudflare Worker 連線。';
+                        targetTab = 'settings-tab-gemini';
+                    } else if (!hasApiKey) {
+                        missingMsg = '使用超精準字幕模式需要設定 Gemini API Key。';
+                        targetTab = 'settings-tab-gemini';
+                    } else {
+                        missingMsg = '使用超精準字幕模式需要設定 Cloudflare Worker。';
+                        targetTab = 'settings-tab-worker';
+                    }
+                    showModal({
+                        title: '缺少連線或金鑰設定',
+                        message: `${missingMsg}是否前往設定？`,
+                        buttons: [
+                            { text: '取消', class: 'btn-secondary', callback: hideModal },
+                            { text: '前往設定', class: 'btn-primary', callback: () => {
+                                hideModal();
+                                if (showGlobalSettingsModal) showGlobalSettingsModal(targetTab);
                             }}
                         ]
                     });
@@ -1169,6 +1217,12 @@ export function initializeTab0() {
                         }
                     };
 
+                    const reportContainer = document.getElementById('tab0-alignment-report-container');
+                    if (reportContainer) {
+                        reportContainer.classList.add('hidden');
+                        reportContainer.innerHTML = '';
+                    }
+
                     if (state.transcribeEngine === 'whisper') {
                         const tab0Badge = document.getElementById('tab0-model-badge');
                         if (tab0Badge) {
@@ -1193,6 +1247,19 @@ export function initializeTab0() {
                             customDict,
                             handleWhisperProgress,
                             handleChunkComplete
+                        );
+                    } else if (state.transcribeEngine === 'precise') {
+                        const tab0Badge = document.getElementById('tab0-model-badge');
+                        if (tab0Badge) {
+                            tab0Badge.classList.remove('hidden');
+                            tab0Badge.textContent = '模型：雙稿精準對齊';
+                        }
+                        result = await transcribeWithPreciseAlignment(
+                            selectedFile,
+                            state.transcribeLanguage,
+                            handleWhisperProgress,
+                            handleChunkComplete,
+                            handleStream
                         );
                     } else {
                         // Gemini 模式：結合專有名詞 + 錯字替換提示
@@ -1314,4 +1381,562 @@ export function initializeTab0() {
     updateTab0StartButton();
 
     console.log("[Tab0] 字幕產生器初始化完成");
+}
+
+// ########## PRECISE ALIGNMENT TRANSCRIBER ##########
+
+function parseSrtToBlocks(srtText) {
+    if (!srtText) return [];
+    const blocks = [];
+    const blockRegex = /(\d+)\r?\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\r?\n([\s\S]*?)(?=\n\n|\n*$)/g;
+    let match;
+    while ((match = blockRegex.exec(srtText)) !== null) {
+        blocks.push({
+            id: parseInt(match[1]),
+            startTime: match[2],
+            endTime: match[3],
+            text: match[4].trim()
+        });
+    }
+    return blocks;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function renderAlignmentReport(report, container) {
+    if (!container || !report) return;
+    container.innerHTML = `
+        <div class="glass-card p-5 rounded-xl border border-outline-variant/10 shadow-lg text-on-surface bg-surface-container-low/40 backdrop-blur-md">
+            <h3 class="text-sm font-semibold flex items-center gap-2 mb-3">
+                <span class="material-symbols-outlined text-[18px] text-primary">analytics</span>雙稿對齊校正報告
+            </h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-center mb-4">
+                <div class="bg-surface-variant/20 p-2.5 rounded-lg">
+                    <div class="text-[10px] text-on-surface-variant">總段數</div>
+                    <div class="text-base font-bold">${report.totalSegments}</div>
+                </div>
+                <div class="bg-primary/10 p-2.5 rounded-lg text-primary">
+                    <div class="text-[10px] text-primary/80">Gemini 修正</div>
+                    <div class="text-base font-bold">${report.geminiCorrected}</div>
+                </div>
+                <div class="bg-secondary/10 p-2.5 rounded-lg text-secondary">
+                    <div class="text-[10px] text-secondary/80">Whisper 原文</div>
+                    <div class="text-base font-bold">${report.whisperRetained}</div>
+                </div>
+                <div class="bg-error/10 p-2.5 rounded-lg text-error">
+                    <div class="text-[10px] text-error/80">失敗段數</div>
+                    <div class="text-base font-bold">${report.failedSegments}</div>
+                </div>
+                <div class="bg-warning/10 p-2.5 rounded-lg text-warning">
+                    <div class="text-[10px] text-warning/80">待人工確認</div>
+                    <div class="text-base font-bold">${report.manualCheck}</div>
+                </div>
+            </div>
+            
+            ${report.suspicious && report.suspicious.length > 0 ? `
+            <details class="text-xs bg-surface-variant/10 rounded-lg p-3">
+                <summary class="cursor-pointer font-semibold flex items-center justify-between text-on-surface-variant select-none">
+                    <span>可疑或已校正段落列表 (${report.suspicious.length} 段)</span>
+                    <span class="material-symbols-outlined text-[14px]">expand_more</span>
+                </summary>
+                <div class="mt-2 overflow-x-auto max-h-[300px]">
+                    <table class="w-full text-left border-collapse mt-1">
+                        <thead>
+                            <tr class="border-b border-outline-variant/10 text-on-surface-variant font-semibold">
+                                <th class="py-1.5 px-2 w-12 text-center">ID</th>
+                                <th class="py-1.5 px-2 w-28 text-center">時間軸</th>
+                                <th class="py-1.5 px-2">Whisper 原文</th>
+                                <th class="py-1.5 px-2">校正後文字</th>
+                                <th class="py-1.5 px-2">對齊備註 / 旗標</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${report.suspicious.map(item => {
+                                const hasManual = item.flags.includes('HIGH_DISAGREEMENT') || item.alignedText.includes('[請人工確認]');
+                                const badgeClass = hasManual ? 'bg-error/20 text-error' : 'bg-primary/20 text-primary';
+                                return `
+                                <tr class="border-b border-outline-variant/5 hover:bg-surface-variant/20">
+                                    <td class="py-2 px-2 text-center text-on-surface-variant">${item.id}</td>
+                                    <td class="py-2 px-2 text-center text-on-surface-variant font-mono">${item.timeRange}</td>
+                                    <td class="py-2 px-2 text-error/80 line-through">${escapeHtml(item.whisperText)}</td>
+                                    <td class="py-2 px-2 text-success font-semibold">${escapeHtml(item.alignedText)}</td>
+                                    <td class="py-2 px-2">
+                                        <span class="px-1.5 py-0.5 rounded font-semibold text-[10px] ${badgeClass}">${item.flags.join(', ')}</span>
+                                        <div class="text-[10px] text-on-surface-variant/70 mt-0.5">${escapeHtml(item.note || '')}</div>
+                                    </td>
+                                </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            ` : `<div class="text-xs text-success text-center">🎉 無可疑或需要人工確認的段落，雙稿對齊完美！</div>`}
+        </div>
+    `;
+}
+
+async function transcribeWithPreciseAlignment(file, language, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
+    const apiKey = getBalancedApiKey();
+    const workerUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+    if (!apiKey) throw new Error("請先設定 Gemini API Key。");
+    if (!workerUrl) throw new Error("請先設定 Whisper Worker 的 API URL。");
+
+    // 1. 讀取並解碼音訊 (16kHz mono)
+    onProgress({ type: 'status', message: '正在讀取音訊檔案（超精準對齊模式）...' });
+    const arrayBuffer = await file.arrayBuffer();
+
+    onProgress({ type: 'status', message: '正在解碼音訊（可能需要數秒）...' });
+    const audioContext = new AudioContext();
+    let rawBuffer;
+    try {
+        rawBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    } finally {
+        await audioContext.close();
+    }
+
+    const durationMin = Math.round(rawBuffer.duration / 60);
+    onProgress({ type: 'status', message: `正在轉換格式（16kHz mono，共 ${durationMin} 分鐘）...` });
+
+    const TARGET_SR = 16000;
+    const targetLen = Math.ceil(rawBuffer.length * TARGET_SR / rawBuffer.sampleRate) + TARGET_SR;
+    const offlineCtx = new OfflineAudioContext(1, targetLen, TARGET_SR);
+    const srcNode = offlineCtx.createBufferSource();
+    srcNode.buffer = rawBuffer;
+    srcNode.connect(offlineCtx.destination);
+    srcNode.start(0);
+    const resampled = await offlineCtx.startRendering();
+
+    // ==========================================
+    // PHASE 1: 取得 Gemini 參考稿 (逐段辨識純文字)
+    // ==========================================
+    const GEMINI_CHUNK_DURATION = 60; // 每段 60 秒
+    const geminiChunks = splitAudioBuffer(resampled, GEMINI_CHUNK_DURATION);
+    const totalGeminiChunks = geminiChunks.length;
+
+    onProgress({
+        type: 'chunks',
+        current: 0, total: totalGeminiChunks,
+        message: `1/3：正在產生 Gemini 文字參考稿，共 ${totalGeminiChunks} 段...`,
+        eta: '',
+    });
+
+    const allGeminiTexts = [];
+    const geminiPrompt = `你是一位語音轉譯助理。請將以下音訊內容轉譯為高品質繁體中文逐字稿。請遵循以下規則：
+1. 使用繁體中文輸出。
+2. 不要摘要，不要改寫為文章，必須完整保留所有口語細節與口語詞（如：啊、呢、對、那等）。
+3. 不要刪除任何操作步驟或關鍵名詞，若語意中提到特定的專業名詞或人名，請依語意與語境修正為正確漢字寫法。
+4. 不要回傳時間戳，也不要輸出任何 SRT 或時間標註格式，請直接輸出逐字稿的連續文字。`;
+
+    const geminiStartTimes = [];
+    for (let i = 0; i < geminiChunks.length; i++) {
+        if (state.currentAbortController?.signal?.aborted) {
+            throw new Error('使用者已取消辨識');
+        }
+        const chunk = geminiChunks[i];
+        const startMin = Math.floor(chunk.offsetSeconds / 60);
+        const startSec = Math.floor(chunk.offsetSeconds % 60);
+
+        let etaText = '';
+        if (i > 0 && geminiStartTimes.length > 0) {
+            const elapsed = (Date.now() - geminiStartTimes[0]) / 1000;
+            const avgPerChunk = elapsed / i;
+            const remaining = avgPerChunk * (totalGeminiChunks - i);
+            etaText = remaining > 60
+                ? `預估剩餘 ${Math.ceil(remaining / 60)} 分鐘`
+                : `預估剩餘 ${Math.ceil(remaining)} 秒`;
+        }
+
+        onProgress({
+            type: 'chunks',
+            current: i + 1, total: totalGeminiChunks,
+            message: `1/3：Gemini 文字辨識第 ${i + 1} 段（${startMin}:${String(startSec).padStart(2, '0')} 開始）`,
+            eta: etaText,
+        });
+
+        geminiStartTimes.push(Date.now());
+
+        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(wavBlob);
+        });
+
+        // 呼叫 Gemini Audio API
+        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', geminiPrompt, (chunkText, fullText) => {
+            // 即時在 UI 流式顯示當前識別進度
+            const prevText = allGeminiTexts.join('\n\n');
+            onStream(prevText ? prevText + '\n\n' + fullText : fullText);
+        });
+
+        // 清理時間戳與序號
+        let plainText = rawResponse
+            .replace(/\d{2}:\d{2}:\d{2}[,.]\d{3} --> \d{2}:\d{2}:\d{2}[,.]\d{3}/g, '')
+            .replace(/^\d+$/gm, '')
+            .split('\n')
+            .map(l => l.trim())
+            .filter(Boolean)
+            .join(' ');
+
+        allGeminiTexts.push(plainText);
+
+        // 避免 Rate Limit (15 RPM)
+        if (i < geminiChunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 4500));
+        }
+    }
+
+    const geminiReferenceText = allGeminiTexts.join('\n');
+
+    // ==========================================
+    // PHASE 2: 取得 Whisper 時間碼 (20秒切段)
+    // ==========================================
+    const WHISPER_CHUNK_DURATION = 20;
+    const whisperChunks = splitAudioBuffer(resampled, WHISPER_CHUNK_DURATION);
+    const totalWhisperChunks = whisperChunks.length;
+
+    onProgress({
+        type: 'chunks',
+        current: 0, total: totalWhisperChunks,
+        message: `2/3：正在產生 Whisper 時間稿，共 ${totalWhisperChunks} 段...`,
+        eta: '',
+    });
+
+    // 準備專有名詞與替換規則傳給 Whisper
+    const terminologyLines = (state.aiTerminologyRules || [])
+        .map(r => r.term?.trim())
+        .filter(Boolean);
+
+    const replacementLines = (state.batchReplaceRules || [])
+        .filter(r => r.original?.trim() && r.replacement?.trim())
+        .filter(r => r.original.trim() !== r.replacement.trim())
+        .map(r => `${r.original.trim()}=${r.replacement.trim()}`);
+
+    const customDict = [...terminologyLines, ...replacementLines].join('\n');
+    const validWorkerUrl = workerUrl.trim();
+    const baseUrl = (/^https?:\/\//i.test(validWorkerUrl) ? validWorkerUrl : 'https://' + validWorkerUrl).replace(/\/+$/, '');
+    const workerToken = localStorage.getItem('aliang-tab0-worker-token') || sessionStorage.getItem('aliang-tab0-worker-token');
+    const authHeaders = workerToken ? { 'Authorization': `Bearer ${workerToken}` } : {};
+
+    const whisperHeaders = { ...authHeaders, 'Content-Type': 'audio/wav' };
+    if (language && language !== 'auto') {
+        whisperHeaders['X-Language'] = language;
+    }
+    if (customDict) {
+        whisperHeaders['X-Custom-Dict'] = encodeURIComponent(customDict);
+    }
+
+    const whisperStartTimes = [];
+    const allWhisperSrtBlocks = [];
+    let globalSeq = 1;
+
+    for (let i = 0; i < whisperChunks.length; i++) {
+        if (state.currentAbortController?.signal?.aborted) {
+            throw new Error('使用者已取消辨識');
+        }
+        const chunk = whisperChunks[i];
+        const startMin = Math.floor(chunk.offsetSeconds / 60);
+        const startSec = Math.floor(chunk.offsetSeconds % 60);
+
+        let etaText = '';
+        if (i > 0 && whisperStartTimes.length > 0) {
+            const elapsed = (Date.now() - whisperStartTimes[0]) / 1000;
+            const avgPerChunk = elapsed / i;
+            const remaining = avgPerChunk * (totalWhisperChunks - i);
+            etaText = remaining > 60
+                ? `預估剩餘 ${Math.ceil(remaining / 60)} 分鐘`
+                : `預估剩餘 ${Math.ceil(remaining)} 秒`;
+        }
+
+        onProgress({
+            type: 'chunks',
+            current: i + 1, total: totalWhisperChunks,
+            message: `2/3：Whisper 時間辨識第 ${i + 1} 段（${startMin}:${String(startSec).padStart(2, '0')} 開始）`,
+            eta: etaText,
+        });
+
+        whisperStartTimes.push(Date.now());
+
+        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
+
+        let resp;
+        let retries = 2;
+        while (retries >= 0) {
+            try {
+                resp = await fetch(`${baseUrl}/api/transcribe`, {
+                    method: 'POST',
+                    headers: whisperHeaders,
+                    body: wavBlob,
+                    signal: state.currentAbortController ? state.currentAbortController.signal : undefined
+                });
+                if (resp.ok || resp.status === 401 || resp.status === 403) break;
+                if (retries > 0) {
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            } catch (err) {
+                if (retries === 0) throw err;
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            retries--;
+        }
+
+        if (!resp || !resp.ok) {
+            let errMsg = resp ? resp.statusText : '網路連線失敗';
+            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) {}
+            throw new Error(`Whisper 第 ${i + 1} 段辨識失敗: ${errMsg}`);
+        }
+
+        const data = await resp.json();
+        const chunkSrt = data.srt || (data.vtt ? convertVttToSrt(data.vtt) : '');
+
+        if (chunkSrt.trim()) {
+            const monotonicChunkSrt = enforceMonotonicTimestamps(chunkSrt);
+            const offsetted = offsetSrtTimestamps(monotonicChunkSrt, chunk.offsetSeconds, globalSeq - 1);
+            const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
+            allWhisperSrtBlocks.push(...blocks);
+            globalSeq += blocks.length;
+        }
+    }
+
+    let finalWhisperSrt = allWhisperSrtBlocks.join('\n\n');
+    finalWhisperSrt = enforceMonotonicTimestamps(finalWhisperSrt);
+    const cleanedWhisperSrt = applyBatchReplaceToSrt(finalWhisperSrt, state.batchReplaceRules);
+
+    // 解析成 blocks
+    const whisperBlocks = parseSrtToBlocks(cleanedWhisperSrt);
+    if (whisperBlocks.length === 0) {
+        throw new Error('未從音訊中偵測到任何時間軸段落，無法進行校稿對齊。');
+    }
+
+    // ==========================================
+    // PHASE 3: 雙稿精準校對 (Batching 40 blocks)
+    // ==========================================
+    const BATCH_SIZE = 40;
+    const totalBatches = Math.ceil(whisperBlocks.length / BATCH_SIZE);
+    const alignedResultsMap = {};
+
+    let geminiCorrected = 0;
+    let whisperRetained = 0;
+    let manualCheck = 0;
+    let failedSegments = 0;
+    const suspicious = [];
+
+    // 準備使用者全域批次取代與自訂詞庫設定字串
+    const userReplaceRulesText = (state.batchReplaceRules || [])
+        .map(r => `原詞：${r.original} ➡️ 替換為：${r.replacement}`)
+        .join('\n') || '無替換規則';
+
+    const userTerminologyText = (state.aiTerminologyRules || [])
+        .map(r => `專有名詞：${r.term} (類型：${r.type})`)
+        .join('\n') || '無自訂詞庫';
+
+    const settingsText = `使用者取代規則：\n${userReplaceRulesText}\n\n使用者自訂詞庫：\n${userTerminologyText}`;
+
+    onProgress({
+        type: 'chunks',
+        current: 0, total: totalBatches,
+        message: `3/3：正在進行雙稿對齊校核，共 ${totalBatches} 批次...`,
+        eta: '',
+    });
+
+    for (let b = 0; b < totalBatches; b++) {
+        if (state.currentAbortController?.signal?.aborted) {
+            throw new Error('使用者已取消辨識');
+        }
+        onProgress({
+            type: 'chunks',
+            current: b + 1, total: totalBatches,
+            message: `3/3：正在校對第 ${b + 1} 批次字幕段落...`,
+            eta: '',
+        });
+
+        const startIdx = b * BATCH_SIZE;
+        const endIdx = Math.min(startIdx + BATCH_SIZE, whisperBlocks.length);
+        const batchBlocks = whisperBlocks.slice(startIdx, endIdx);
+
+        const prompt = `你是一位專業字幕對齊與校稿師。
+
+現在有兩份資料：
+
+A. Whisper blocks：
+這份字幕的時間碼比較準，但文字可能有音近錯字、漏字、多字、亂碼或專有名詞錯誤。
+每個 block 都有 id 與 text。
+id 對應的時間碼已由程式鎖定，你不得修改。
+
+B. Gemini 參考稿：
+這份文字通常比較準，但時間碼可能不準，段落也可能較粗。
+請只把它當成文字校正參考。
+
+你的任務：
+針對每個 Whisper block 的 id，根據 Gemini 參考稿修正 text。
+
+重要規則：
+1. 必須回傳所有 id。
+2. 不得新增 id。
+3. 不得刪除 id。
+4. 不得合併多個 id。
+5. 不得拆分 id。
+6. 不得輸出時間碼。
+7. 不得輸出 SRT。
+8. 不得輸出說明文字。
+9. 不得新增 A 和 B 都沒有支持的內容。
+10. 如果 A 有內容但 B 疑似漏掉，請保留 A 的內容，flags 加上 "REFERENCE_MISSING"。
+11. 如果 A 明顯是音近錯字，而 B 有合理對應文字，請使用 B 的文字，flags 加上 "REFERENCE_USED"。
+12. 如果 A 明顯是亂碼或多餘插入字，而 B 有合理對應，請使用 B 的文字，flags 加上 "MAIN_GARBLED_REFERENCE_USED"。
+13. 如果 A 和 B 差異過大，請選擇較可信的文字，並在 text 後加上「[請人工確認]」，flags 加上 "HIGH_DISAGREEMENT"。
+14. 如果無法判斷，請保留 A 的文字，flags 加上 "UNCERTAIN"。
+15. 使用繁體中文。
+16. 只輸出合法 JSON array。
+17. 不要輸出 markdown。
+18. 不要輸出任何說明文字。
+
+回傳格式：
+[
+  {
+    "id": 1,
+    "text": "修正後文字",
+    "confidence": "high",
+    "source": "reference",
+    "flags": ["REFERENCE_USED"],
+    "note": "依 Gemini 參考稿修正音近錯字"
+  }
+]
+
+以下是 Whisper blocks：
+---
+${JSON.stringify(batchBlocks, null, 2)}
+---
+
+以下是 Gemini 參考稿：
+---
+${geminiReferenceText}
+---
+
+以下是使用者全域批次取代與自訂詞庫設定：
+---
+${settingsText}
+---`;
+
+        let batchResult = [];
+        try {
+            const rawJsonResponse = await callGeminiAPI(apiKey, prompt, true);
+            const cleanJson = rawJsonResponse.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+            batchResult = JSON.parse(cleanJson);
+        } catch (err) {
+            console.warn(`[Precise Transcribe] Batch ${b + 1} Gemini 對齊失敗：`, err);
+        }
+
+        const batchResultMap = {};
+        if (Array.isArray(batchResult)) {
+            for (const item of batchResult) {
+                if (item && typeof item.id === 'number') {
+                    batchResultMap[item.id] = item;
+                }
+            }
+        }
+
+        for (const block of batchBlocks) {
+            const aligned = batchResultMap[block.id];
+            const isValid = aligned && 
+                            typeof aligned.text === 'string' &&
+                            ['high', 'medium', 'low'].includes(aligned.confidence) &&
+                            ['main', 'reference', 'merged'].includes(aligned.source) &&
+                            Array.isArray(aligned.flags);
+
+            if (isValid) {
+                alignedResultsMap[block.id] = aligned;
+                
+                const isCorrected = aligned.source === 'reference' || aligned.source === 'merged' || aligned.text !== block.text;
+                const isManual = aligned.flags.includes('HIGH_DISAGREEMENT') || aligned.text.includes('[請人工確認]');
+
+                if (isManual) {
+                    manualCheck++;
+                    suspicious.push({
+                        id: block.id,
+                        timeRange: `${block.startTime} --> ${block.endTime}`,
+                        whisperText: block.text,
+                        alignedText: aligned.text,
+                        flags: aligned.flags,
+                        note: aligned.note || '高差異度，需要人工核對'
+                    });
+                } else if (isCorrected) {
+                    geminiCorrected++;
+                    suspicious.push({
+                        id: block.id,
+                        timeRange: `${block.startTime} --> ${block.endTime}`,
+                        whisperText: block.text,
+                        alignedText: aligned.text,
+                        flags: aligned.flags,
+                        note: aligned.note || '自動對齊修正'
+                    });
+                } else {
+                    whisperRetained++;
+                }
+            } else {
+                failedSegments++;
+                const fallbackAligned = {
+                    id: block.id,
+                    text: block.text,
+                    confidence: 'low',
+                    source: 'main',
+                    flags: ['FAILED'],
+                    note: 'Gemini 回傳格式錯誤或遺失，已使用原 Whisper 文字'
+                };
+                alignedResultsMap[block.id] = fallbackAligned;
+            }
+        }
+
+        if (b < totalBatches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+
+    // ==========================================
+    // Step 6: 重組最終 SRT / VTT / TXT
+    // ==========================================
+    const finalSrtBlocks = [];
+    const finalPlainTexts = [];
+
+    for (const block of whisperBlocks) {
+        const aligned = alignedResultsMap[block.id] || { text: block.text };
+        finalSrtBlocks.push(`${block.id}\n${block.startTime} --> ${block.endTime}\n${aligned.text}`);
+        finalPlainTexts.push(aligned.text);
+    }
+
+    const finalSrt = finalSrtBlocks.join('\n\n');
+    const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    const finalTxt = finalPlainTexts.join('\n');
+
+    const alignmentReport = {
+        totalSegments: whisperBlocks.length,
+        geminiCorrected,
+        whisperRetained,
+        manualCheck,
+        failedSegments,
+        suspicious
+    };
+
+    onProgress({ type: 'done', message: '對齊辨識完成！' });
+
+    const srtPanel = document.getElementById('tab0-result-srt');
+    if (srtPanel) srtPanel.textContent = finalSrt;
+
+    return {
+        text: finalTxt,
+        vtt: finalVtt,
+        srt: finalSrt,
+        engine: 'precise',
+        blockCount: whisperBlocks.length,
+        alignmentReport
+    };
 }
