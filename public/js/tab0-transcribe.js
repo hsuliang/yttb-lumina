@@ -1409,6 +1409,20 @@ function stripReviewMarkers(text) {
         .trim();
 }
 
+function cleanAiFormatLeak(text) {
+    if (text == null) return { isLeaked: false, cleaned: '' };
+    const originalText = String(text);
+    const cleanedText = originalText
+        .replace(/```(?:json|javascript|js)?/gi, '')
+        .replace(/```/g, '')
+        .replace(/^\s*json\s*/i, '')
+        .trim();
+    return {
+        isLeaked: originalText !== cleanedText,
+        cleaned: cleanedText
+    };
+}
+
 function isSuspiciousGarbageText(text) {
     if (!text) return false;
     // 1. 含有 \uFFFD
@@ -1432,6 +1446,22 @@ function isSuspiciousGarbageText(text) {
         return true;
     }
     return false;
+}
+
+function classifyGarbageRisk(text) {
+    if (!text) return { level: 'low' };
+    if (typeof isSuspiciousGarbageText === 'function' && isSuspiciousGarbageText(text)) {
+        return { level: 'high' };
+    }
+    return { level: 'low' };
+}
+
+function isOralRepetition(text) {
+    if (!text) return false;
+    const cleanStr = text.replace(/[\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '');
+    if (cleanStr.length === 0) return false;
+    // 口語無意義重複的常見字 fallback
+    return /^(啊|啦|嗯|哦|哈|對|是|呃)\1*$/.test(cleanStr);
 }
 
 function getSimilarity(s1, s2) {
