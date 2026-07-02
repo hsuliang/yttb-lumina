@@ -26,9 +26,9 @@ const TAB0_STORAGE_KEYS = {
 // ########## TAB 0 PROMPT ##########
 function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
     const langHint = language === 'auto' ? '自動偵測語言' :
-                     language === 'zh' ? '中文（繁體）' :
-                     language === 'en' ? 'English' :
-                     language === 'ja' ? '日本語' : '自動偵測語言';
+        language === 'zh' ? '中文（繁體）' :
+            language === 'en' ? 'English' :
+                language === 'ja' ? '日本語' : '自動偵測語言';
 
     let dictInstruction = '';
     if (customDict) {
@@ -296,10 +296,10 @@ function enforceMonotonicTimestamps(srtText) {
     for (const block of blocks) {
         const lines = block.trim().split('\n');
         if (lines.length < 3) continue;
-        
+
         const timeLineIdx = lines.findIndex(l => l.includes('-->'));
         if (timeLineIdx === -1) continue;
-        
+
         const timeLine = lines[timeLineIdx];
         const times = timeLine.split('-->');
         if (times.length !== 2) continue;
@@ -322,7 +322,7 @@ function enforceMonotonicTimestamps(srtText) {
 
         // 確保 startTime >= 前一筆的 endTime
         if (currentStartMs < lastEndMs) {
-            currentStartMs = lastEndMs + 50; 
+            currentStartMs = lastEndMs + 50;
         }
 
         // 確保 endTime > startTime
@@ -409,19 +409,19 @@ function convertVttToSrt(vttText) {
             const formatTime = (tc) => {
                 if (/^\d{2}:\d{2}:\d{2},\d{3}$/.test(tc)) return tc;
                 if (/^\d{2}:\d{2}:\d{2}\.\d{3}$/.test(tc)) return tc.replace('.', ',');
-                
+
                 const mmssdot = tc.match(/^(\d{1,2}):(\d{2})\.(\d{3})$/);
                 if (mmssdot) return `00:${mmssdot[1].padStart(2, '0')}:${mmssdot[2]},${mmssdot[3]}`;
-                
+
                 const mmsscomma = tc.match(/^(\d{1,2}):(\d{2}),(\d{3})$/);
                 if (mmsscomma) return `00:${mmsscomma[1].padStart(2, '0')}:${mmsscomma[2]},${mmsscomma[3]}`;
-                
+
                 const hmmssdot = tc.match(/^(\d{1,2}):(\d{2}):(\d{2})\.(\d{3})$/);
                 if (hmmssdot) return `${hmmssdot[1].padStart(2, '0')}:${hmmssdot[2]}:${hmmssdot[3]},${hmmssdot[4]}`;
 
                 const hmmsscomma = tc.match(/^(\d{1,2}):(\d{2}):(\d{2}),(\d{3})$/);
                 if (hmmsscomma) return `${hmmsscomma[1].padStart(2, '0')}:${hmmsscomma[2]}:${hmmsscomma[3]},${hmmsscomma[4]}`;
-                
+
                 return tc;
             };
             timeLine = `${formatTime(times[0])} --> ${formatTime(times[1])}`;
@@ -456,7 +456,7 @@ function getFileExtension(filename) {
 
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
-async function transcribeWithGemini(file, language, customDict, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
+async function transcribeWithGemini(file, language, customDict, onProgress = () => { }, onChunkComplete = () => { }, onStream = () => { }) {
     const apiKey = getBalancedApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
@@ -511,7 +511,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         const chunk = chunks[i];
         const startMin = Math.floor(chunk.offsetSeconds / 60);
         const startSec = Math.floor(chunk.offsetSeconds % 60);
-        
+
         // 針對每一段建立 prompt，限制其秒數
         const prompt = buildTranscriptionPrompt(language, customDict, chunk.durationSeconds);
 
@@ -576,7 +576,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-    
+
     onProgress({ type: 'done', message: '全部辨識完成！' });
 
     return {
@@ -605,12 +605,12 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
  * @param {string} customDict - 自訂字典
  * @param {Function} onProgress - 進度回呼
  */
-async function transcribeWithWhisper(file, language, customDict, onProgress = () => {}, onChunkComplete = () => {}) {
+async function transcribeWithWhisper(file, language, customDict, onProgress = () => { }, onChunkComplete = () => { }) {
     const workerUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
     const workerToken = localStorage.getItem('aliang-tab0-worker-token') || sessionStorage.getItem('aliang-tab0-worker-token');
 
     if (!workerUrl) throw new Error('請先設定 Whisper Worker 的 API URL。');
-    
+
     // 防呆：確保 URL 包含 http(s):// 協定
     let validWorkerUrl = workerUrl.trim();
     if (!/^https?:\/\//i.test(validWorkerUrl)) {
@@ -620,7 +620,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     const baseUrl = validWorkerUrl.replace(/\/+$/, '');
     const authHeaders = workerToken ? { 'Authorization': `Bearer ${workerToken}` } : {};
     const CHUNK_DURATION = 20;        // 分段設定：每段 20 秒
-                                      // 降低為 20 秒以減少長音檔觸發 Cloudflare 503 超時錯誤的機率
+    // 降低為 20 秒以減少長音檔觸發 Cloudflare 503 超時錯誤的機率
 
     // 1. 讀取並解碼音訊
     onProgress({ type: 'status', message: '正在讀取音訊檔案...' });
@@ -710,7 +710,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                     signal: state.currentAbortController ? state.currentAbortController.signal : undefined
                 });
                 if (resp.ok || resp.status === 401 || resp.status === 403) break;
-                
+
                 // 若伺服器錯誤 (例如 503 Service Unavailable)，等待後重試
                 if (retries > 0) {
                     onProgress({ type: 'status', message: `第 ${i + 1} 段伺服器忙碌，重試中... (${3 - retries}/2)` });
@@ -725,7 +725,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
 
         if (!resp || !resp.ok) {
             let errMsg = resp ? resp.statusText : '網路連線失敗';
-            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) {}
+            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) { }
             if (resp && (resp.status === 401 || resp.status === 403))
                 throw new Error('Worker Token 驗證失敗，請檢查設定。');
             throw new Error(`第 ${i + 1} 段辨識失敗 (${resp ? resp.status : 'Network'}): ${errMsg}`);
@@ -751,7 +751,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-    
+
     onProgress({ type: 'done', message: '全部辨識完成！' });
 
     return {
@@ -803,15 +803,15 @@ export function initializeTab0() {
         const updateEngineOptions = () => {
             const geminiOption = engineSelect.querySelector('option[value="gemini"]');
             const whisperOption = engineSelect.querySelector('option[value="whisper"]');
-            
+
             const hasGemini = typeof getBalancedApiKey !== 'undefined' && getBalancedApiKey();
             const hasWorker = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
-            
+
             if (geminiOption) {
                 geminiOption.disabled = !hasGemini;
                 geminiOption.textContent = hasGemini ? 'Gemini Flash 1.5 up' : 'Gemini Flash 1.5 up (未設定金鑰)';
             }
-            
+
             if (whisperOption) {
                 whisperOption.disabled = !hasWorker;
                 whisperOption.textContent = hasWorker ? 'Whisper Large V3 Turbo' : 'Whisper Large V3 Turbo (未設定 Worker)';
@@ -828,7 +828,7 @@ export function initializeTab0() {
 
         // 監聽全局設定變更事件
         window.addEventListener('settings-updated', updateEngineOptions);
-        
+
         // 初始更新狀態
         updateEngineOptions();
 
@@ -948,16 +948,16 @@ export function initializeTab0() {
 
         promptMsgInterval = setInterval(() => {
             elapsedSec += 1;
-            
+
             if (elapsedSec % 4 === 0) {
                 idx = (idx + 1) % msgs.length;
                 if (progressMessage) progressMessage.textContent = msgs[idx];
             }
-            
+
             simPct += (100 - simPct) * 0.05;
             if (simPct > 99) simPct = 99;
             if (chunkBarEl) chunkBarEl.style.width = `${simPct}%`;
-            
+
             if (chunkEtaEl) {
                 const remaining = Math.max(0, durationEstSec - elapsedSec);
                 chunkEtaEl.textContent = `預估剩餘時間: 約 ${remaining > 0 ? remaining : '即將完成'} 秒`;
@@ -1104,10 +1104,12 @@ export function initializeTab0() {
                         message: '使用 Whisper 專業版需要設定 Cloudflare Worker。是否前往設定？',
                         buttons: [
                             { text: '取消', class: 'btn-secondary', callback: hideModal },
-                            { text: '前往設定', class: 'btn-primary', callback: () => {
-                                hideModal();
-                                if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-worker');
-                            }}
+                            {
+                                text: '前往設定', class: 'btn-primary', callback: () => {
+                                    hideModal();
+                                    if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-worker');
+                                }
+                            }
                         ]
                     });
                     return;
@@ -1120,10 +1122,12 @@ export function initializeTab0() {
                         message: '使用 Gemini 模式需要設定 API Key。是否前往設定？',
                         buttons: [
                             { text: '取消', class: 'btn-secondary', callback: hideModal },
-                            { text: '前往設定', class: 'btn-primary', callback: () => {
-                                hideModal();
-                                if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-gemini');
-                            }}
+                            {
+                                text: '前往設定', class: 'btn-primary', callback: () => {
+                                    hideModal();
+                                    if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-gemini');
+                                }
+                            }
                         ]
                     });
                     return;
@@ -1149,10 +1153,12 @@ export function initializeTab0() {
                         message: `${missingMsg}是否前往設定？`,
                         buttons: [
                             { text: '取消', class: 'btn-secondary', callback: hideModal },
-                            { text: '前往設定', class: 'btn-primary', callback: () => {
-                                hideModal();
-                                if (showGlobalSettingsModal) showGlobalSettingsModal(targetTab);
-                            }}
+                            {
+                                text: '前往設定', class: 'btn-primary', callback: () => {
+                                    hideModal();
+                                    if (showGlobalSettingsModal) showGlobalSettingsModal(targetTab);
+                                }
+                            }
                         ]
                     });
                     return;
@@ -1183,14 +1189,14 @@ export function initializeTab0() {
 
                     const infoEl = document.getElementById('tab0-result-info');
                     if (infoEl) infoEl.classList.add('hidden');
-                    
+
                     // Hide all other panels, show SRT
                     document.querySelectorAll('.tab0-result-panel').forEach(p => p.classList.add('hidden'));
                     if (srtPanel) {
                         srtPanel.classList.remove('hidden');
                         srtPanel.textContent = '';
                     }
-                    
+
                     // Activate SRT tab
                     document.querySelectorAll('.tab0-result-tab').forEach(t => t.classList.remove('active'));
                     const srtTab = document.querySelector('.tab0-result-tab[data-target="tab0-result-srt"]');
@@ -1229,7 +1235,7 @@ export function initializeTab0() {
                             tab0Badge.classList.remove('hidden');
                             tab0Badge.textContent = '模型：whisper-large-v3-turbo';
                         }
-                        
+
                         const terminologyLines = (state.aiTerminologyRules || [])
                             .map(r => r.term?.trim())
                             .filter(Boolean);
@@ -1273,7 +1279,7 @@ export function initializeTab0() {
                         if (terminologyLines.length > 0) {
                             geminiDict = terminologyLines.join(', ');
                         }
-                        
+
                         if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
                             const replaceHints = state.batchReplaceRules.map(r => `「${r.original}」必須寫成「${r.replacement}」`).join('、');
                             geminiDict = geminiDict
@@ -1281,9 +1287,9 @@ export function initializeTab0() {
                                 : '強制替換規則：' + replaceHints;
                         }
                         result = await transcribeWithGemini(
-                            selectedFile, 
-                            state.transcribeLanguage, 
-                            geminiDict, 
+                            selectedFile,
+                            state.transcribeLanguage,
+                            geminiDict,
                             handleWhisperProgress,
                             handleChunkComplete,
                             handleStream
@@ -1306,18 +1312,24 @@ export function initializeTab0() {
                 title: '確認開始辨識',
                 message: '是否需要設定「專有名詞」或「錯字替換」？\n(這些設定能大幅提升辨識準確度)\n如果您已經設定過或不需要，請點擊「直接開始」。',
                 buttons: [
-                    { text: '設定錯字', class: 'btn-secondary', callback: () => {
-                        hideModal();
-                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-typo');
-                    }},
-                    { text: '設定專有名詞', class: 'btn-secondary', callback: () => {
-                        hideModal();
-                        if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-terminology');
-                    }},
-                    { text: '直接開始', class: 'btn-primary', callback: () => {
-                        hideModal();
-                        confirmDictAndStart();
-                    }}
+                    {
+                        text: '設定錯字', class: 'btn-secondary', callback: () => {
+                            hideModal();
+                            if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-typo');
+                        }
+                    },
+                    {
+                        text: '設定專有名詞', class: 'btn-secondary', callback: () => {
+                            hideModal();
+                            if (showGlobalSettingsModal) showGlobalSettingsModal('settings-tab-terminology');
+                        }
+                    },
+                    {
+                        text: '直接開始', class: 'btn-primary', callback: () => {
+                            hideModal();
+                            confirmDictAndStart();
+                        }
+                    }
                 ]
             });
         });
@@ -1359,7 +1371,7 @@ export function initializeTab0() {
                 return;
             }
             if (state.currentAbortController) {
-                try { state.currentAbortController.abort(); } catch (_) {}
+                try { state.currentAbortController.abort(); } catch (_) { }
                 state.currentAbortController = null;
             }
             window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
@@ -1428,13 +1440,13 @@ function getSimilarity(s1, s2) {
     const clean2 = s2.replace(/[\s，。！？、：；,.!?;:'"「」『』（）()《》〈〉\[\]【】\-—…]/g, '').toLowerCase();
     if (!clean1 || !clean2) return 0;
     if (clean1 === clean2) return 1.0;
-    
+
     const m = clean1.length;
     const n = clean2.length;
     const dp = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
     for (let i = 0; i <= m; i++) dp[i][0] = i;
     for (let j = 0; j <= n; j++) dp[0][j] = j;
-    
+
     for (let i = 1; i <= m; i++) {
         for (let j = 1; j <= n; j++) {
             if (clean1[i - 1] === clean2[j - 1]) {
@@ -1556,15 +1568,15 @@ function buildSemanticAlignmentGroups(blocks, options = {}) {
         let groupText = '';
         let startMs = 0;
         const startIndex = i;
-        
+
         let j = i;
         while (j < total) {
             const block = blocks[j];
             const blockText = block.text || '';
-            
+
             if (groupBlocks.length > 0) {
                 if (groupBlocks.length >= maxGroupBlocks) break;
-                
+
                 const currentDuration = timeToMs(block.endTime) - startMs;
                 if (currentDuration > maxGroupDurationMs) break;
 
@@ -1616,7 +1628,7 @@ function buildSemanticAlignmentGroups(blocks, options = {}) {
 
 function mergeAlignedGroupResults(existingMap, newItems, originalBlocksById) {
     if (!Array.isArray(newItems)) return existingMap;
-    
+
     const confidenceRank = {
         'high': 3,
         'medium': 2,
@@ -1626,7 +1638,7 @@ function mergeAlignedGroupResults(existingMap, newItems, originalBlocksById) {
     for (const newItem of newItems) {
         if (!newItem || typeof newItem.id !== 'number') continue;
         if (originalBlocksById && !originalBlocksById[newItem.id]) continue;
-        
+
         const text = typeof newItem.text === 'string' ? newItem.text : '';
         const cleanText = stripReviewMarkers(text);
         const confidence = ['high', 'medium', 'low'].includes(newItem.confidence) ? newItem.confidence : 'low';
@@ -1701,7 +1713,7 @@ function generateAlignmentReportText(report) {
     lines.push(`待人工確認：${report.manualCheck}`);
     lines.push(`失敗段數：${report.failedSegments}`);
     lines.push('');
-    
+
     lines.push('Validation Warnings：');
     if (report.validationWarnings && report.validationWarnings.length > 0) {
         report.validationWarnings.forEach(w => {
@@ -1711,7 +1723,7 @@ function generateAlignmentReportText(report) {
         lines.push('時間軸與輸出驗證通過');
     }
     lines.push('');
-    
+
     lines.push('可疑段落：');
     if (report.suspicious && report.suspicious.length > 0) {
         report.suspicious.forEach(item => {
@@ -1728,16 +1740,16 @@ function generateAlignmentReportText(report) {
     } else {
         lines.push('無需人工確認段落');
     }
-    
+
     return lines.join('\n');
 }
 
 function renderAlignmentReport(report, container) {
     if (!container || !report) return;
-    
+
     const warningsCount = report.validationWarnings?.length || 0;
     const suspiciousCount = report.suspicious?.length || 0;
-    
+
     container.innerHTML = `
         <details class="glass-card rounded-xl border border-outline-variant/10 shadow-lg text-on-surface bg-surface-container-low/40 backdrop-blur-md overflow-hidden group" open>
             <summary class="cursor-pointer font-semibold flex items-center justify-between text-on-surface select-none p-4 hover:bg-surface-variant/10 transition-all text-sm list-none [&::-webkit-details-marker]:hidden">
@@ -1827,10 +1839,10 @@ function renderAlignmentReport(report, container) {
                                     </thead>
                                     <tbody>
                                         ${report.suspicious.map(item => {
-                                            const hasManual = item.flags?.includes('HIGH_DISAGREEMENT') || item.flags?.includes('UNCERTAIN');
-                                            const badgeClass = hasManual ? 'bg-error/20 text-error' : 'bg-primary/20 text-primary';
-                                            const flagsText = Array.isArray(item.flags) ? item.flags.join(', ') : '';
-                                            return `
+        const hasManual = item.flags?.includes('HIGH_DISAGREEMENT') || item.flags?.includes('UNCERTAIN');
+        const badgeClass = hasManual ? 'bg-error/20 text-error' : 'bg-primary/20 text-primary';
+        const flagsText = Array.isArray(item.flags) ? item.flags.join(', ') : '';
+        return `
                                             <tr class="border-b border-outline-variant/10 hover:bg-surface-variant/10 transition-colors">
                                                 <td class="py-2 px-2 text-center text-on-surface-variant font-semibold">${item.id}</td>
                                                 <td class="py-2 px-2 text-center text-on-surface-variant font-mono text-[11px] whitespace-nowrap">${item.timeRange}</td>
@@ -1843,7 +1855,7 @@ function renderAlignmentReport(report, container) {
                                                 </td>
                                             </tr>
                                             `;
-                                        }).join('')}
+    }).join('')}
                                     </tbody>
                                 </table>
                             </div>
@@ -1853,7 +1865,7 @@ function renderAlignmentReport(report, container) {
             </div>
         </details>
     `;
-    
+
     // Bind click event for download button
     const downloadBtn = document.getElementById('tab0-download-alignment-report');
     if (downloadBtn) {
@@ -1883,7 +1895,7 @@ function shouldAddToSuspicious(aligned) {
     );
 }
 
-async function transcribeWithPreciseAlignment(file, language, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
+async function transcribeWithPreciseAlignment(file, language, onProgress = () => { }, onChunkComplete = () => { }, onStream = () => { }) {
     const apiKey = getBalancedApiKey();
     const workerUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
     if (!apiKey) throw new Error("請先設定 Gemini API Key。");
@@ -2091,7 +2103,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
 
         if (!resp || !resp.ok) {
             let errMsg = resp ? resp.statusText : '網路連線失敗';
-            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) {}
+            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) { }
             throw new Error(`Whisper 第 ${i + 1} 段辨識失敗: ${errMsg}`);
         }
 
@@ -2292,93 +2304,15 @@ ${settingsText}
     // 統計與產生報告
     // ==========================================
     const validationWarnings = [];
-    let prevAlignedInfo = null;
-
-    // 第一階段：逐一檢查品質規則（疑似亂碼、相鄰重複）並修正 alignedResultsMap 欄位
-    for (let index = 0; index < whisperBlocks.length; index++) {
-        const block = whisperBlocks[index];
-        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
-        
-        if (!Array.isArray(aligned.flags)) {
-            aligned.flags = [];
-        }
-
-        const cleanAlignedText = stripReviewMarkers(aligned.text || '');
-        aligned.text = cleanAlignedText;
-
-        // 1. 檢查 Gemini 回傳是否疑似亂碼
-        if (isSuspiciousGarbageText(cleanAlignedText)) {
-            aligned.text = block.text; // 不採用 Gemini text，改用原 Whisper block.text
-            aligned.source = 'main';
-            aligned.confidence = 'low';
-            if (!aligned.flags.includes('GARBAGE_TEXT_REJECTED')) {
-                aligned.flags.push('GARBAGE_TEXT_REJECTED');
-            }
-            aligned.note = 'Gemini 回傳疑似亂碼，已保留 Whisper 原文';
-            
-            validationWarnings.push(`[疑似亂碼] ID ${block.id}: Gemini 回傳疑似亂碼，已自動保留 Whisper 原文 ("${block.text}")。`);
-        }
-
-        // 2. 檢查相鄰段落是否高度重複
-        if (prevAlignedInfo) {
-            const currentText = aligned.text || '';
-            const prevText = prevAlignedInfo.aligned.text || '';
-            if (getSimilarity(currentText, prevText) >= 0.8) {
-                if (!aligned.flags.includes('POSSIBLE_DUPLICATE')) {
-                    aligned.flags.push('POSSIBLE_DUPLICATE');
-                }
-                aligned.note = '相鄰字幕文字高度重複，請人工確認';
-                
-                validationWarnings.push(`[重複警告] ID ${block.id}: 文字與前一段 (ID ${prevAlignedInfo.block.id}) 高度重複 ("${currentText}")，請人工確認。`);
-            }
-        }
-
-        prevAlignedInfo = { block, aligned };
-    }
-
-    // 第二階段：計算統計指標並收集 suspicious 陣列
-    for (const block of whisperBlocks) {
-        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
-        const cleanAlignedText = aligned.text || block.text;
-
-        const isCorrected = aligned.source === 'reference' || aligned.source === 'merged' || cleanAlignedText !== block.text;
-        if (isCorrected) {
-            geminiCorrected++;
-        } else {
-            whisperRetained++;
-        }
-
-        const flags = Array.isArray(aligned.flags) ? aligned.flags : [];
-        const confidence = aligned.confidence || '';
-        const isManual = confidence === 'low' || flags.includes('HIGH_DISAGREEMENT') || flags.includes('UNCERTAIN');
-        if (isManual) {
-            manualCheck++;
-        }
-
-        if (shouldAddToSuspicious(aligned)) {
-            let note = aligned.note;
-            if (!note) {
-                if (flags.includes('HIGH_DISAGREEMENT')) {
-                    note = '兩稿差異較大，請人工確認';
-                } else if (flags.includes('UNCERTAIN')) {
-                    note = '不確定對齊內容';
-                } else {
-                    note = '一般異常，需要人工作業確認';
-                }
-            }
-            suspicious.push({
-                id: block.id,
-                timeRange: `${block.startTime} --> ${block.endTime}`,
-                whisperText: block.text,
-                alignedText: cleanAlignedText,
-                confidence: aligned.confidence,
-                source: aligned.source,
-                flags: aligned.flags,
-                note: note,
-                groupId: blockToGroupMap[block.id] || null
-            });
-        }
-    }
+    // 使用抽出後的報表計算模組
+    const newReportData = rebuildAlignmentReportFromExistingData({
+        whisperBlocks,
+        alignedResultsMap,
+        existingReport: {},
+        finalSrt: '',
+        finalTxt: '',
+        blockToGroupMap
+    });
 
     // ==========================================
     // Step 6: 重組最終 SRT / VTT / TXT (進行最終防呆清除)
@@ -2398,35 +2332,45 @@ ${settingsText}
     const finalTxt = finalPlainTexts.join('\n');
 
     // 進行最終格式與品質輸出驗證
-    const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null);
-    const allUniqueWarnings = [...new Set([...validationWarnings, ...outputWarnings])];
-
     const alignmentReport = {
         totalSegments: whisperBlocks.length,
-        geminiCorrected,
-        whisperRetained,
-        manualCheck,
+        geminiCorrected: newReportData.geminiCorrected,
+        whisperRetained: newReportData.whisperRetained,
+        manualCheck: newReportData.manualCheck,
         failedSegments,
-        suspicious,
-        validationWarnings: allUniqueWarnings
+        suspicious: newReportData.suspicious,
+        validationWarnings: newReportData.validationWarnings,
+        oralRepetitions: newReportData.oralRepetitions || [],
+        debugBatches: debugBatches,
+        failedSegmentDetails,
+        failedBatches,
+        errors
     };
 
-    // 暴露至全域以利 Console 查詢
-    alignmentReport.validationWarnings = alignmentReport.validationWarnings || [];
+    // 進行最終格式與品質輸出驗證
+    const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null);
 
-    const preciseAlignmentResult = {
-        text: finalTxt,
-        vtt: finalVtt,
-        srt: finalSrt,
-        engine: 'precise',
-        blockCount: whisperBlocks.length,
-        alignmentReport
-    };
+    const combinedWarnings = [...alignmentReport.validationWarnings, ...outputWarnings];
+    const uniqueWarningsMap = new Map();
+    for (const w of combinedWarnings) {
+        const match = w.match(/^(\[[^\]]+\] ID \d+:)/);
+        if (match) {
+            const key = match[1];
+            if (!uniqueWarningsMap.has(key)) {
+                uniqueWarningsMap.set(key, w);
+            }
+        } else {
+            uniqueWarningsMap.set(w, w);
+        }
+    }
+    alignmentReport.validationWarnings = Array.from(uniqueWarningsMap.values());
 
     window.lastAlignmentReport = alignmentReport;
     window.lastPreciseAlignmentResult = preciseAlignmentResult;
+    window.lastAlignedResultsMap = alignedResultsMap;
 
     window.lastPreciseAlignmentDebug = {
+        alignedResultsMap: alignedResultsMap,
         hasResult: !!window.lastPreciseAlignmentResult,
         hasSrt: typeof finalSrt === 'string' && finalSrt.length > 0,
         srtLength: finalSrt ? finalSrt.length : 0,
@@ -2451,3 +2395,300 @@ ${settingsText}
 
     return preciseAlignmentResult;
 }
+
+
+function rebuildAlignmentReportFromExistingData({
+    whisperBlocks,
+    alignedResultsMap,
+    existingReport = {},
+    finalSrt = '',
+    finalTxt = '',
+    blockToGroupMap = {}
+}) {
+    let geminiCorrected = 0;
+    let whisperRetained = 0;
+    let manualCheck = 0;
+    const suspicious = [];
+    const validationWarnings = [];
+    const oralRepetitions = [];
+    let prevAlignedInfo = null;
+
+    for (let index = 0; index < whisperBlocks.length; index++) {
+        const block = whisperBlocks[index];
+        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
+
+        if (!Array.isArray(aligned.flags)) {
+            aligned.flags = [];
+        }
+
+        let cleanAlignedText = stripReviewMarkers(aligned.text || '');
+        const leakCheck = cleanAiFormatLeak(cleanAlignedText);
+        if (leakCheck.isLeaked && leakCheck.cleaned.trim().length > 0) {
+            cleanAlignedText = leakCheck.cleaned;
+            if (!aligned.flags.includes('AI_FORMAT_LEAK_CLEANED')) {
+                aligned.flags.push('AI_FORMAT_LEAK_CLEANED');
+            }
+            aligned.note = '已移除 AI 格式標記';
+        }
+        aligned.text = cleanAlignedText;
+
+        const geminiGarbage = classifyGarbageRisk(cleanAlignedText);
+        const whisperGarbage = classifyGarbageRisk(block.text);
+
+        if (geminiGarbage.level === 'high') {
+            aligned.text = block.text;
+            aligned.source = 'main';
+            aligned.confidence = 'low';
+
+            if (!aligned.flags.includes('GARBAGE_TEXT_DETECTED')) aligned.flags.push('GARBAGE_TEXT_DETECTED');
+            if (!aligned.flags.includes('GARBAGE_TEXT_REJECTED')) aligned.flags.push('GARBAGE_TEXT_REJECTED');
+
+            if (whisperGarbage.level === 'high') {
+                if (!aligned.flags.includes('NEEDS_MANUAL_REVIEW')) aligned.flags.push('NEEDS_MANUAL_REVIEW');
+                aligned.note = '文字疑似亂碼，已保留較安全版本，請人工確認';
+                validationWarnings.push(`[高風險亂碼] ID ${block.id}: 兩稿均疑似高風險亂碼，已保留原 Whisper 文字，請人工確認。`);
+            } else {
+                aligned.note = '文字疑似亂碼，已保留較安全版本，請人工確認';
+                validationWarnings.push(`[高風險亂碼] ID ${block.id}: Gemini 參考稿疑似高風險亂碼，已自動保留較安全之 Whisper 原文 ("${block.text}")。`);
+            }
+        } else if (geminiGarbage.level === 'medium') {
+            if (!aligned.flags.includes('POSSIBLE_GARBAGE')) aligned.flags.push('POSSIBLE_GARBAGE');
+            aligned.note = '文字疑似異常，請人工確認';
+            validationWarnings.push(`[中風險亂碼] ID ${block.id}: Gemini 修正內容疑似中風險亂碼 ("${aligned.text}")，請人工確認。`);
+        }
+
+        if (prevAlignedInfo) {
+            const currentText = aligned.text || '';
+            const prevText = prevAlignedInfo.aligned.text || '';
+            if (getSimilarity(currentText, prevText) >= 0.8) {
+                if (typeof isOralRepetition === 'function' && isOralRepetition(currentText)) {
+                    oralRepetitions.push({
+                        id: block.id,
+                        previousId: prevAlignedInfo.block.id,
+                        text: currentText,
+                        reason: '自然口語重複，未列為驗證警告'
+                    });
+                } else {
+                    if (!aligned.flags.includes('POSSIBLE_DUPLICATE')) {
+                        aligned.flags.push('POSSIBLE_DUPLICATE');
+                    }
+                    aligned.note = '相鄰字幕文字高度重複，請人工確認';
+                    validationWarnings.push(`[重複警告] ID ${block.id}: 文字與前一段 (ID ${prevAlignedInfo.block.id}) 高度重複 ("${currentText}")，請人工確認。`);
+                }
+            }
+        }
+        prevAlignedInfo = { block, aligned };
+    }
+
+    for (const block of whisperBlocks) {
+        const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
+        const cleanAlignedText = aligned.text || block.text;
+
+        const isCorrected = aligned.source === 'reference' || aligned.source === 'merged' || cleanAlignedText !== block.text;
+        if (isCorrected) {
+            geminiCorrected++;
+        } else {
+            whisperRetained++;
+        }
+
+        if (shouldAddToSuspicious(aligned)) {
+            let note = aligned.note;
+            if (!note) {
+                if (aligned.flags.includes('HIGH_DISAGREEMENT')) {
+                    note = '兩稿差異較大，請人工確認';
+                } else if (aligned.flags.includes('UNCERTAIN')) {
+                    note = '不確定對齊內容';
+                } else {
+                    note = '一般異常，需要人工作業確認';
+                }
+            }
+            suspicious.push({
+                id: block.id,
+                timeRange: `${block.startTime} --> ${block.endTime}`,
+                whisperText: block.text,
+                alignedText: cleanAlignedText,
+                confidence: aligned.confidence,
+                source: aligned.source,
+                flags: aligned.flags,
+                note: note,
+                groupId: blockToGroupMap[block.id] || null
+            });
+            manualCheck++;
+        }
+    }
+
+    const outputWarnings = finalSrt ? validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null) : [];
+
+    const combinedWarnings = [...validationWarnings, ...outputWarnings];
+    const uniqueWarningsMap = new Map();
+    for (const w of combinedWarnings) {
+        const match = w.match(/^(\[[^\]]+\] ID \d+:)/);
+        if (match) {
+            const key = match[1];
+            if (!uniqueWarningsMap.has(key)) {
+                uniqueWarningsMap.set(key, w);
+            }
+        } else {
+            uniqueWarningsMap.set(w, w);
+        }
+    }
+    const allUniqueWarnings = Array.from(uniqueWarningsMap.values());
+
+    return {
+        ...existingReport,
+        totalSegments: whisperBlocks.length,
+        geminiCorrected,
+        whisperRetained,
+        manualCheck,
+        suspicious,
+        validationWarnings: allUniqueWarnings,
+        oralRepetitions
+    };
+}
+
+window.rebuildPreciseAlignmentReportOnly = function () {
+    if (!window.lastAlignedResultsMap) {
+        throw new Error('缺少 lastAlignedResultsMap，無法重新分類計算；目前可使用既有 lastAlignmentReport，但不能 report-only 重算。請在下一次正式第三階段完成後確認 alignedResultsMap 有保存。');
+    }
+    if (!window.lastPreciseAlignmentResult) {
+        throw new Error('缺少 lastPreciseAlignmentResult，無法重算 report-only。');
+    }
+    if (!window.lastPreciseAlignmentCache || !window.lastPreciseAlignmentCache.whisperBlocks) {
+        throw new Error('缺少 window.lastPreciseAlignmentCache.whisperBlocks，無法重算 report-only。');
+    }
+
+    const whisperBlocks = window.lastPreciseAlignmentCache.whisperBlocks;
+    const alignedResultsMap = window.lastAlignedResultsMap;
+    const finalSrt = window.lastPreciseAlignmentResult.srt;
+    const finalTxt = window.lastPreciseAlignmentResult.text;
+
+    const semanticGroups = buildSemanticAlignmentGroups(whisperBlocks, {
+        maxGroupDurationMs: 12000,
+        maxGroupChars: 220,
+        maxGroupBlocks: 8,
+        overlapBlocks: 2
+    });
+
+    const blockToGroupMap = {};
+    for (const group of semanticGroups) {
+        for (const id of group.blockIds) {
+            if (!blockToGroupMap[id]) {
+                blockToGroupMap[id] = group.groupId;
+            }
+        }
+    }
+
+    const newReport = rebuildAlignmentReportFromExistingData({
+        whisperBlocks,
+        alignedResultsMap,
+        existingReport: window.lastAlignmentReport || {},
+        finalSrt,
+        finalTxt,
+        blockToGroupMap
+    });
+
+    newReport.failedSegments = window.lastAlignmentReport?.failedSegments || 0;
+    newReport.failedSegmentDetails = window.lastAlignmentReport?.failedSegmentDetails || [];
+    newReport.failedBatches = window.lastAlignmentReport?.failedBatches || [];
+    newReport.errors = window.lastAlignmentReport?.errors || [];
+
+    window.lastAlignmentReport = newReport;
+    window.lastPreciseAlignmentResult.alignmentReport = newReport;
+
+    console.log('[PreciseAlignment] Report-only rebuild complete!', {
+        suspicious: newReport.suspicious.length,
+        oralRepetitions: newReport.oralRepetitions.length,
+        validationWarnings: newReport.validationWarnings.length,
+        manualCheck: newReport.manualCheck,
+        failedSegments: newReport.failedSegments
+    });
+
+    return newReport;
+};
+
+window.savePreciseAlignmentSnapshot = function () {
+    const snapshot = {
+        savedAt: new Date().toISOString(),
+        cache: window.lastPreciseAlignmentCache || null,
+        result: window.lastPreciseAlignmentResult || null,
+        report: window.lastAlignmentReport || null,
+        debug: window.lastPreciseAlignmentDebug || null,
+        alignedResultsMap:
+            window.lastAlignedResultsMap ||
+            window.lastPreciseAlignmentDebug?.alignedResultsMap ||
+            null
+    };
+
+    if (snapshot.result && snapshot.report) {
+        snapshot.result.alignmentReport = snapshot.report;
+    }
+
+    localStorage.setItem('preciseAlignmentSnapshot_latest', JSON.stringify(snapshot));
+
+    console.log('Precise Alignment snapshot saved to localStorage.', {
+        blockCount: snapshot.result?.blockCount,
+        totalSegments: snapshot.report?.totalSegments,
+        suspicious: snapshot.report?.suspicious?.length,
+        oralRepetitions: snapshot.report?.oralRepetitions?.length,
+        validationWarnings: snapshot.report?.validationWarnings?.length,
+        manualCheck: snapshot.report?.manualCheck,
+        failedSegments: snapshot.report?.failedSegments,
+        hasAlignedResultsMap: !!snapshot.alignedResultsMap,
+        alignedResultsMapCount: snapshot.alignedResultsMap ? Object.keys(snapshot.alignedResultsMap).length : 0
+    });
+};
+
+window.restorePreciseAlignmentSnapshot = function () {
+    const data = localStorage.getItem('preciseAlignmentSnapshot_latest');
+    if (!data) {
+        throw new Error('No snapshot found in localStorage.');
+    }
+    const snapshot = JSON.parse(data);
+
+    window.lastPreciseAlignmentCache = snapshot.cache || null;
+    window.lastPreciseAlignmentResult = snapshot.result || null;
+    window.lastAlignmentReport = snapshot.report || snapshot.result?.alignmentReport || null;
+    window.lastPreciseAlignmentDebug = snapshot.debug || null;
+    window.lastAlignedResultsMap =
+        snapshot.alignedResultsMap ||
+        snapshot.debug?.alignedResultsMap ||
+        null;
+
+    if (window.lastPreciseAlignmentResult && window.lastAlignmentReport) {
+        window.lastPreciseAlignmentResult.alignmentReport = window.lastAlignmentReport;
+    }
+
+    console.log('Precise Alignment snapshot restored.', {
+        blockCount: window.lastPreciseAlignmentResult?.blockCount,
+        totalSegments: window.lastAlignmentReport?.totalSegments,
+        suspicious: window.lastAlignmentReport?.suspicious?.length,
+        oralRepetitions: window.lastAlignmentReport?.oralRepetitions?.length,
+        validationWarnings: window.lastAlignmentReport?.validationWarnings?.length,
+        manualCheck: window.lastAlignmentReport?.manualCheck,
+        failedSegments: window.lastAlignmentReport?.failedSegments,
+        hasAlignedResultsMap: !!window.lastAlignedResultsMap,
+        alignedResultsMapCount: window.lastAlignedResultsMap ? Object.keys(window.lastAlignedResultsMap).length : 0
+    });
+};
+
+window.downloadPreciseAlignmentSnapshot = function () {
+    const snapshot = {
+        savedAt: new Date().toISOString(),
+        cache: window.lastPreciseAlignmentCache,
+        result: window.lastPreciseAlignmentResult,
+        report: window.lastAlignmentReport,
+        debug: window.lastPreciseAlignmentDebug,
+        alignedResultsMap: window.lastAlignedResultsMap
+    };
+    const jsonStr = JSON.stringify(snapshot, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `precise_alignment_snapshot_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    console.log('Precise Alignment snapshot download triggered.');
+};

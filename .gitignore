@@ -25,3 +25,4 @@ dist-ssr
 
 # Scratch scripts
 *.cjs
+db.json
