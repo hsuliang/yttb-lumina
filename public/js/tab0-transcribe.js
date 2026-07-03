@@ -1,4 +1,4 @@
-import { callGeminiAudioAPI, callGeminiAPI } from './gemini-api.js';
+import { callGeminiAudioAPI, callGeminiAPI, isPollutedGeminiAudioOutput } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
@@ -32,7 +32,7 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
 
     let dictInstruction = '';
     if (customDict) {
-        dictInstruction = `\n\n特別要求：\n請嚴格遵守以下專有名詞，當遇到聽起來類似的詞彙時，必須輸出以下指定的正向詞彙：\n${customDict}`;
+        dictInstruction = `\n\n特別要求：\n專有名詞只作為詞彙偏好，不是知識問答。請嚴格遵守以下專有名詞，當遇到聽起來類似的詞彙時，必須輸出以下指定的正向詞彙：\n${customDict}`;
     }
 
     const durationMin = Math.ceil(chunkDuration / 60);
@@ -58,7 +58,7 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
 6. 時間戳必須精準對應音訊中的語音位置，按時間順序排列，絕對不可發生時間倒退或重疊。
 7. 序號必須從 1 開始，連續遞增
 8. 只輸出 SRT 內容，不要加任何說明文字、開頭語或 markdown 格式標記
-9. 逐字轉寫，不要遺漏或創造原始音訊中沒有的內容
+9. 只根據音訊內容轉寫，不補充、不推理、不猜測，不要遺漏或創造原始音訊中沒有的內容
 10. 如果音訊中有靜音段，不要為靜音段產生字幕`;
 }
 
@@ -549,8 +549,13 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
 
         if (!result.isValid) {
             console.warn(`[Tab0] Gemini 第 ${i + 1} 段回傳內容無法解析為 SRT，原始回應：`, rawResponse);
-            // 如果某段失敗，我們只能把它當純文字
-            allText.push(rawResponse);
+            if (isPollutedGeminiAudioOutput(rawResponse)) {
+                throw new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT: 偵測到嚴重污染內容，無法解析為 SRT，終止當前任務。");
+            } else {
+                // 如果某段失敗，我們只能把它當純文字
+                console.warn(`[Tab0] 第 ${i + 1} 段非 SRT fallback：`, rawResponse);
+                allText.push(rawResponse);
+            }
         } else {
             if (result.srt.trim()) {
                 const monotonicChunkSrt = enforceMonotonicTimestamps(result.srt);
@@ -2528,12 +2533,29 @@ ${settingsText}
     }
     alignmentReport.validationWarnings = Array.from(uniqueWarningsMap.values());
 
+    const preciseAlignmentResult = {
+        srt: finalSrt,
+        vtt: finalVtt,
+        text: finalTxt,
+        engine: 'precise_alignment',
+        blockCount: whisperBlocks.length,
+        report: alignmentReport,
+        debug: debugBatches,
+        blocks: whisperBlocks
+    };
+
     window.lastAlignmentReport = alignmentReport;
     window.lastPreciseAlignmentResult = preciseAlignmentResult;
     window.lastAlignedResultsMap = alignedResultsMap;
 
     window.lastPreciseAlignmentDebug = {
         alignedResultsMap: alignedResultsMap,
+        debugBatches: debugBatches,
+        actualGeminiAlignmentCalls: debugBatches.length,
+        avgBlocksPerApiBatch: debugBatches.length > 0
+            ? whisperBlocks.length / debugBatches.length
+            : 0,
+        fallbackBatchCount: debugBatches.filter(b => b.fallback || b.usedFallback).length,
         hasResult: !!window.lastPreciseAlignmentResult,
         hasSrt: typeof finalSrt === 'string' && finalSrt.length > 0,
         srtLength: finalSrt ? finalSrt.length : 0,

@@ -22,6 +22,58 @@ import { callCloudflareTextAPI } from './cf-api.js';
 const modelCache = new Map();
 const FALLBACK_MODEL = 'gemini-flash-latest';
 
+function getAudioTranscriptionModelsOrder(allModels) {
+  const preferredOrder = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash-001',
+    'gemini-2.0-flash'
+  ];
+
+  return preferredOrder.filter(m => allModels.includes(m));
+}
+
+export function isPollutedGeminiAudioOutput(text) {
+  if (!text || typeof text !== 'string') return false;
+
+  const pollutionPatterns = [
+    /Let's check/i,
+    /Let's search/i,
+    /\bCould\b/i,
+    /What about/i,
+    /\bWait\b/i,
+    /Search for/i,
+    /I need to/i,
+    /Based on/i,
+    /The answer is/i
+  ];
+
+  const hasPollutionPhrase = pollutionPatterns.some(re => re.test(text));
+
+  const bulletLines = text
+    .split(/\r?\n/)
+    .filter(line =>
+      /^\s*[*-]\s+/.test(line) &&
+      /Let's|Could|What about|Wait|search|check|audio/i.test(line)
+    );
+
+  const repeatedLineCount = (() => {
+    const lines = text
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length >= 8);
+
+    const counts = new Map();
+    for (const line of lines) {
+      counts.set(line, (counts.get(line) || 0) + 1);
+    }
+    return Math.max(0, ...counts.values());
+  })();
+
+  return hasPollutionPhrase || bulletLines.length >= 3 || repeatedLineCount >= 5;
+}
+
+const AUDIO_MAX_OUTPUT_TOKENS = 12000;
+
 /**
  * 解析特定 API Key 可用的所有 Flash 模型，並按版本從新到舊排序
  * @param {string} apiKey - Gemini API Key
@@ -32,7 +84,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     if (!apiKey) {
         return [FALLBACK_MODEL];
     }
-    
+
     if (modelCache.has(apiKey)) {
         const cached = modelCache.get(apiKey);
         if (Date.now() - cached.timestamp < 3600000) { // 1 hour TTL
@@ -55,9 +107,9 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
             const name = m.name || '';
             const nameLower = name.toLowerCase();
             const hasGenerateContent = m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent');
-            return hasGenerateContent && 
-                   nameLower.includes('flash') && 
-                   !nameLower.includes('preview') && 
+            return hasGenerateContent &&
+                   nameLower.includes('flash') &&
+                   !nameLower.includes('preview') &&
                    !nameLower.includes('lite') &&
                    !nameLower.includes('image') &&
                    !nameLower.includes('vision');
@@ -73,7 +125,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
             const suffix = parts[parts.length - 1];
             const versionMatch = suffix.match(/gemini-(\d+\.?\d*)-flash/i);
             const versionNum = versionMatch ? parseFloat(versionMatch[1]) : 0;
-            
+
             return { suffix, versionNum };
         });
 
@@ -86,7 +138,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
         });
 
         const list = parsedModels.map(m => m.suffix).filter(m => m);
-        
+
         // 確保極穩定的底線模型存在於清單中
         if (!list.includes(FALLBACK_MODEL)) {
             list.push(FALLBACK_MODEL);
@@ -113,7 +165,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
  * @throws {Error} 如果所有嘗試均失敗。
  */
 export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null) {
-    
+
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
 
     if (aiEngine === 'cloudflare' && !forceJson) {
@@ -174,13 +226,13 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 const generationConfig = {
                     responseMimeType: forceJson ? "application/json" : "text/plain",
                 };
-                
+
 
                 let terminologyInstruction = '';
                 if (state.aiTerminologyRules && state.aiTerminologyRules.length > 0) {
                     const positiveTerms = state.aiTerminologyRules.filter(r => r.type === 'positive').map(r => r.term);
                     const negativeTerms = state.aiTerminologyRules.filter(r => r.type === 'negative').map(r => r.term);
-                    
+
                     if (positiveTerms.length > 0) {
                         terminologyInstruction += `\n請嚴格遵守以下專有名詞，必須輸出這些指定的正向詞彙：${positiveTerms.join(', ')}。`;
                     }
@@ -211,7 +263,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                         responseText += chunkText;
                         onStream(chunkText, responseText);
                     }
-                    
+
                     // 為了相容後續的安全檢查，我們模擬 response 物件
                     const response = await result.response;
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
@@ -227,7 +279,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
                         throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                     }
-                    
+
                     if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
                         throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
                     }
@@ -272,9 +324,9 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
                 // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
                 // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
-                const isRealKeyError = errorMsg.includes("API key not valid") || 
-                                       errorMsg.includes("not valid") || 
-                                       errorMsg.includes("invalid") || 
+                const isRealKeyError = errorMsg.includes("API key not valid") ||
+                                       errorMsg.includes("not valid") ||
+                                       errorMsg.includes("invalid") ||
                                        (errorMsg.includes("403") && !errorMsg.includes("limit"));
 
                 if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
@@ -286,7 +338,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                     console.warn("Detected API key error, switching to next key...");
                     break; // 直接跳出內層模型循環，換下一個金鑰
                 }
-                
+
                 // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
                 console.log(`Model ${modelName} 暫時不可用，嘗試下一個模型...`);
             }
@@ -296,7 +348,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     }
 
     const finalErrorMsg = lastError ? lastError.message : "未知錯誤";
-    
+
     if (aiEngine === 'auto' && !forceJson) {
         console.warn('Gemini 失敗，觸發 Cloudflare 備援機制...', finalErrorMsg);
         try {
@@ -321,7 +373,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
  * @returns {Promise<string>} AI 生成的 SRT 文字。
  */
 export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText, onStream = null, abortSignal = null) {
-    
+
 
     // 建立金鑰嘗試池（與 callGeminiAPI 相同邏輯）
     let keyPool = [];
@@ -353,13 +405,14 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
         const allModels = await resolveFlashModelsList(currentKey);
 
         // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
-        const audioModels = allModels.filter(m => !m.includes('-image'));
-        console.log(`[Audio API] 音訊可用模型 (已過濾 image 模型):`, audioModels);
+        const audioModels = getAudioTranscriptionModelsOrder(allModels);
+        console.log(`[Audio API] 音訊轉錄模型順序:`, audioModels);
 
         if (audioModels.length === 0) {
-            console.warn("[Audio API] 過濾後無可用模型，使用原始清單");
+            throw new Error("找不到可用的 Gemini 音訊轉錄模型。目前已排除 gemini-3.5-flash 與 gemini-flash-latest，請確認 gemini-2.5-flash 或 gemini-2.0-flash 可用。");
         }
-        const models = audioModels.length > 0 ? audioModels : allModels;
+
+        const models = audioModels;
 
         let lastModelError = null;
 
@@ -386,7 +439,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 const generationConfig = {
                     responseMimeType: "text/plain",
                     temperature: 0,
-                    maxOutputTokens: 65536,
+                    maxOutputTokens: AUDIO_MAX_OUTPUT_TOKENS,
                 };
 
 
@@ -394,7 +447,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 if (state.aiTerminologyRules && state.aiTerminologyRules.length > 0) {
                     const positiveTerms = state.aiTerminologyRules.filter(r => r.type === 'positive').map(r => r.term);
                     const negativeTerms = state.aiTerminologyRules.filter(r => r.type === 'negative').map(r => r.term);
-                    
+
                     if (positiveTerms.length > 0) {
                         terminologyInstruction += `\n請嚴格遵守以下專有名詞，必須輸出這些指定的正向詞彙：${positiveTerms.join(', ')}。`;
                     }
@@ -403,9 +456,21 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     }
                 }
 
+                const strictInstruction = `你是一個嚴格的 SRT 字幕轉寫器。
+你必須且只能使用繁體中文（台灣）。
+你只能輸出使用者指定格式。
+如果任務要求 SRT，你只能輸出合法 SRT。
+不得輸出任何說明、推理、分析、自我檢查、搜尋、猜測、候選答案。
+不得輸出 Markdown。
+不得輸出 bullet points。
+不得輸出 Let's check、Let's search、Could、What about、Wait 等文字。
+不得重複同一句話。
+如果聽不清楚，只能在字幕文字中寫 [聽不清楚]，不要自行推測。
+請只根據音訊實際聽到的內容轉寫，不要用常識補答案。`;
+
                 const systemInstruction = {
                     role: "system",
-                    parts: [{ text: "你是一個專業的語音轉寫員。你必須且只能使用「繁體中文（台灣）」進行回覆，絕對不可以使用簡體中文。請嚴格遵守使用者要求的輸出格式。" + terminologyInstruction }]
+                    parts: [{ text: strictInstruction + terminologyInstruction }]
                 };
 
                 const model = genAI.getGenerativeModel({
@@ -438,11 +503,17 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
                         throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                     }
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                    }
                     if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
                         throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                    }
+                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                        if (isPollutedGeminiAudioOutput(responseText)) {
+                            console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
+                            const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                            pollutedError.name = "PollutedAudioOutputError";
+                            throw pollutedError;
+                        }
                     }
                 } else {
                     const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
@@ -451,13 +522,27 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     if (response.promptFeedback && response.promptFeedback.blockReason) {
                         throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                     }
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                    }
                     if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
                         throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
                     }
                     responseText = response.text();
+
+                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                        if (isPollutedGeminiAudioOutput(responseText)) {
+                            console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
+                            const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                            pollutedError.name = "PollutedAudioOutputError";
+                            throw pollutedError;
+                        }
+                    }
+                }
+
+                if (isPollutedGeminiAudioOutput(responseText)) {
+                    console.warn("[Audio API] Polluted transcription output detected. Trying next audio model...");
+                    const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                    pollutedError.name = "PollutedAudioOutputError";
+                    throw pollutedError;
                 }
 
                 // 更新金鑰使用計數
@@ -526,27 +611,32 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 
 function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";
-    
+
+    // Audio polluted output
+    if (message.includes("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT")) {
+        return "【語音辨識輸出異常】Gemini 回傳了非 SRT 的推理、重複或自我檢查內容，系統已阻止污染文字進入字幕。請稍後重試，或改用較短音訊片段。";
+    }
+
     // 503 / High Demand / Overloaded
     if (message.includes("503") || message.includes("high demand") || message.includes("overloaded") || message.includes("Service Unavailable")) {
         return "【AI 伺服器繁忙 (overloaded)】Gemini API 目前負載過高或正處於全球尖峰時段。這通常是暫時的，請稍候一兩分鐘後重試。";
     }
-    
+
     // 429 / Rate Limit / Quota Exceeded
     if (message.includes("429") || message.includes("Quota exceeded") || message.includes("exhausted") || message.includes("rate limit")) {
         return "【用量已達上限】您的 Gemini API 金鑰已超過每分鐘呼叫次數限制（Rate Limit）或免費額度已用盡。請稍候一分鐘再試，或更換其他金鑰。";
     }
-    
+
     // 400 / 403 / Invalid API Key
     if (message.includes("API key not valid") || message.includes("not valid") || message.includes("invalid") || message.includes("400") || message.includes("403")) {
         return "【無效的金鑰】您輸入的 Gemini API Key 格式不正確或已被停用，請至 Google AI Studio 重新確認並貼上正確的金鑰。";
     }
-    
+
     // Safety
     if (message.includes("SAFETY") || message.includes("blockReason")) {
         return "【內容安全阻擋】由於輸入內容可能包含敏感詞彙，已被 Google AI 的安全過濾機制阻擋。";
     }
-    
+
     // Default
     return `【系統錯誤】${message}`;
 }
