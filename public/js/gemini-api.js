@@ -25,11 +25,12 @@ const FALLBACK_MODEL = 'gemini-flash-latest';
 function getAudioTranscriptionModelsOrder(allModels) {
   const preferredOrder = [
     'gemini-2.5-flash',
-    'gemini-2.0-flash-001',
-    'gemini-2.0-flash'
+    'gemini-2.5-flash-lite'
   ];
 
-  return preferredOrder.filter(m => allModels.includes(m));
+  return preferredOrder.filter(m =>
+    allModels.includes(m) || m === 'gemini-2.5-flash-lite'
+  );
 }
 
 export function isPollutedGeminiAudioOutput(text) {
@@ -579,9 +580,22 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
                 // ★ 改善錯誤分類邏輯：
-                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
-                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
-                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
+                // 1. AbortError 直接 throw
+                // 2. 400/403/API key not valid = Key 真的有問題 → 換 Key
+                // 3. limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
+                // 4. 429/Quota = 該 Key 配額用盡 → 換 Key
+                // 5. 503 = 伺服器繁忙 → 試下一個模型
+                const isModelUnavailable =
+                    errorMsg.includes("limit: 0") ||
+                    errorMsg.includes("limit=0") ||
+                    errorMsg.includes("limit 0");
+
+                const isQuotaOrRateLimit =
+                    errorMsg.includes("429") ||
+                    errorMsg.includes("Quota exceeded") ||
+                    errorMsg.includes("rate limit") ||
+                    errorMsg.includes("exhausted");
+
                 const isRealKeyError = errorMsg.includes("API key not valid") ||
                                        errorMsg.includes("not valid") ||
                                        errorMsg.includes("invalid") ||
@@ -597,7 +611,11 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     break; // 跳出模型迴圈，換下一組 Key
                 }
 
-                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
+                if (isQuotaOrRateLimit && !isModelUnavailable) {
+                    console.warn("[Audio API] 配額或頻率限制 (429)，切換到下一組 Key...");
+                    break;
+                }
+
                 console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
             }
         }
