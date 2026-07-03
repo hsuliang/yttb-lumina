@@ -1656,6 +1656,102 @@ function buildSemanticAlignmentGroups(blocks, options = {}) {
     return groups;
 }
 
+function buildPreciseAlignmentBatches({
+    whisperBlocks,
+    semanticGroups,
+    targetBlocksPerBatch = 20,
+    minBlocksPerBatch = 18,
+    maxBlocksPerBatch = 24,
+    contextBeforeBlocks = 2,
+    contextAfterBlocks = 2
+}) {
+    const batches = [];
+    const totalBlocks = whisperBlocks.length;
+    let currentIdx = 0;
+    let batchIndex = 0;
+
+    const blockToGroup = {};
+    if (semanticGroups && semanticGroups.length) {
+        semanticGroups.forEach(g => {
+            g.blockIds.forEach(id => {
+                if (!blockToGroup[id]) blockToGroup[id] = g.groupId;
+            });
+        });
+    }
+
+    while (currentIdx < totalBlocks) {
+        let batchSize = targetBlocksPerBatch;
+        const remaining = totalBlocks - currentIdx;
+
+        if (remaining <= maxBlocksPerBatch) {
+            batchSize = remaining;
+        } else if (remaining < targetBlocksPerBatch + minBlocksPerBatch) {
+            batchSize = Math.floor(remaining / 2);
+        }
+
+        let endIdx = Math.min(currentIdx + batchSize, totalBlocks);
+
+        if (endIdx < totalBlocks) {
+            const endBlockId = whisperBlocks[endIdx - 1].id;
+            const nextBlockId = whisperBlocks[endIdx].id;
+
+            if (blockToGroup[endBlockId] && blockToGroup[endBlockId] === blockToGroup[nextBlockId]) {
+                let candidateExt = endIdx;
+                while(candidateExt < totalBlocks && candidateExt - currentIdx <= maxBlocksPerBatch && blockToGroup[whisperBlocks[candidateExt].id] === blockToGroup[endBlockId]) {
+                    candidateExt++;
+                }
+
+                if (candidateExt < totalBlocks && blockToGroup[whisperBlocks[candidateExt].id] !== blockToGroup[endBlockId]) {
+                     endIdx = candidateExt;
+                } else {
+                     let candidateShr = endIdx - 1;
+                     while(candidateShr > currentIdx && endIdx - candidateShr <= batchSize - minBlocksPerBatch && blockToGroup[whisperBlocks[candidateShr].id] === blockToGroup[endBlockId]) {
+                         candidateShr--;
+                     }
+                     if (candidateShr > currentIdx && blockToGroup[whisperBlocks[candidateShr].id] !== blockToGroup[endBlockId]) {
+                         endIdx = candidateShr + 1;
+                     }
+                }
+            }
+        }
+
+        const targetBlocks = whisperBlocks.slice(currentIdx, endIdx).map(b => ({ id: b.id, text: b.text, startTime: b.startTime, endTime: b.endTime }));
+        const contextStartIdx = Math.max(0, currentIdx - contextBeforeBlocks);
+        const contextEndIdx = Math.min(totalBlocks, endIdx + contextAfterBlocks);
+        const contextBlocks = whisperBlocks.slice(contextStartIdx, contextEndIdx).map(b => ({ id: b.id, text: b.text }));
+
+        const batch = {
+            batchIndex: batchIndex++,
+            targetBlocks,
+            contextBlocks,
+            startSeconds: timeToMs(targetBlocks[0].startTime) / 1000,
+            endSeconds: timeToMs(targetBlocks[targetBlocks.length - 1].endTime) / 1000,
+            queryStartSeconds: timeToMs(whisperBlocks[contextStartIdx].startTime) / 1000,
+            queryEndSeconds: timeToMs(whisperBlocks[contextEndIdx - 1].endTime) / 1000
+        };
+
+        batches.push(batch);
+        currentIdx = endIdx;
+    }
+
+    return batches;
+}
+
+function getReferenceTextForTimeRange(allGeminiTexts, startSec, endSec) {
+    const chunkDuration = 300; // 預設 5 分鐘
+    const queryStart = Math.max(0, startSec - 15);
+    const queryEnd = endSec + 15;
+
+    const startIdx = Math.floor(queryStart / chunkDuration);
+    const endIdx = Math.floor(queryEnd / chunkDuration);
+
+    const relevantTexts = [];
+    for (let i = startIdx; i <= endIdx && i < allGeminiTexts.length; i++) {
+        if (allGeminiTexts[i]) relevantTexts.push(allGeminiTexts[i]);
+    }
+    return relevantTexts.join('\\n');
+}
+
 function mergeAlignedGroupResults(existingMap, newItems, originalBlocksById) {
     if (!Array.isArray(newItems)) return existingMap;
 
@@ -2178,8 +2274,14 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         }
     }
 
-    const BATCH_GROUPS_COUNT = 6; // 每次對齊發送 6 個語意群，提供最穩定的 Context
-    const totalBatches = Math.ceil(semanticGroups.length / BATCH_GROUPS_COUNT);
+    const alignmentBatches = buildPreciseAlignmentBatches({
+        whisperBlocks,
+        semanticGroups,
+        targetBlocksPerBatch: 20,
+        minBlocksPerBatch: 18,
+        maxBlocksPerBatch: 24
+    });
+    const totalBatches = alignmentBatches.length;
     const alignedResultsMap = {};
 
     let geminiCorrected = 0;
@@ -2187,6 +2289,12 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
     let manualCheck = 0;
     let failedSegments = 0;
     const suspicious = [];
+    let actualGeminiAlignmentCalls = 0;
+    let fallbackBatchCount = 0;
+    const debugBatches = [];
+    const failedSegmentDetails = [];
+    const failedBatches = [];
+    const errors = [];
 
     // 準備使用者全域批次取代與自訂詞庫設定字串
     const userReplaceRulesText = (state.batchReplaceRules || [])
@@ -2217,38 +2325,35 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             eta: '',
         });
 
-        const startIdx = b * BATCH_GROUPS_COUNT;
-        const endIdx = Math.min(startIdx + BATCH_GROUPS_COUNT, semanticGroups.length);
-        const batchGroups = semanticGroups.slice(startIdx, endIdx);
+        const batch = alignmentBatches[b];
+        const targetBlocks = batch.targetBlocks;
+        const contextBlocks = batch.contextBlocks || [];
+
+        const partialReferenceText = getReferenceTextForTimeRange(allGeminiTexts, batch.queryStartSeconds, batch.queryEndSeconds);
 
         // 收集這一批次所有的 block ids 做後續校驗與 Fallback
-        const batchBlockIds = new Set();
-        for (const group of batchGroups) {
-            for (const id of group.blockIds) {
-                batchBlockIds.add(id);
-            }
-        }
+        const batchBlockIds = new Set(targetBlocks.map(blk => blk.id));
 
         const prompt = `你是一位專業字幕對齊與校稿師。
 
 現在有兩份資料：
 
-A. Whisper targetGroups:
-這是需要被校正的字幕語意群組。
-每個語意群都有 groupId、contextText (完整句子上下文) 和 blocks 陣列。
+A. Whisper 語意群組：
+本批次需要被校正的 targetBlocks 以及僅供參考的 contextBlocks。
+targetBlocks 是你這次「必須」且「只能」回傳的段落。
+contextBlocks 是幫助你理解前後文的內容，請絕對不要回傳 contextBlocks 內的 ID。
 每個 block 都有 id 與 text。
 id 對應的時間碼已由程式鎖定，你不得修改。
-contextText 只是幫助你理解前後文。
 
 B. Gemini 參考稿：
 這份文字通常比較準，但時間碼可能不準，段落也可能較粗。
 請只把它當成文字校正參考。
 
 你的任務：
-針對每個 Whisper block 的 id，根據 Gemini 參考稿修正 text。
+針對 targetBlocks 中的每個 id，根據 Gemini 參考稿修正 text。
 
 重要規則：
-1. 必須回傳所有 blocks 中的 id。
+1. 必須回傳 targetBlocks 中所有的 id，且「不准」回傳 contextBlocks 中的 id。
 2. 不得新增 id。
 3. 不得刪除 id。
 4. 不得合併多個 id 或是重新分配時間。
@@ -2278,14 +2383,18 @@ B. Gemini 參考稿：
   }
 ]
 
-以下是 Whisper targetGroups：
+以下是 Whisper 資料：
 ---
-${JSON.stringify({ targetGroups: batchGroups.map(g => ({ groupId: g.groupId, contextText: g.contextText, blocks: g.blocks })) }, null, 2)}
+targetBlocks:
+${JSON.stringify(targetBlocks, null, 2)}
+
+contextBlocks (僅供參考):
+${JSON.stringify(contextBlocks, null, 2)}
 ---
 
 以下是 Gemini 參考稿：
 ---
-${geminiReferenceText}
+${partialReferenceText}
 ---
 
 以下是使用者全域批次取代與自訂詞庫設定：
@@ -2295,11 +2404,20 @@ ${settingsText}
 
         let batchResult = [];
         try {
+            actualGeminiAlignmentCalls++;
             const rawJsonResponse = await callGeminiAPI(apiKey, prompt, true);
             const cleanJson = rawJsonResponse.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
             batchResult = JSON.parse(cleanJson);
+
+            // Validate batchResult
+            if (!Array.isArray(batchResult)) {
+                 batchResult = [];
+                 throw new Error("回傳格式非陣列");
+            }
         } catch (err) {
             console.warn(`[Precise Transcribe] Batch ${b + 1} Gemini 對齊失敗：`, err);
+            fallbackBatchCount++;
+            failedBatches.push({ batchIndex: b, error: err.message });
         }
 
         const originalBlocksById = {};
@@ -2307,6 +2425,10 @@ ${settingsText}
             originalBlocksById[block.id] = block;
         }
 
+        // 為了 debugBatches 報告保存結果
+        const processedBatchResult = [];
+
+        // mergeAlignedGroupResults 會將內容放入 alignedResultsMap
         mergeAlignedGroupResults(alignedResultsMap, batchResult, originalBlocksById);
 
         // 針對批次中缺失的 ID 進行 Fallback 安全機制
@@ -2314,7 +2436,7 @@ ${settingsText}
             if (!alignedResultsMap[id]) {
                 failedSegments++;
                 const block = originalBlocksById[id];
-                alignedResultsMap[id] = {
+                const fallbackEntry = {
                     id: id,
                     text: block ? block.text : '',
                     confidence: 'low',
@@ -2322,8 +2444,19 @@ ${settingsText}
                     flags: ['FAILED'],
                     note: 'Gemini 未回傳此 ID 資訊，已自動使用原 Whisper 文字'
                 };
+                alignedResultsMap[id] = fallbackEntry;
+                processedBatchResult.push(fallbackEntry);
+                failedSegmentDetails.push({ id, reason: "Missing ID" });
+            } else {
+                processedBatchResult.push(alignedResultsMap[id]);
             }
         }
+
+        debugBatches.push({
+            batchIndex: b,
+            targetBlockCount: targetBlocks.length,
+            batchResult: processedBatchResult
+        });
 
         if (b < totalBatches - 1) {
             await new Promise(resolve => setTimeout(resolve, 2000));
