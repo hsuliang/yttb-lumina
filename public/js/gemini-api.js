@@ -206,7 +206,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     // 第一層：輪詢金鑰池
     for (let i = 0; i < keyPool.length; i++) {
         const currentKey = keyPool[i];
-        const models = await resolveFlashModelsList(currentKey);
+        const models = forceModel ? [forceModel] : await resolveFlashModelsList(currentKey);
         let lastModelError = null;
 
         // 第二層：依版本號從新到舊嘗試模型
@@ -322,9 +322,17 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 console.warn(`Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
                 // ★ 改善錯誤分類邏輯：
-                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
-                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
-                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
+                const isModelUnavailable =
+                    errorMsg.includes("limit: 0") ||
+                    errorMsg.includes("limit=0") ||
+                    errorMsg.includes("limit 0");
+
+                const isQuotaOrRateLimit =
+                    errorMsg.includes("429") ||
+                    errorMsg.includes("Quota exceeded") ||
+                    errorMsg.includes("rate limit") ||
+                    errorMsg.includes("exhausted");
+
                 const isRealKeyError = errorMsg.includes("API key not valid") ||
                                        errorMsg.includes("not valid") ||
                                        errorMsg.includes("invalid") ||
@@ -340,7 +348,11 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                     break; // 直接跳出內層模型循環，換下一個金鑰
                 }
 
-                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
+                if (isQuotaOrRateLimit && !isModelUnavailable) {
+                    console.warn("配額或頻率限制 (429)，切換到下一組 Key...");
+                    break;
+                }
+
                 console.log(`Model ${modelName} 暫時不可用，嘗試下一個模型...`);
             }
         }
