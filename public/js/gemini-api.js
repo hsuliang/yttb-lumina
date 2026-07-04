@@ -91,6 +91,45 @@ function getAudioTranscriptionAllowlistText() {
     .join(', ');
 }
 
+const audioModelCooldowns = new Map();
+const DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+
+function getAudioCooldownKey(apiKey, modelName) {
+  return `${apiKey.slice(-8)}::${modelName}`;
+}
+
+function getAudioModelCooldownRemainingMs(apiKey, modelName) {
+  const cooldownKey = getAudioCooldownKey(apiKey, modelName);
+  const cooldownUntil = audioModelCooldowns.get(cooldownKey) || 0;
+  const remainingMs = cooldownUntil - Date.now();
+
+  if (remainingMs <= 0) {
+    audioModelCooldowns.delete(cooldownKey);
+    return 0;
+  }
+
+  return remainingMs;
+}
+
+function markAudioModelCooldown(apiKey, modelName, retryDelayMs) {
+  const cooldownKey = getAudioCooldownKey(apiKey, modelName);
+  audioModelCooldowns.set(cooldownKey, Date.now() + retryDelayMs);
+}
+
+function extractRetryDelayMs(errorMessage) {
+  const retryDelayMatch = errorMessage.match(/retryDelay["']?\s*:\s*["']?([\d.]+)s/i);
+  if (retryDelayMatch) {
+    return Math.ceil(Number(retryDelayMatch[1]) * 1000);
+  }
+
+  const pleaseRetryMatch = errorMessage.match(/Please retry in\s+([\d.]+)s/i);
+  if (pleaseRetryMatch) {
+    return Math.ceil(Number(pleaseRetryMatch[1]) * 1000);
+  }
+
+  return DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS;
+}
+
 /**
  * 解析特定 API Key 可用的所有 Flash 模型，並按版本從新到舊排序
  * @param {string} apiKey - Gemini API Key
@@ -448,6 +487,12 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
         let lastModelError = null;
 
         for (const modelName of models) {
+            const cooldownRemainingMs = getAudioModelCooldownRemainingMs(currentKey, modelName);
+            if (cooldownRemainingMs > 0) {
+                console.warn(`[Audio API] 模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻中，剩餘 ${Math.ceil(cooldownRemainingMs / 1000)} 秒，跳過此組合...`);
+                continue;
+            }
+
             try {
                 const modelBadge = document.getElementById('modal-model-badge');
                 const modelNameEl = document.getElementById('modal-model-name');
@@ -642,7 +687,9 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 }
 
                 if (isQuotaOrRateLimit && !isModelUnavailable) {
-                    console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} 暫時不可用，嘗試同一組 Key 的下一個 Audio 模型...`);
+                    const retryDelayMs = extractRetryDelayMs(errorMsg);
+                    markAudioModelCooldown(currentKey, modelName, retryDelayMs);
+                    console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻 ${Math.ceil(retryDelayMs / 1000)} 秒，嘗試同一組 Key 的下一個 Audio 模型...`);
                     continue;
                 }
 
