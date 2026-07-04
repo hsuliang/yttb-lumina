@@ -1304,8 +1304,8 @@ export const switchTab = (tabId) => {
                     const rules = JSON.parse(savedReplaceRules);
                     if (Array.isArray(rules)) {
                         if (!state.batchReplaceRules) state.batchReplaceRules = [];
-                        const existingTargets = new Set(state.batchReplaceRules.map(r => r.target));
-                        const rulesToAdd = rules.filter(r => r && r.target && !existingTargets.has(r.target));
+                        const existingOriginals = new Set(state.batchReplaceRules.map(r => r.original));
+                        const rulesToAdd = rules.filter(r => r && r.original && !existingOriginals.has(r.original));
 
                         if (rulesToAdd.length > 0) {
                             state.batchReplaceRules = [...state.batchReplaceRules, ...rulesToAdd];
