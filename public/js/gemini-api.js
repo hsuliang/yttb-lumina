@@ -642,8 +642,8 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 }
 
                 if (isQuotaOrRateLimit && !isModelUnavailable) {
-                    console.warn("[Audio API] 配額或頻率限制 (429)，切換到下一組 Key...");
-                    break;
+                    console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} 暫時不可用，嘗試同一組 Key 的下一個 Audio 模型...`);
+                    continue;
                 }
 
                 console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
