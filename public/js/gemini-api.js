@@ -23,14 +23,13 @@ const modelCache = new Map();
 const FALLBACK_MODEL = 'gemini-flash-latest';
 
 function getAudioTranscriptionModelsOrder(allModels) {
-  const preferredOrder = [
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-lite'
-  ];
+  const availableModels = new Set(allModels);
 
-  return preferredOrder.filter(m =>
-    allModels.includes(m) || m === 'gemini-2.5-flash-lite'
-  );
+  return AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST
+    .filter(model =>
+      availableModels.has(model.name) || model.includeEvenIfResolverOmits
+    )
+    .map(model => model.name);
 }
 
 export function isPollutedGeminiAudioOutput(text) {
@@ -74,6 +73,23 @@ export function isPollutedGeminiAudioOutput(text) {
 }
 
 const AUDIO_MAX_OUTPUT_TOKENS = 12000;
+
+const AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST = [
+  {
+    name: 'gemini-2.5-flash',
+    includeEvenIfResolverOmits: false,
+  },
+  {
+    name: 'gemini-2.5-flash-lite',
+    includeEvenIfResolverOmits: true,
+  },
+];
+
+function getAudioTranscriptionAllowlistText() {
+  return AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST
+    .map(model => model.name)
+    .join(', ');
+}
 
 /**
  * 解析特定 API Key 可用的所有 Flash 模型，並按版本從新到舊排序
@@ -422,7 +438,9 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
         console.log(`[Audio API] 音訊轉錄模型順序:`, audioModels);
 
         if (audioModels.length === 0) {
-            throw new Error("找不到可用的 Gemini 音訊轉錄模型。目前已排除 gemini-3.5-flash 與 gemini-flash-latest，請確認 gemini-2.5-flash 或 gemini-2.0-flash 可用。");
+            throw new Error(
+              `找不到可用的 Gemini 音訊轉錄模型。目前 Audio allowlist: ${getAudioTranscriptionAllowlistText()}`
+            );
         }
 
         const models = audioModels;
