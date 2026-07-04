@@ -95,6 +95,77 @@ const audioModelCooldowns = new Map();
 const DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
 const DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS = 30 * 1000;
 
+const AUDIO_MODEL_MIN_REQUEST_INTERVAL_MS = {
+    'gemini-2.5-flash': 13 * 1000,
+    'gemini-2.5-flash-lite': 7 * 1000,
+};
+const DEFAULT_AUDIO_MIN_REQUEST_INTERVAL_MS = 13 * 1000;
+
+const audioRateLimitNextAvailableAt = new Map();
+
+function getAudioRateLimitKey(apiKey, modelName) {
+    return `${apiKey.slice(-8)}::${modelName}`;
+}
+
+function getAudioRateLimitNextAvailableAt(apiKey, modelName) {
+    const rateLimitKey = getAudioRateLimitKey(apiKey, modelName);
+    return audioRateLimitNextAvailableAt.get(rateLimitKey) || 0;
+}
+
+function getAudioModelMinRequestIntervalMs(modelName) {
+    return AUDIO_MODEL_MIN_REQUEST_INTERVAL_MS[modelName] || DEFAULT_AUDIO_MIN_REQUEST_INTERVAL_MS;
+}
+
+function abortableDelay(ms, abortSignal) {
+    if (!ms || ms <= 0) return Promise.resolve();
+
+    return new Promise((resolve, reject) => {
+        if (abortSignal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+        }
+
+        const timeoutId = setTimeout(() => {
+            cleanup();
+            resolve();
+        }, ms);
+
+        const onAbort = () => {
+            clearTimeout(timeoutId);
+            cleanup();
+            reject(new DOMException('Aborted', 'AbortError'));
+        };
+
+        const cleanup = () => {
+            if (abortSignal) {
+                abortSignal.removeEventListener('abort', onAbort);
+            }
+        };
+
+        if (abortSignal) {
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+        }
+    });
+}
+
+async function acquireAudioRateLimitSlot(apiKey, modelName, abortSignal, earliestAvailableAt = Date.now()) {
+    const rateLimitKey = getAudioRateLimitKey(apiKey, modelName);
+    const intervalMs = getAudioModelMinRequestIntervalMs(modelName);
+    const now = Date.now();
+
+    const nextAvailableAt = audioRateLimitNextAvailableAt.get(rateLimitKey) || 0;
+    const scheduledAt = Math.max(now, nextAvailableAt, earliestAvailableAt);
+    const waitMs = Math.max(0, scheduledAt - now);
+
+    // 重要：先預約下一個可用時間，避免並行請求撞在一起
+    audioRateLimitNextAvailableAt.set(rateLimitKey, scheduledAt + intervalMs);
+
+    if (waitMs > 0) {
+        console.log(`[Audio API] 等待 ${Math.ceil(waitMs / 1000)} 秒以符合 cooldown/RPM 限制：${modelName} with Key (...${apiKey.slice(-4)})`);
+        await abortableDelay(waitMs, abortSignal);
+    }
+}
+
 function getAudioCooldownKey(apiKey, modelName) {
   return `${apiKey.slice(-8)}::${modelName}`;
 }
@@ -547,71 +618,110 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     const audioKeyPool = rotateAudioKeyPool(keyPool);
     console.log(`[Audio API] Round-robin key order:`, audioKeyPool.map(key => `...${key.slice(-4)}`));
 
-    for (const currentKey of audioKeyPool) {
+    // 1. 先依照 audioKeyPool 建立 candidate list
+    const candidates = [];
+    const now = Date.now();
+
+    for (let keyIndex = 0; keyIndex < audioKeyPool.length; keyIndex++) {
+        const currentKey = audioKeyPool[keyIndex];
         const allModels = await resolveFlashModelsList(currentKey);
 
         // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
         const audioModels = getAudioTranscriptionModelsOrder(allModels);
-        console.log(`[Audio API] 音訊轉錄模型順序:`, audioModels);
 
-        if (audioModels.length === 0) {
-            throw new Error(
-              `找不到可用的 Gemini 音訊轉錄模型。目前 Audio allowlist: ${getAudioTranscriptionAllowlistText()}`
-            );
+        for (let modelIndex = 0; modelIndex < audioModels.length; modelIndex++) {
+            const modelName = audioModels[modelIndex];
+            const cooldownRemainingMs = getAudioModelCooldownRemainingMs(currentKey, modelName);
+            const cooldownReadyAt = cooldownRemainingMs > 0 ? now + cooldownRemainingMs : now;
+            const rateReadyAt = Math.max(now, getAudioRateLimitNextAvailableAt(currentKey, modelName));
+            const availableAt = Math.max(cooldownReadyAt, rateReadyAt);
+
+            candidates.push({
+                currentKey,
+                modelName,
+                keyIndex,
+                modelIndex,
+                cooldownRemainingMs,
+                cooldownReadyAt,
+                rateReadyAt,
+                availableAt
+            });
+        }
+    }
+
+    if (candidates.length === 0) {
+        throw new Error(
+            `找不到可用的 Gemini 音訊轉錄模型。目前 Audio allowlist: ${getAudioTranscriptionAllowlistText()}`
+        );
+    }
+
+    // 2. candidate list 依 availableAt 排序
+    candidates.sort((a, b) => {
+        if (a.availableAt !== b.availableAt) {
+            return a.availableAt - b.availableAt; // 越早可用越前面
+        }
+        if (a.keyIndex !== b.keyIndex) {
+            return a.keyIndex - b.keyIndex; // 維持 round-robin key 順序
+        }
+        return a.modelIndex - b.modelIndex; // 維持 model 原本優先順序
+    });
+
+    const failedKeys = new Set();
+
+    // 3. 依序嘗試 candidate
+    for (const candidate of candidates) {
+        const { currentKey, modelName, availableAt } = candidate;
+
+        if (failedKeys.has(currentKey)) {
+            continue; // 跳過同為無效 key 的其他 candidate
         }
 
-        const models = audioModels;
+        const waitTimeMs = Math.max(0, availableAt - Date.now());
+        if (waitTimeMs > 0) {
+            console.log(`[Audio API] Selected fastest available candidate: ${modelName} with Key (...${currentKey.slice(-4)}), wait ${Math.ceil(waitTimeMs / 1000)} 秒`);
+        } else {
+            console.log(`[Audio API] Selected fastest available candidate: ${modelName} with Key (...${currentKey.slice(-4)}), wait 0 秒`);
+        }
 
-        let lastModelError = null;
-
-        for (const modelName of models) {
-            const cooldownRemainingMs = getAudioModelCooldownRemainingMs(currentKey, modelName);
-            if (cooldownRemainingMs > 0) {
-                console.warn(`[Audio API] 模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻中，剩餘 ${Math.ceil(cooldownRemainingMs / 1000)} 秒，跳過此組合...`);
-                lastModelError = new Error(`Audio API key/model cooldown: ${modelName} with Key (...${currentKey.slice(-4)})`);
-                continue;
+        try {
+            const modelBadge = document.getElementById('modal-model-badge');
+            const modelNameEl = document.getElementById('modal-model-name');
+            if (modelBadge && modelNameEl) {
+                modelBadge.classList.remove('hidden');
+                modelNameEl.textContent = modelName;
             }
 
-            try {
-                const modelBadge = document.getElementById('modal-model-badge');
-                const modelNameEl = document.getElementById('modal-model-name');
-                if (modelBadge && modelNameEl) {
-                    modelBadge.classList.remove('hidden');
-                    modelNameEl.textContent = modelName;
+            // ★ Tab0 專屬模型 badge
+            const tab0Badge = document.getElementById('tab0-model-badge');
+            if (tab0Badge) {
+                tab0Badge.classList.remove('hidden');
+                tab0Badge.textContent = `模型：${modelName}`;
+            }
+
+            console.log(`[Audio API] Trying Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
+
+            const genAI = new GoogleGenerativeAI(currentKey);
+
+            const generationConfig = {
+                responseMimeType: "text/plain",
+                temperature: 0,
+                maxOutputTokens: AUDIO_MAX_OUTPUT_TOKENS,
+            };
+
+            let terminologyInstruction = '';
+            if (state.aiTerminologyRules && state.aiTerminologyRules.length > 0) {
+                const positiveTerms = state.aiTerminologyRules.filter(r => r.type === 'positive').map(r => r.term);
+                const negativeTerms = state.aiTerminologyRules.filter(r => r.type === 'negative').map(r => r.term);
+
+                if (positiveTerms.length > 0) {
+                    terminologyInstruction += `\n請嚴格遵守以下專有名詞，必須輸出這些指定的正向詞彙：${positiveTerms.join(', ')}。`;
                 }
-
-                // ★ Tab0 專屬模型 badge
-                const tab0Badge = document.getElementById('tab0-model-badge');
-                if (tab0Badge) {
-                    tab0Badge.classList.remove('hidden');
-                    tab0Badge.textContent = `模型：${modelName}`;
+                if (negativeTerms.length > 0) {
+                    terminologyInstruction += `\n絕對禁用以下詞彙（或類似翻譯）：${negativeTerms.join(', ')}。`;
                 }
+            }
 
-                console.log(`[Audio API] Trying Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
-
-                const genAI = new GoogleGenerativeAI(currentKey);
-
-                const generationConfig = {
-                    responseMimeType: "text/plain",
-                    temperature: 0,
-                    maxOutputTokens: AUDIO_MAX_OUTPUT_TOKENS,
-                };
-
-
-                let terminologyInstruction = '';
-                if (state.aiTerminologyRules && state.aiTerminologyRules.length > 0) {
-                    const positiveTerms = state.aiTerminologyRules.filter(r => r.type === 'positive').map(r => r.term);
-                    const negativeTerms = state.aiTerminologyRules.filter(r => r.type === 'negative').map(r => r.term);
-
-                    if (positiveTerms.length > 0) {
-                        terminologyInstruction += `\n請嚴格遵守以下專有名詞，必須輸出這些指定的正向詞彙：${positiveTerms.join(', ')}。`;
-                    }
-                    if (negativeTerms.length > 0) {
-                        terminologyInstruction += `\n絕對禁用以下詞彙（或類似翻譯）：${negativeTerms.join(', ')}。`;
-                    }
-                }
-
-                const strictInstruction = `你是一個嚴格的 SRT 字幕轉寫器。
+            const strictInstruction = `你是一個嚴格的 SRT 字幕轉寫器。
 你必須且只能使用繁體中文（台灣）。
 你只能輸出使用者指定格式。
 如果任務要求 SRT，你只能輸出合法 SRT。
@@ -623,172 +733,167 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 如果聽不清楚，只能在字幕文字中寫 [聽不清楚]，不要自行推測。
 請只根據音訊實際聽到的內容轉寫，不要用常識補答案。`;
 
-                const systemInstruction = {
-                    role: "system",
-                    parts: [{ text: strictInstruction + terminologyInstruction }]
-                };
+            const systemInstruction = {
+                role: "system",
+                parts: [{ text: strictInstruction + terminologyInstruction }]
+            };
 
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: generationConfig,
-                    systemInstruction: systemInstruction,
-                });
+            const model = genAI.getGenerativeModel({
+                model: modelName,
+                generationConfig: generationConfig,
+                systemInstruction: systemInstruction,
+            });
 
-                const parts = [
-                    { text: promptText },
-                    {
-                        inlineData: {
-                            data: audioBase64,
-                            mimeType: mimeType,
-                        },
+            const parts = [
+                { text: promptText },
+                {
+                    inlineData: {
+                        data: audioBase64,
+                        mimeType: mimeType,
                     },
-                ];
+                },
+            ];
 
-                const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
-                let responseText = "";
+            const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
+            let responseText = "";
 
-                if (onStream) {
-                    const result = await model.generateContentStream({ contents: [{ role: "user", parts }] }, requestOptions);
-                    for await (const chunk of result.stream) {
-                        const chunkText = chunk.text();
-                        responseText += chunkText;
-                        onStream(chunkText, responseText);
-                    }
-                    const response = await result.response;
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
-                    }
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                        if (isPollutedGeminiAudioOutput(responseText)) {
-                            console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
-                            const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
-                            pollutedError.name = "PollutedAudioOutputError";
-                            throw pollutedError;
-                        }
-                    }
-                } else {
-                    const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
-                    const response = result.response;
+            await acquireAudioRateLimitSlot(currentKey, modelName, abortSignal, availableAt);
 
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
-                    }
-                    responseText = response.text();
-
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                        if (isPollutedGeminiAudioOutput(responseText)) {
-                            console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
-                            const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
-                            pollutedError.name = "PollutedAudioOutputError";
-                            throw pollutedError;
-                        }
+            if (onStream) {
+                const result = await model.generateContentStream({ contents: [{ role: "user", parts }] }, requestOptions);
+                for await (const chunk of result.stream) {
+                    const chunkText = chunk.text();
+                    responseText += chunkText;
+                    onStream(chunkText, responseText);
+                }
+                const response = await result.response;
+                if (response.promptFeedback && response.promptFeedback.blockReason) {
+                    throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
+                }
+                if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                    throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                }
+                if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                    console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                    if (isPollutedGeminiAudioOutput(responseText)) {
+                        console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
+                        const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                        pollutedError.name = "PollutedAudioOutputError";
+                        throw pollutedError;
                     }
                 }
+            } else {
+                const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
+                const response = result.response;
 
-                if (isPollutedGeminiAudioOutput(responseText)) {
-                    console.warn("[Audio API] Polluted transcription output detected. Trying next audio model...");
-                    const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
-                    pollutedError.name = "PollutedAudioOutputError";
-                    throw pollutedError;
+                if (response.promptFeedback && response.promptFeedback.blockReason) {
+                    throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
                 }
+                if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
+                    throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
+                }
+                responseText = response.text();
 
-                // 更新金鑰使用計數
-                try {
-                    let isSession = false;
-                    let stored = localStorage.getItem('geminiApiKeys');
-                    if (!stored) {
-                        stored = sessionStorage.getItem('geminiApiKeys');
-                        isSession = true;
+                if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
+                    console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
+                    if (isPollutedGeminiAudioOutput(responseText)) {
+                        console.warn("[Audio API] MAX_TOKENS 且偵測到污染輸出，可能陷入重複迴圈。Trying next audio model...");
+                        const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                        pollutedError.name = "PollutedAudioOutputError";
+                        throw pollutedError;
                     }
-                    if (stored) {
-                        const parsed = JSON.parse(stored);
-                        if (Array.isArray(parsed)) {
-                            const entry = parsed.find(e => e.key === currentKey);
-                            if (entry) {
-                                entry.count = (entry.count || 0) + 1;
-                                if (isSession) {
-                                    sessionStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                } else {
-                                    localStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                }
+                }
+            }
+
+            if (isPollutedGeminiAudioOutput(responseText)) {
+                console.warn("[Audio API] Polluted transcription output detected. Trying next candidate...");
+                const pollutedError = new Error("POLLUTED_AUDIO_TRANSCRIPTION_OUTPUT");
+                pollutedError.name = "PollutedAudioOutputError";
+                throw pollutedError;
+            }
+
+            // 更新金鑰使用計數
+            try {
+                let isSession = false;
+                let stored = localStorage.getItem('geminiApiKeys');
+                if (!stored) {
+                    stored = sessionStorage.getItem('geminiApiKeys');
+                    isSession = true;
+                }
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (Array.isArray(parsed)) {
+                        const entry = parsed.find(e => e.key === currentKey);
+                        if (entry) {
+                            entry.count = (entry.count || 0) + 1;
+                            if (isSession) {
+                                sessionStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
+                            } else {
+                                localStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
                             }
                         }
                     }
-                } catch (ex) {
-                    console.warn("Failed to update key count in storage", ex);
                 }
-
-                return responseText;
-
-            } catch (error) {
-                lastModelError = error;
-                const errorMsg = error.message || '';
-                console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
-
-                // ★ 改善錯誤分類邏輯：
-                // 1. AbortError 直接 throw
-                // 2. 400/403/API key not valid = Key 真的有問題 → 換 Key
-                // 3. limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
-                // 4. 429/Quota = 該 Key 配額用盡 → 換 Key
-                // 5. 503 = 伺服器繁忙 → 試下一個模型
-                const isModelUnavailable =
-                    errorMsg.includes("limit: 0") ||
-                    errorMsg.includes("limit=0") ||
-                    errorMsg.includes("limit 0");
-
-                const isQuotaOrRateLimit =
-                    errorMsg.includes("429") ||
-                    errorMsg.includes("Quota exceeded") ||
-                    errorMsg.includes("rate limit") ||
-                    errorMsg.includes("exhausted");
-
-                const isRealKeyError = errorMsg.includes("API key not valid") ||
-                                       errorMsg.includes("not valid") ||
-                                       errorMsg.includes("invalid") ||
-                                       (errorMsg.includes("403") && !errorMsg.includes("limit"));
-
-                if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
-                    console.warn("[Audio API] 使用者主動取消請求，中止所有嘗試。");
-                    throw error;
-                }
-
-                if (isRealKeyError) {
-                    console.warn("[Audio API] Key 無效，切換到下一組 Key...");
-                    break; // 跳出模型迴圈，換下一組 Key
-                }
-
-                if (isQuotaOrRateLimit && !isModelUnavailable) {
-                    const retryDelayMs = extractRetryDelayMs(errorMsg);
-                    markAudioModelCooldown(currentKey, modelName, retryDelayMs);
-                    console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻 ${Math.ceil(retryDelayMs / 1000)} 秒，嘗試同一組 Key 的下一個 Audio 模型...`);
-                    continue;
-                }
-
-                if (
-                    errorMsg.includes("503") ||
-                    errorMsg.includes("high demand") ||
-                    errorMsg.includes("Failed to parse stream") ||
-                    errorMsg.includes("overloaded") ||
-                    errorMsg.includes("Service Unavailable")
-                ) {
-                    markAudioModelCooldown(currentKey, modelName, DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS);
-                    console.warn(`[Audio API] 模型 ${modelName} 暫時不可用，冷卻 ${Math.ceil(DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS / 1000)} 秒，嘗試下一個 Audio 模型...`);
-                    continue;
-                }
-
-                console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
+            } catch (ex) {
+                console.warn("Failed to update key count in storage", ex);
             }
-        }
 
-        lastError = lastModelError;
+            return responseText;
+
+        } catch (error) {
+            lastError = error;
+            const errorMsg = error.message || '';
+            console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
+
+            // ★ 改善錯誤分類邏輯：
+            const isModelUnavailable =
+                errorMsg.includes("limit: 0") ||
+                errorMsg.includes("limit=0") ||
+                errorMsg.includes("limit 0");
+
+            const isQuotaOrRateLimit =
+                errorMsg.includes("429") ||
+                errorMsg.includes("Quota exceeded") ||
+                errorMsg.includes("rate limit") ||
+                errorMsg.includes("exhausted");
+
+            const isRealKeyError = errorMsg.includes("API key not valid") ||
+                                   errorMsg.includes("not valid") ||
+                                   errorMsg.includes("invalid") ||
+                                   (errorMsg.includes("403") && !errorMsg.includes("limit"));
+
+            if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
+                console.warn("[Audio API] 使用者主動取消請求，中止所有嘗試。");
+                throw error;
+            }
+
+            if (isRealKeyError) {
+                console.warn("[Audio API] Key 無效，切換到下一個 candidate...");
+                failedKeys.add(currentKey);
+                continue; // 換下一個 candidate
+            }
+
+            if (isQuotaOrRateLimit && !isModelUnavailable) {
+                const retryDelayMs = extractRetryDelayMs(errorMsg);
+                markAudioModelCooldown(currentKey, modelName, retryDelayMs);
+                console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻 ${Math.ceil(retryDelayMs / 1000)} 秒，嘗試下一個 candidate...`);
+                continue;
+            }
+
+            if (
+                errorMsg.includes("503") ||
+                errorMsg.includes("high demand") ||
+                errorMsg.includes("Failed to parse stream") ||
+                errorMsg.includes("overloaded") ||
+                errorMsg.includes("Service Unavailable")
+            ) {
+                markAudioModelCooldown(currentKey, modelName, DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS);
+                console.warn(`[Audio API] 模型 ${modelName} 暫時不可用，冷卻 ${Math.ceil(DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS / 1000)} 秒，嘗試下一個 candidate...`);
+                continue;
+            }
+
+            console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個 candidate...`);
+        }
     }
 
     const finalErrorMsg = lastError ? lastError.message : "未知錯誤";
