@@ -2465,7 +2465,15 @@ ${settingsText}
 
         debugBatches.push({
             batchIndex: b,
+            batchNumber: b + 1,
+            totalBatches,
             targetBlockCount: targetBlocks.length,
+            contextBlockCount: contextBlocks.length,
+            queryStartSeconds: batch.queryStartSeconds,
+            queryEndSeconds: batch.queryEndSeconds,
+            partialReferenceTextLength: partialReferenceText.length,
+            fullReferenceTextLength: geminiReferenceText.length,
+            promptLength: prompt.length,
             batchResult: processedBatchResult
         });
 
