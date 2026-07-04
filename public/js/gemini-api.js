@@ -430,6 +430,22 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     throw new Error(translateError(finalErrorMsg));
 }
 
+let audioKeyRotationIndex = 0;
+
+function rotateAudioKeyPool(keyPool) {
+    if (!Array.isArray(keyPool) || keyPool.length <= 1) {
+        return keyPool;
+    }
+
+    const startIndex = audioKeyRotationIndex % keyPool.length;
+    audioKeyRotationIndex = (audioKeyRotationIndex + 1) % keyPool.length;
+
+    return [
+        ...keyPool.slice(startIndex),
+        ...keyPool.slice(0, startIndex)
+    ];
+}
+
 /**
  * 呼叫 Gemini API 進行音訊轉寫（multimodal: text + audio）。
  * 複用金鑰池輪替與模型降級邏輯。
@@ -468,8 +484,10 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 
     let lastError = null;
 
-    for (let i = 0; i < keyPool.length; i++) {
-        const currentKey = keyPool[i];
+    const audioKeyPool = rotateAudioKeyPool(keyPool);
+    console.log(`[Audio API] Round-robin key order:`, audioKeyPool.map(key => `...${key.slice(-4)}`));
+
+    for (const currentKey of audioKeyPool) {
         const allModels = await resolveFlashModelsList(currentKey);
 
         // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
