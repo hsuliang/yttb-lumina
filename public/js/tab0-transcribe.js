@@ -534,6 +534,14 @@ function getFileExtension(filename) {
     return filename.split('.').pop().toLowerCase();
 }
 
+function formatSecondsForLog(seconds) {
+    const safeSeconds = Math.max(0, Math.floor(seconds || 0));
+    const hh = Math.floor(safeSeconds / 3600);
+    const mm = Math.floor((safeSeconds % 3600) / 60);
+    const ss = safeSeconds % 60;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
 async function transcribeWithGemini(file, language, customDict, onProgress = () => { }, onChunkComplete = () => { }, onStream = () => { }) {
@@ -622,9 +630,37 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
             reader.readAsDataURL(wavBlob);
         });
 
-        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
-            onStream(fullText);
-        }, state.currentAbortController?.signal);
+        const diagStartSec = chunk.offsetSeconds;
+        const diagEndSec = chunk.offsetSeconds + chunk.durationSeconds;
+        const diagRange = `${formatSecondsForLog(diagStartSec)}-${formatSecondsForLog(diagEndSec)}`;
+        console.log(`[Pure Gemini] Starting chunk ${i + 1}/${totalChunks}, range ${diagRange}, startSec=${diagStartSec}, endSec=${diagEndSec}, durationSec=${chunk.durationSeconds}`);
+
+        let rawResponse;
+        try {
+            rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
+                onStream(fullText);
+            }, state.currentAbortController?.signal);
+
+            const textLength = rawResponse ? rawResponse.length : 0;
+            console.log(`[Pure Gemini] Completed chunk ${i + 1}/${totalChunks}, range ${diagRange}, textLength=${textLength}`);
+        } catch (error) {
+            console.error(`[Pure Gemini] Failed chunk ${i + 1}/${totalChunks}, range ${diagRange}, error=`, error);
+            const errMsg = String(error.message || error);
+            const lowerErrMsg = errMsg.toLowerCase();
+
+            if (
+                errMsg.includes('429') ||
+                lowerErrMsg.includes('quota') ||
+                lowerErrMsg.includes('resource exhausted') ||
+                lowerErrMsg.includes('too many requests') ||
+                lowerErrMsg.includes('rate limit') ||
+                lowerErrMsg.includes('rate limited')
+            ) {
+                console.error(`[Pure Gemini] Rate limit happened at chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
+            }
+            throw error; // Re-throw to maintain existing error handling behavior
+        }
+
         const result = validateAndFixSrt(rawResponse);
 
         if (!result.isValid) {
