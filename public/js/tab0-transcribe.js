@@ -987,12 +987,18 @@ export function initializeTab0() {
         } else if (info.type === 'chunks') {
             if (progressMessage) progressMessage.textContent = info.message;
             if (chunkProgressEl) chunkProgressEl.classList.remove('hidden');
-            const pct = info.total > 0 ? ((info.current - 1) / info.total) * 100 : 0;
+            const pct = info.total > 0 ? (Math.max(0, info.current) / info.total) * 100 : 0;
             if (chunkBarEl) chunkBarEl.style.width = `${pct}%`;
-            if (chunkCounterEl) chunkCounterEl.textContent = `${info.current - 1 < 0 ? 0 : info.current - 1} / ${info.total}`;
+            if (chunkCounterEl) {
+                chunkCounterEl.textContent = `${info.current} / ${info.total}`;
+            }
             if (chunkLabelEl) {
-                const engineText = state.transcribeEngine === 'whisper' ? 'Whisper' : 'Gemini';
-                chunkLabelEl.textContent = `${engineText} 處理中...`;
+                if (info.label) {
+                    chunkLabelEl.textContent = info.label;
+                } else {
+                    const engineText = state.transcribeEngine === 'whisper' ? 'Whisper' : 'Gemini';
+                    chunkLabelEl.textContent = `${engineText} 處理中...`;
+                }
             }
             if (chunkEtaEl) chunkEtaEl.textContent = info.eta || '';
         } else if (info.type === 'done') {
@@ -2060,6 +2066,12 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
     // ==========================================
     // PHASE 1: 取得 Gemini 參考稿 (逐段辨識純文字)
     // ==========================================
+    const tab0Badge = document.getElementById('tab0-model-badge');
+    if (tab0Badge) {
+        tab0Badge.classList.remove('hidden');
+        tab0Badge.textContent = '模型：Gemini（文字辨識）';
+    }
+
     const GEMINI_CHUNK_DURATION = 60; // 每段 60 秒
     const geminiChunks = splitAudioBuffer(resampled, GEMINI_CHUNK_DURATION);
     const totalGeminiChunks = geminiChunks.length;
@@ -2069,6 +2081,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         current: 0, total: totalGeminiChunks,
         message: `1/3：正在產生 Gemini 文字參考稿，共 ${totalGeminiChunks} 段...`,
         eta: '',
+        label: 'Gemini 處理中...'
     });
 
     const allGeminiTexts = [];
@@ -2102,6 +2115,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             current: i + 1, total: totalGeminiChunks,
             message: `1/3：Gemini 文字辨識第 ${i + 1} 段（${startMin}:${String(startSec).padStart(2, '0')} 開始）`,
             eta: etaText,
+            label: 'Gemini 處理中...'
         });
 
         geminiStartTimes.push(Date.now());
@@ -2143,6 +2157,11 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
     // ==========================================
     // PHASE 2: 取得 Whisper 時間碼 (20秒切段)
     // ==========================================
+    if (tab0Badge) {
+        tab0Badge.classList.remove('hidden');
+        tab0Badge.textContent = '模型：Whisper（時間軸辨識）';
+    }
+
     const WHISPER_CHUNK_DURATION = 20;
     const whisperChunks = splitAudioBuffer(resampled, WHISPER_CHUNK_DURATION);
     const totalWhisperChunks = whisperChunks.length;
@@ -2152,6 +2171,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         current: 0, total: totalWhisperChunks,
         message: `2/3：正在產生 Whisper 時間稿，共 ${totalWhisperChunks} 段...`,
         eta: '',
+        label: 'Whisper 時間軸辨識中...'
     });
 
     // 準備專有名詞與替換規則傳給 Whisper
@@ -2200,7 +2220,6 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
                 : `預估剩餘 ${Math.ceil(remaining)} 秒`;
         }
 
-        const tab0Badge = document.getElementById('tab0-model-badge');
         if (tab0Badge) {
             tab0Badge.classList.remove('hidden');
             tab0Badge.textContent = '模型：Whisper（時間軸辨識）';
@@ -2211,6 +2230,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             current: i + 1, total: totalWhisperChunks,
             message: `2/3：Whisper 時間辨識第 ${i + 1} 段（${startMin}:${String(startSec).padStart(2, '0')} 開始）`,
             eta: etaText,
+            label: 'Whisper 時間軸辨識中...'
         });
 
         whisperStartTimes.push(Date.now());
@@ -2318,11 +2338,17 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
 
     const settingsText = `使用者取代規則：\n${userReplaceRulesText}\n\n使用者自訂詞庫：\n${userTerminologyText}`;
 
+    if (tab0Badge) {
+        tab0Badge.classList.remove('hidden');
+        tab0Badge.textContent = '模型：Gemini（語意群對齊）';
+    }
+
     onProgress({
         type: 'chunks',
         current: 0, total: totalBatches,
         message: `3/3：正在進行雙稿對齊校核，共 ${totalBatches} 批次...`,
         eta: '',
+        label: 'Gemini 處理中...'
     });
 
     for (let b = 0; b < totalBatches; b++) {
@@ -2334,6 +2360,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             current: b + 1, total: totalBatches,
             message: `3/3：正在以語意群對齊第 ${b + 1} 批次字幕...`,
             eta: '',
+            label: 'Gemini 處理中...'
         });
 
         const batch = alignmentBatches[b];
