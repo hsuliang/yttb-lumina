@@ -1742,13 +1742,13 @@ function buildPreciseAlignmentBatches({
     return batches;
 }
 
-function getReferenceTextForTimeRange(allGeminiTexts, startSec, endSec) {
-    const chunkDuration = 300; // 預設 5 分鐘
+function getReferenceTextForTimeRange(allGeminiTexts, startSec, endSec, chunkDuration = 60) {
+    const safeChunkDuration = Number.isFinite(chunkDuration) && chunkDuration > 0 ? chunkDuration : 60;
     const queryStart = Math.max(0, startSec - 15);
     const queryEnd = endSec + 15;
 
-    const startIdx = Math.floor(queryStart / chunkDuration);
-    const endIdx = Math.floor(queryEnd / chunkDuration);
+    const startIdx = Math.floor(queryStart / safeChunkDuration);
+    const endIdx = Math.floor(queryEnd / safeChunkDuration);
 
     const relevantTexts = [];
     for (let i = startIdx; i <= endIdx && i < allGeminiTexts.length; i++) {
@@ -2340,7 +2340,12 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         const targetBlocks = batch.targetBlocks;
         const contextBlocks = batch.contextBlocks || [];
 
-        const partialReferenceText = getReferenceTextForTimeRange(allGeminiTexts, batch.queryStartSeconds, batch.queryEndSeconds);
+        const partialReferenceText = getReferenceTextForTimeRange(
+            allGeminiTexts,
+            batch.queryStartSeconds,
+            batch.queryEndSeconds,
+            GEMINI_CHUNK_DURATION
+        );
 
         // 收集這一批次所有的 block ids 做後續校驗與 Fallback
         const batchBlockIds = new Set(targetBlocks.map(blk => blk.id));
