@@ -1024,20 +1024,7 @@ export const switchTab = (tabId) => {
             });
         }
 
-        // 頁面載入時自動還原上次儲存的錯字替換規則
-        try {
-            const savedReplaceRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
-            if (savedReplaceRules) {
-                const rules = JSON.parse(savedReplaceRules);
-                if (Array.isArray(rules) && rules.length > 0) {
-                    state.batchReplaceRules = rules;
-                    renderReplaceRules();
-                    console.log(`[Settings] 自動還原 ${rules.length} 條錯字替換規則`);
-                }
-            }
-        } catch (e) {
-            console.warn('[Settings] 還原錯字替換規則失敗:', e);
-        }
+
 
         const termLoadPresetRulesBtn = document.getElementById('term-load-preset-rules-btn');
         const termSavePresetRulesBtn = document.getElementById('term-save-preset-rules-btn');
@@ -1206,23 +1193,66 @@ export const switchTab = (tabId) => {
                 if (deleteBtn) deleteRule(parseInt(deleteBtn.dataset.index, 10));
             });
         }
-        // 頁面載入時自動還原上次儲存的專有名詞規則
-        try {
-            const savedTermRules = localStorage.getItem(STORAGE_KEY_TERM_RULES);
-            if (savedTermRules) {
-                const rules = JSON.parse(savedTermRules);
-                if (Array.isArray(rules) && rules.length > 0) {
-                    state.aiTerminologyRules = rules;
-                    renderTerminologyRules();
-                    console.log(`[Settings] 自動還原 ${rules.length} 條專有名詞規則`);
+        // 統一的 Settings 還原流程
+        function restoreGlobalSettings() {
+            let replacedCount = 0;
+            let termCount = 0;
+
+            // 1. 還原錯字替換規則
+            try {
+                const savedReplaceRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
+                if (savedReplaceRules) {
+                    const rules = JSON.parse(savedReplaceRules);
+                    if (Array.isArray(rules)) {
+                        if (!state.batchReplaceRules) state.batchReplaceRules = [];
+                        const existingTargets = new Set(state.batchReplaceRules.map(r => r.target));
+                        const rulesToAdd = rules.filter(r => r && r.target && !existingTargets.has(r.target));
+
+                        if (rulesToAdd.length > 0) {
+                            state.batchReplaceRules = [...state.batchReplaceRules, ...rulesToAdd];
+                            replacedCount = rulesToAdd.length;
+                        }
+                    }
                 }
+            } catch (e) {
+                console.warn('[Settings] 還原錯字替換規則失敗:', e);
             }
-        } catch (e) {
-            console.warn('[Settings] 還原專有名詞規則失敗:', e);
+
+            // 2. 還原專有名詞設定
+            try {
+                const savedTermRules = localStorage.getItem(STORAGE_KEY_TERM_RULES);
+                if (savedTermRules) {
+                    const rules = JSON.parse(savedTermRules);
+                    if (Array.isArray(rules)) {
+                        if (!state.aiTerminologyRules) state.aiTerminologyRules = [];
+                        const existingTerms = new Set(state.aiTerminologyRules.map(r => r.term));
+                        const rulesToAdd = rules.filter(r => r && r.term && typeof r.type === 'string' && !existingTerms.has(r.term));
+
+                        if (rulesToAdd.length > 0) {
+                            state.aiTerminologyRules = [...state.aiTerminologyRules, ...rulesToAdd];
+                            termCount = rulesToAdd.length;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[Settings] 還原專有名詞設定失敗:', e);
+            }
+
+            // 輸出 Log
+            if (replacedCount > 0) {
+                console.log(`[Settings] 自動還原 ${replacedCount} 條錯字替換規則`);
+            }
+            if (termCount > 0) {
+                console.log(`[Settings] 自動還原 ${termCount} 條專有名詞設定`);
+            }
         }
 
-        // Initialize dictionary rules
+        // 初始化時執行一次
+        restoreGlobalSettings();
+
+        // 確保初始化階段無論是否有新增資料，都能正確反映至 UI
         renderReplaceRules();
+        renderTerminologyRules();
 
         if (appearanceBtn) appearanceBtn.addEventListener('click', toggleAppearancePanel);
         if (globalSettingsBtn) globalSettingsBtn.addEventListener('click', () => showGlobalSettingsModal('settings-tab-gemini'));
