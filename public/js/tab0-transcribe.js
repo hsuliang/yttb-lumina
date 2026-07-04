@@ -1263,26 +1263,43 @@ export function initializeTab0() {
 
                 state.currentAbortController = new AbortController();
 
+                let cancelBtnContainer = document.getElementById('tab0-cancel-container');
+                const modalInner = progressArea ? progressArea.firstElementChild : null;
+                if (!cancelBtnContainer && modalInner) {
+                    cancelBtnContainer = document.createElement('div');
+                    cancelBtnContainer.id = 'tab0-cancel-container';
+                    cancelBtnContainer.className = 'mt-6 flex justify-center w-full';
+                    modalInner.appendChild(cancelBtnContainer);
+                }
+
                 let cancelBtn = document.getElementById('tab0-cancel-btn');
-                if (!cancelBtn && progressArea) {
+                if (!cancelBtn && cancelBtnContainer) {
                     cancelBtn = document.createElement('button');
                     cancelBtn.id = 'tab0-cancel-btn';
-                    cancelBtn.className = 'btn-secondary mt-4 w-full';
+                    cancelBtn.className = 'font-bold py-2 px-4 rounded-lg text-xs hover:brightness-110 shadow-md transition-all btn-secondary flex items-center gap-1 text-red-400 border border-red-400/30';
                     cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">cancel</span> 取消辨識';
 
                     cancelBtn.addEventListener('click', () => {
+                        console.log('[Tab0] 使用者點擊取消辨識');
                         if (state.currentAbortController) {
+                            console.log('[Tab0] AbortController abort called');
                             cancelBtn.disabled = true;
                             cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span> 正在取消...';
                             state.currentAbortController.abort();
+                        } else {
+                            console.warn('[Tab0] 取消辨識時找不到 currentAbortController');
                         }
                     });
-                    progressArea.appendChild(cancelBtn);
+                    cancelBtnContainer.appendChild(cancelBtn);
                 }
+
                 if (cancelBtn) {
                     cancelBtn.classList.remove('hidden');
                     cancelBtn.disabled = false;
                     cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">cancel</span> 取消辨識';
+                }
+                if (cancelBtnContainer) {
+                    cancelBtnContainer.classList.remove('hidden');
                 }
 
                 try {
@@ -1429,6 +1446,12 @@ export function initializeTab0() {
                     const cancelBtn = document.getElementById('tab0-cancel-btn');
                     if (cancelBtn) {
                         cancelBtn.classList.add('hidden');
+                        cancelBtn.disabled = false;
+                        cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">cancel</span> 取消辨識';
+                    }
+                    const cancelBtnContainer = document.getElementById('tab0-cancel-container');
+                    if (cancelBtnContainer) {
+                        cancelBtnContainer.classList.add('hidden');
                     }
                     if (state.currentAbortController) {
                         state.currentAbortController = null;
