@@ -2200,6 +2200,12 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
                 : `預估剩餘 ${Math.ceil(remaining)} 秒`;
         }
 
+        const tab0Badge = document.getElementById('tab0-model-badge');
+        if (tab0Badge) {
+            tab0Badge.classList.remove('hidden');
+            tab0Badge.textContent = '模型：Whisper（時間軸辨識）';
+        }
+
         onProgress({
             type: 'chunks',
             current: i + 1, total: totalWhisperChunks,
