@@ -22,15 +22,7 @@ import { callCloudflareTextAPI } from './cf-api.js';
 const modelCache = new Map();
 const FALLBACK_MODEL = 'gemini-flash-latest';
 
-function getAudioTranscriptionModelsOrder(allModels) {
-  const availableModels = new Set(allModels);
 
-  return AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST
-    .filter(model =>
-      availableModels.has(model.name) || model.includeEvenIfResolverOmits
-    )
-    .map(model => model.name);
-}
 
 export function isPollutedGeminiAudioOutput(text) {
   if (!text || typeof text !== 'string') return false;
@@ -89,6 +81,10 @@ function getAudioTranscriptionAllowlistText() {
   return AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST
     .map(model => model.name)
     .join(', ');
+}
+
+function getAudioTranscriptionModelNames() {
+  return AUDIO_TRANSCRIPTION_MODEL_ALLOWLIST.map(model => model.name);
 }
 
 const audioModelCooldowns = new Map();
@@ -621,13 +617,12 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     // 1. 先依照 audioKeyPool 建立 candidate list
     const candidates = [];
     const now = Date.now();
+    const audioModels = getAudioTranscriptionModelNames();
 
     for (let keyIndex = 0; keyIndex < audioKeyPool.length; keyIndex++) {
         const currentKey = audioKeyPool[keyIndex];
-        const allModels = await resolveFlashModelsList(currentKey);
 
-        // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
-        const audioModels = getAudioTranscriptionModelsOrder(allModels);
+
 
         for (let modelIndex = 0; modelIndex < audioModels.length; modelIndex++) {
             const modelName = audioModels[modelIndex];
@@ -843,13 +838,18 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
         } catch (error) {
             lastError = error;
             const errorMsg = error.message || '';
+            const lowerErrorMsg = errorMsg.toLowerCase();
             console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
             // ★ 改善錯誤分類邏輯：
             const isModelUnavailable =
                 errorMsg.includes("limit: 0") ||
                 errorMsg.includes("limit=0") ||
-                errorMsg.includes("limit 0");
+                errorMsg.includes("limit 0") ||
+                lowerErrorMsg.includes("404") ||
+                lowerErrorMsg.includes("not found") ||
+                lowerErrorMsg.includes("unsupported") ||
+                (lowerErrorMsg.includes("400") && lowerErrorMsg.includes("model"));
 
             const isQuotaOrRateLimit =
                 errorMsg.includes("429") ||
@@ -892,7 +892,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 continue;
             }
 
-            console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個 candidate...`);
+            console.log(`[Audio API] 模型 ${modelName} 暫時不可用或請求失敗 (${errorMsg})，嘗試下一個 candidate...`);
         }
     }
 
