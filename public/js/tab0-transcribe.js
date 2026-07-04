@@ -287,6 +287,56 @@ function formatMsToSrtTime(ms) {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms2).padStart(3, '0')}`;
 }
 
+// ########## SUBTITLE GAP SMOOTHING ##########
+const SUBTITLE_GAP_SMOOTHING_MAX_GAP_SECONDS = 0.8;
+const SUBTITLE_GAP_SMOOTHING_SAFETY_GAP_SECONDS = 0.05;
+
+function smoothSubtitleCueGaps(cues, options = {}) {
+    if (!cues || cues.length === 0) return cues;
+
+    const newCues = JSON.parse(JSON.stringify(cues));
+    let adjustedCount = 0;
+
+    const maxGapMs = SUBTITLE_GAP_SMOOTHING_MAX_GAP_SECONDS * 1000;
+    const safetyGapMs = SUBTITLE_GAP_SMOOTHING_SAFETY_GAP_SECONDS * 1000;
+
+    for (let i = 0; i < newCues.length - 1; i++) {
+        const curr = newCues[i];
+        const next = newCues[i + 1];
+
+        if (!curr.endTime || !next.startTime) continue;
+
+        const currEndMs = parseTimestampToMs(curr.endTime);
+        const nextStartMs = parseTimestampToMs(next.startTime);
+
+        if (isNaN(currEndMs) || isNaN(nextStartMs)) continue;
+
+        const gapMs = nextStartMs - currEndMs;
+
+        if (gapMs > 0 && gapMs <= maxGapMs) {
+            const newEndMs = nextStartMs - safetyGapMs;
+            if (newEndMs > currEndMs) {
+                curr.endTime = formatMsToSrtTime(newEndMs);
+                adjustedCount++;
+            }
+        }
+    }
+
+    if (adjustedCount > 0) {
+        console.log(`[Subtitle] Gap smoothing applied: ${adjustedCount} cue gaps adjusted`);
+    }
+
+    return newCues;
+}
+
+function applyGapSmoothingToSrt(srtText) {
+    if (!srtText || !srtText.trim()) return srtText;
+    const blocks = parseSrtToBlocks(srtText);
+    if (!blocks || blocks.length === 0) return srtText;
+    const smoothedBlocks = smoothSubtitleCueGaps(blocks);
+    return smoothedBlocks.map(b => `${b.id}\n${b.startTime} --> ${b.endTime}\n${b.text}`).join('\n\n');
+}
+
 function enforceMonotonicTimestamps(srtText) {
     if (!srtText || !srtText.trim()) return srtText;
 
@@ -578,6 +628,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     let finalSrt = allSrtBlocks.join('\n\n');
     // 全局時間戳單調性強化與重疊修復
     finalSrt = enforceMonotonicTimestamps(finalSrt);
+    finalSrt = applyGapSmoothingToSrt(finalSrt);
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
@@ -753,6 +804,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     let finalSrt = allSrtBlocks.join('\n\n');
     // 全局時間戳單調性強化與重疊修復
     finalSrt = enforceMonotonicTimestamps(finalSrt);
+    finalSrt = applyGapSmoothingToSrt(finalSrt);
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
@@ -2534,11 +2586,22 @@ ${settingsText}
     const finalSrtBlocks = [];
     const finalPlainTexts = [];
 
-    for (const block of whisperBlocks) {
+    let cues = whisperBlocks.map(block => {
         const aligned = alignedResultsMap[block.id] || { text: block.text };
         const cleanText = stripReviewMarkers(aligned.text || block.text);
-        finalSrtBlocks.push(`${block.id}\n${block.startTime} --> ${block.endTime}\n${cleanText}`);
-        finalPlainTexts.push(cleanText);
+        return {
+            id: block.id,
+            startTime: block.startTime,
+            endTime: block.endTime,
+            text: cleanText
+        };
+    });
+
+    cues = smoothSubtitleCueGaps(cues);
+
+    for (const cue of cues) {
+        finalSrtBlocks.push(`${cue.id}\n${cue.startTime} --> ${cue.endTime}\n${cue.text}`);
+        finalPlainTexts.push(cue.text);
     }
 
     const finalSrt = finalSrtBlocks.join('\n\n');
