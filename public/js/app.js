@@ -41,7 +41,7 @@ import { VariationHub } from './variation-hub.js';
     // ########## REFACTORED ##########
 export const updateAiButtonStatus = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
-        
+
         const isAiDisabled = !hasContent;
         let tooltip = '';
         if (isAiDisabled) {
@@ -52,7 +52,7 @@ export const updateAiButtonStatus = function() {
             if (btn) {
                 btn.disabled = isDisabled;
                 btn.title = isDisabled ? (customTooltip || tooltip) : defaultTitle;
-                
+
                 if (isHollow) {
                     btn.classList.toggle('opacity-50', isDisabled);
                     btn.classList.toggle('cursor-not-allowed', isDisabled);
@@ -66,7 +66,7 @@ export const updateAiButtonStatus = function() {
         // Tab 1 AI buttons
         updateButtonState(document.getElementById('generate-summary-btn'), '生成摘要', isAiDisabled, null, true);
         updateButtonState(document.getElementById('generate-chapters-btn'), '生成章節', isAiDisabled, null, true);
-        
+
         // ########## CRITICAL FIX START ##########
         // 優化文本按鈕的邏輯修正
         const optimizeBtn = document.getElementById('optimize-text-for-blog-btn');
@@ -96,7 +96,7 @@ export const updateAiButtonStatus = function() {
 
         const socialVariationBtn = document.getElementById('generate-social-variation-btn');
         if(socialVariationBtn) socialVariationBtn.disabled = state.socialPostVersions.length === 0;
-        
+
         const edmVariationBtn = document.getElementById('generate-edm-variation-btn');
         if(edmVariationBtn) edmVariationBtn.disabled = state.edmVersions.length === 0;
 
@@ -106,11 +106,11 @@ export const updateAiButtonStatus = function() {
         const infographicVariationBtn = document.getElementById('generate-infographic-variation-btn');
         if(infographicVariationBtn) infographicVariationBtn.disabled = state.infographicVersions.length === 0;
     }
-    
+
 export const updateSourceStatusUI = function() {
         const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
         const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
-        
+
         let sourceType = 'raw';
         if (hasGeneratedBlog) sourceType = 'blog';
         else if (hasOptimizedText) sourceType = 'optimized';
@@ -216,7 +216,7 @@ export const updateSourceStatusUI = function() {
         if (!apiKeysListContainer) return;
         apiKeysListContainer.innerHTML = '';
         const isLumina = document.querySelector('.glass-panel') || document.querySelector('#api-key-modal.backdrop-blur-sm');
-        
+
         if (!Array.isArray(modalApiKeys) || modalApiKeys.length === 0) {
             if (isLumina) {
                 apiKeysListContainer.innerHTML = '<p class="text-xs text-on-surface-variant/50 text-center py-2">尚未設定任何金鑰</p>';
@@ -233,11 +233,11 @@ export const updateSourceStatusUI = function() {
             } else {
                 item.className = 'flex items-center justify-between bg-[var(--gray-bg)] p-2 rounded text-xs border border-[var(--card-border)]';
             }
-            
-            const masked = entry.key.length > 10 
+
+            const masked = entry.key.length > 10
                 ? `${entry.key.substring(0, 6)}...${entry.key.substring(entry.key.length - 4)}`
                 : entry.key;
-            
+
             if (isLumina) {
                 item.innerHTML = `
                     <span class="font-mono text-on-surface">${masked} <span class="text-on-surface-variant/70">(使用: ${entry.count || 0}次)</span></span>
@@ -272,7 +272,7 @@ export const updateSourceStatusUI = function() {
 export const hasTextAIEnabled = function() {
     const apiKey = getBalancedApiKey();
     if (apiKey) return true;
-    
+
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
     const cfUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
     if ((aiEngine === 'auto' || aiEngine === 'cloudflare') && cfUrl) {
@@ -291,14 +291,14 @@ export const getBalancedApiKey = function() {
             if (!Array.isArray(keysList) || keysList.length === 0) {
                 return getStorageItem('geminiApiKey') || '';
             }
-            
+
             const minCount = Math.min(...keysList.map(k => k.count || 0));
             const candidates = keysList.filter(k => (k.count || 0) === minCount);
             const selected = candidates[Math.floor(Math.random() * candidates.length)];
-            
+
             // 不在此處 +1，計數統一由 gemini-api.js 的成功回呼處理，避免雙重計數
             console.log(`[API Key Rotation] 選擇金鑰: ${selected.key.substring(0, 6)}...${selected.key.substring(selected.key.length - 4)} (目前已累計使用: ${selected.count || 0} 次)`);
-            
+
             return selected.key;
         } catch (e) {
             console.error('Error balancing API key:', e);
@@ -323,11 +323,11 @@ export const getBalancedApiKey = function() {
     }
 export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemini'); // Backward compatibility
     function hideGlobalSettingsModal() { globalSettingsModal.classList.add('hidden'); }
-    
+
     function switchSettingsTab(targetId) {
         const tabs = document.querySelectorAll('.settings-tab-btn');
         const panels = document.querySelectorAll('.settings-tab-panel');
-        
+
         tabs.forEach(tab => {
             if (tab.dataset.target === targetId) {
                 tab.classList.add('active', 'border-primary', 'bg-primary/10', 'text-primary');
@@ -337,7 +337,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                 tab.classList.add('border-transparent', 'text-on-surface-variant');
             }
         });
-        
+
         panels.forEach(panel => {
             if (panel.id === targetId) {
                 panel.classList.remove('hidden');
@@ -380,10 +380,10 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             });
 
             const results = await Promise.allSettled(validationPromises);
-            
+
             const validApiKeys = [];
             const invalidKeys = [];
-            
+
             results.forEach((r, idx) => {
                 if (r.status === 'fulfilled') {
                     validApiKeys.push(r.value);
@@ -421,7 +421,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                 if (expiryMode === '4h') durationMs = 4 * 60 * 60 * 1000;
                 else if (expiryMode === '8h') durationMs = 8 * 60 * 60 * 1000;
                 else if (expiryMode === '24h') durationMs = 24 * 60 * 60 * 1000;
-                
+
                 expiryTime = String(Date.now() + durationMs);
                 setStorageItem('apiKeyExpiry', expiryTime, isSession);
             } else if (expiryMode === 'session') {
@@ -434,13 +434,13 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
 
             updateApiKeyStatus();
             window.dispatchEvent(new Event('settings-updated'));
-            
+
             if (invalidKeys.length > 0) {
                 showToast(`已儲存 ${validApiKeys.length} 組有效金鑰，自動排除 ${invalidKeys.length} 組無效金鑰。`);
             } else {
                 showToast('API Key 已儲存，AI 功能已啟用！');
             }
-            
+
         } catch (err) {
             console.error("Key validation error:", err);
             showModal({ title: '驗證出錯', message: `驗證過程中發生錯誤：${err.message}` });
@@ -453,10 +453,10 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
     function startApiKeyCountdown() {
         if (state.apiKeyCountdownInterval) { clearInterval(state.apiKeyCountdownInterval); }
         if (apiKeyCountdown) { apiKeyCountdown.classList.remove('hidden'); }
-        
+
         const updateCountdownUI = () => {
             let expiryTime = getStorageItem('apiKeyExpiry');
-            
+
             if (!expiryTime) {
                 const savedMode = getStorageItem('apiKeyExpiryMode') || 'never';
                 setStorageItem('apiKeyExpiry', savedMode);
@@ -509,7 +509,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
         if (expiry && expiry !== 'session' && expiry !== 'never' && Date.now() > parseInt(expiry, 10)) {
             removeStorageKeys();
         }
-        
+
         const apiKey = getStorageItem('geminiApiKey');
         const apiKeysJson = getStorageItem('geminiApiKeys');
         let keysCount = 0;
@@ -531,7 +531,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
         const engineSelect = document.getElementById('global-ai-engine');
         let engineText = engineSelect && engineSelect.selectedIndex >= 0 ? engineSelect.options[engineSelect.selectedIndex].text : 'Auto';
         engineText = engineText.split('(')[0].trim();
-        
+
         const cfTextSelect = document.getElementById('global-cf-text-model');
         let textModelText = cfTextSelect && cfTextSelect.selectedIndex >= 0 ? cfTextSelect.options[cfTextSelect.selectedIndex].text : 'Auto';
         textModelText = textModelText.split('(')[0].trim();
@@ -592,7 +592,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                 if (indicator) {
                     indicator.className = 'inline-block w-2.5 h-2.5 rounded-full bg-green-500 shrink-0';
                 }
-                
+
                 let timeText = '';
                 const expiry = getStorageItem('apiKeyExpiry');
                 if (expiry === 'session' || expiry === 'never') {
@@ -606,7 +606,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                         timeText = ` (金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
                     }
                 }
-                
+
                 portalText.textContent = `已設定 (共 ${keysCount} 組金鑰)${timeText}`;
                 portalBtn.textContent = '管理金鑰';
                 portalBtn.className = 'py-1 px-3 rounded text-xs bg-green-500/25 hover:bg-green-500/40 text-green-200 border border-green-500/30 transition-all';
@@ -624,10 +624,10 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
         updateTabAvailability();
         updateAiButtonStatus();
     }
-    
+
 export const updateTabAvailability = function() {
         const hasContent = document.getElementById('smart-area').value.trim().length > 0;
-        
+
         const tabs = [
             { btn: document.querySelector('.tab-btn[data-tab="tab2"]'), defaultTitle: '將字幕稿轉為部落格文章' },
             { btn: document.querySelector('.tab-btn[data-tab="tab3"]'), defaultTitle: '為多個社群平台生成貼文' },
@@ -644,7 +644,7 @@ export const updateTabAvailability = function() {
                 tab.btn.classList.toggle('cursor-not-allowed', !hasContent);
             }
         });
-        
+
         updateSourceStatusUI();
     }
 
@@ -652,7 +652,7 @@ export const updateTabAvailability = function() {
 export const switchTab = (tabId) => {
         allTabButtons.forEach(btn => btn.classList.remove('active'));
         allTabContents.forEach(content => content.classList.add('hidden'));
-        
+
         const clickedButton = document.querySelector(`[data-tab="${tabId}"]`);
         clickedButton.classList.add('active');
         document.getElementById(tabId).classList.remove('hidden');
@@ -664,7 +664,7 @@ export const switchTab = (tabId) => {
         if (tabId === 'tab6' && analyzeInfographicContent) { analyzeInfographicContent(); }
         updateSourceStatusUI();
     }
-    
+
         try { if (initializeTab0) { initializeTab0(); } } catch(e) { console.error("Error initializing Tab 0:", e); }
         try { initializeTab1(); } catch(e) { console.error("Error initializing Tab 1:", e); }
         try { initializeTab2(); } catch(e) { console.error("Error initializing Tab 2:", e); }
@@ -722,7 +722,7 @@ export const switchTab = (tabId) => {
             const token = localStorage.getItem(WORKER_TOKEN_KEY) || sessionStorage.getItem(WORKER_TOKEN_KEY) || '';
             if (workerUrlInput) workerUrlInput.value = url;
             if (workerTokenInput) workerTokenInput.value = token;
-            
+
             if (cfTextModelSelect) {
                 cfTextModelSelect.value = localStorage.getItem(CF_TEXT_MODEL_KEY) || 'auto';
                 if (!cfTextModelSelect.value) cfTextModelSelect.value = 'auto';
@@ -739,14 +739,14 @@ export const switchTab = (tabId) => {
             const textModel = cfTextModelSelect && cfTextModelSelect.value ? cfTextModelSelect.value : 'auto';
             const imageModel = cfImageModelSelect ? cfImageModelSelect.value : '@cf/black-forest-labs/flux-1-schnell';
             const aiEngine = aiEngineSelect ? aiEngineSelect.value : 'auto';
-            
+
             // Clear old storage
             localStorage.removeItem(WORKER_URL_KEY);
             localStorage.removeItem(WORKER_TOKEN_KEY);
             localStorage.removeItem(WORKER_EXPIRY_KEY);
             sessionStorage.removeItem(WORKER_URL_KEY);
             sessionStorage.removeItem(WORKER_TOKEN_KEY);
-            
+
             localStorage.setItem(CF_TEXT_MODEL_KEY, textModel);
             localStorage.setItem(CF_IMAGE_MODEL_KEY, imageModel);
             localStorage.setItem(AI_ENGINE_KEY, aiEngine);
@@ -762,7 +762,7 @@ export const switchTab = (tabId) => {
             } else {
                 localStorage.setItem(WORKER_URL_KEY, url);
                 if (token) localStorage.setItem(WORKER_TOKEN_KEY, token);
-                
+
                 if (expiryType !== 'never') {
                     const days = parseInt(expiryType, 10);
                     const expiryTime = Date.now() + days * 24 * 60 * 60 * 1000;
@@ -791,7 +791,7 @@ export const switchTab = (tabId) => {
             clearWorkerSettingsBtn.addEventListener('click', () => {
                 if (workerUrlInput) workerUrlInput.value = '';
                 if (workerTokenInput) workerTokenInput.value = '';
-                
+
                 localStorage.removeItem(WORKER_URL_KEY);
                 localStorage.removeItem(WORKER_TOKEN_KEY);
                 localStorage.removeItem(WORKER_EXPIRY_KEY);
@@ -810,16 +810,16 @@ export const switchTab = (tabId) => {
                 if (!workerTestStatus) return;
                 const url = workerUrlInput?.value.trim();
                 const token = workerTokenInput?.value.trim();
-                
+
                 if (!url) {
                     workerTestStatus.textContent = '❌ 請先填入 Worker URL';
                     workerTestStatus.className = 'text-sm text-error mt-2';
                     return;
                 }
-                
+
                 workerTestStatus.textContent = '⏳ 測試連線中...';
                 workerTestStatus.className = 'text-sm text-on-surface-variant mt-2';
-                
+
                 try {
                     let validUrl = url;
                     if (!/^https?:\/\//i.test(validUrl)) {
@@ -828,7 +828,7 @@ export const switchTab = (tabId) => {
                     const baseUrl = validUrl.replace(/\/+$/, '');
                     const testUrl = `${baseUrl}/api/health`;
                     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-                    
+
                     // 1. 測試連線與健康狀態
                     const healthResp = await fetch(testUrl, { method: 'GET' });
                     if (!healthResp.ok) {
@@ -839,12 +839,12 @@ export const switchTab = (tabId) => {
 
                     // 2. 測試 Token 驗證
                     const authTestUrl = `${baseUrl}/api/generate-text`;
-                    const authResp = await fetch(authTestUrl, { 
-                        method: 'POST', 
+                    const authResp = await fetch(authTestUrl, {
+                        method: 'POST',
                         headers: { 'Content-Type': 'application/json', ...headers },
                         body: JSON.stringify({ prompt: "" })
                     });
-                    
+
                     if (authResp.status === 401 || authResp.status === 403) {
                         workerTestStatus.textContent = '❌ 連線成功，但 Token 驗證失敗 (密碼錯誤)';
                         workerTestStatus.className = 'text-sm text-error mt-2';
@@ -972,8 +972,10 @@ export const switchTab = (tabId) => {
                 return;
             }
             try {
-                const jsonStr = JSON.stringify(state.batchReplaceRules, null, 2);
-                saveFile(jsonStr, `Batch_Replace_Rules_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
+                const dateStr = new Date().toISOString().slice(0, 10);
+                const header = `# 錯字替換規則\n# 匯出時間：${dateStr}\n# 格式說明：\n# 每一行一組規則\n# 錯字 => 正字\n# 以 # 開頭的行是註解，匯入時會忽略\n# 空行會被忽略\n\n`;
+                const content = header + state.batchReplaceRules.map(r => `${r.original} => ${r.replacement}`).join('\n');
+                saveFile(content, `yttb-typo-rules-${dateStr}.txt`, 'text/plain;charset=utf-8');
                 showToast('📤 規則匯出成功！');
             } catch (e) {
                 console.error('匯出失敗:', e);
@@ -985,25 +987,52 @@ export const switchTab = (tabId) => {
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (e) => {
+                const content = e.target.result;
+                let newRules = [];
+                let isJson = false;
+
+                // 嘗試解析為 JSON（相容舊格式）
                 try {
-                    const rules = JSON.parse(e.target.result);
+                    const rules = JSON.parse(content);
                     if (Array.isArray(rules)) {
                         const isValid = rules.every(r => r && typeof r.original === 'string' && typeof r.replacement === 'string');
-                        if (!isValid) {
-                            showModal({ title: '匯入失敗', message: '匯入的檔案格式不正確。' });
-                            return;
+                        if (isValid) {
+                            newRules = rules;
+                            isJson = true;
                         }
-                        if (state.batchReplaceRules.length > 0) {
-                            if (!confirm('匯入規則將會覆蓋當前暫存的規則，確定要繼續嗎？')) return;
-                        }
-                        state.batchReplaceRules = rules;
-                        renderReplaceRules();
-                        showToast(`📥 成功匯入 ${rules.length} 條取代規則！`);
-                    } else {
-                        showModal({ title: '匯入失敗', message: '匯入的檔案內容必須是 JSON 陣列。' });
                     }
                 } catch (error) {
-                    showModal({ title: '匯入失敗', message: '解析 JSON 檔案失敗。' });
+                    // 非 JSON，略過錯誤
+                }
+
+                // 解析為 TXT 格式
+                if (!isJson) {
+                    const lines = content.split('\n');
+                    for (let line of lines) {
+                        line = line.trim();
+                        if (!line || line.startsWith('#')) continue;
+
+                        const parts = line.split('=>');
+                        if (parts.length >= 2) {
+                            const original = parts[0].trim();
+                            const replacement = parts.slice(1).join('=>').trim();
+                            if (original && replacement) {
+                                newRules.push({ original, replacement });
+                            }
+                        }
+                    }
+                }
+
+                if (newRules.length > 0) {
+                    if (state.batchReplaceRules.length > 0) {
+                        if (!confirm('匯入規則將會覆蓋當前暫存的規則，確定要繼續嗎？')) return;
+                    }
+                    state.batchReplaceRules = newRules;
+                    localStorage.setItem(STORAGE_KEY_REPLACE_RULES, JSON.stringify(state.batchReplaceRules));
+                    renderReplaceRules();
+                    showToast(`📥 成功匯入 ${newRules.length} 條取代規則！`);
+                } else {
+                    showModal({ title: '匯入失敗', message: '匯入的檔案格式不正確或沒有有效的規則。' });
                 }
             };
             reader.readAsText(file);
@@ -1073,8 +1102,16 @@ export const switchTab = (tabId) => {
                 return;
             }
             try {
-                const jsonStr = JSON.stringify(state.aiTerminologyRules, null, 2);
-                saveFile(jsonStr, `AI_Terminology_Rules_${new Date().toISOString().slice(0, 10)}.json`, 'application/json;charset=utf-8');
+                const dateStr = new Date().toISOString().slice(0, 10);
+                const header = `# 專有名詞設定\n# 匯出時間：${dateStr}\n# 格式說明：\n# [必須使用] 原詞 => 建議寫法\n# [絕對禁用] 禁用詞\n# 沒有標籤時，預設視為 [必須使用]\n# 以 # 開頭的行是註解，匯入時會忽略\n# 空行會被忽略\n\n`;
+                const content = header + state.aiTerminologyRules.map(r => {
+                    if (r.type === 'positive') {
+                        return `[必須使用] ${r.term} => ${r.term}`;
+                    } else {
+                        return `[絕對禁用] ${r.term}`;
+                    }
+                }).join('\n');
+                saveFile(content, `yttb-terminology-rules-${dateStr}.txt`, 'text/plain;charset=utf-8');
                 showToast('📤 規則匯出成功！');
             } catch (e) {
                 showToast('匯出失敗，請重試。', { type: 'error' });
@@ -1085,23 +1122,85 @@ export const switchTab = (tabId) => {
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (e) => {
+                const content = e.target.result;
+                let newRules = [];
+                let isJson = false;
+
+                // 嘗試解析為 JSON（相容舊格式）
                 try {
-                    const rules = JSON.parse(e.target.result);
+                    const rules = JSON.parse(content);
                     if (Array.isArray(rules)) {
                         const isValid = rules.every(r => r && typeof r.term === 'string' && typeof r.type === 'string');
-                        if (!isValid) {
-                            showModal({ title: '匯入失敗', message: '格式不正確。' });
-                            return;
+                        if (isValid) {
+                            newRules = rules;
+                            isJson = true;
                         }
-                        if (state.aiTerminologyRules.length > 0) {
-                            if (!confirm('確定要覆蓋當前的專有名詞嗎？')) return;
-                        }
-                        state.aiTerminologyRules = rules;
-                        renderTerminologyRules();
-                        showToast(`📥 成功匯入 ${rules.length} 條規則！`);
                     }
                 } catch (error) {
-                    showModal({ title: '匯入失敗', message: '解析 JSON 失敗。' });
+                    // 非 JSON，略過錯誤
+                }
+
+                // 解析為 TXT 格式
+                if (!isJson) {
+                    const lines = content.split('\n');
+                    for (let line of lines) {
+                        line = line.trim();
+                        if (!line || line.startsWith('#')) continue;
+
+                        let type = 'positive';
+                        const lowerLine = line.toLowerCase();
+
+                        // 判斷標籤
+                        const positiveTags = ['[必須使用]', '[正向]', '[positive]', '+'];
+                        const negativeTags = ['[絕對禁用]', '[禁用]', '[negative]', '-'];
+
+                        let lineWithoutTag = line;
+                        for (const tag of positiveTags) {
+                            if (lowerLine.startsWith(tag.toLowerCase())) {
+                                type = 'positive';
+                                lineWithoutTag = line.substring(tag.length).trim();
+                                break;
+                            }
+                        }
+                        for (const tag of negativeTags) {
+                            if (lowerLine.startsWith(tag.toLowerCase())) {
+                                type = 'negative';
+                                lineWithoutTag = line.substring(tag.length).trim();
+                                break;
+                            }
+                        }
+
+                        const parts = lineWithoutTag.split('=>');
+                        if (type === 'positive') {
+                            if (parts.length >= 2) {
+                                const replacement = parts.slice(1).join('=>').trim();
+                                if (replacement) newRules.push({ type: 'positive', term: replacement });
+                            } else {
+                                const term = lineWithoutTag.trim();
+                                if (term) newRules.push({ type: 'positive', term: term });
+                            }
+                        } else {
+                            if (parts.length >= 2) {
+                                const original = parts[0].trim();
+                                if (original) newRules.push({ type: 'negative', term: original });
+                            } else {
+                                const term = lineWithoutTag.trim();
+                                if (term) newRules.push({ type: 'negative', term: term });
+                            }
+                        }
+                    }
+                }
+
+                if (newRules.length > 0) {
+                    if (state.aiTerminologyRules.length > 0) {
+                        if (!confirm('確定要覆蓋當前的專有名詞嗎？')) return;
+                    }
+                    state.aiTerminologyRules = newRules;
+                    localStorage.setItem(STORAGE_KEY_TERM_RULES, JSON.stringify(state.aiTerminologyRules));
+                    renderTerminologyRules();
+                    showToast(`📥 成功匯入 ${newRules.length} 條規則！`);
+                } else {
+                    showModal({ title: '匯入失敗', message: '匯入的檔案格式不正確或沒有有效的規則。' });
                 }
             };
             reader.readAsText(file);
@@ -1143,9 +1242,9 @@ export const switchTab = (tabId) => {
                 const bgClass = isPositive ? 'bg-success/10 border-success/20' : 'bg-error/10 border-error/20';
                 const textClass = isPositive ? 'text-success' : 'text-error';
                 const label = isPositive ? '🟢 必須使用' : '🔴 絕對禁用';
-                
+
                 ruleEl.className = `rule-item p-2 rounded mb-2 flex items-center justify-between border ${bgClass}`;
-                ruleEl.innerHTML = ` 
+                ruleEl.innerHTML = `
                     <div class="flex items-center space-x-2 truncate">
                         <span class="text-xs font-bold ${textClass}">${label}</span>
                         <span class="rule-text font-mono text-on-surface">${rule.term}</span>
@@ -1183,7 +1282,7 @@ export const switchTab = (tabId) => {
 
         if (addTermRuleBtn) addTermRuleBtn.addEventListener('click', addTerminologyRule);
         if (clearAllTermRulesBtn) clearAllTermRulesBtn.addEventListener('click', clearAllTerminologyRules);
-        
+
         // Also need to fix the replace rule delete buttons because they were rendered with a class but no listener added in renderReplaceRules.
         // Let's modify renderReplaceRules by attaching a global listener or doing it inside the function.
 
@@ -1257,7 +1356,7 @@ export const switchTab = (tabId) => {
         if (appearanceBtn) appearanceBtn.addEventListener('click', toggleAppearancePanel);
         if (globalSettingsBtn) globalSettingsBtn.addEventListener('click', () => showGlobalSettingsModal('settings-tab-gemini'));
         if (closeGlobalSettingsBtn) closeGlobalSettingsBtn.addEventListener('click', hideGlobalSettingsModal);
-        
+
         document.querySelectorAll('.settings-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 switchSettingsTab(e.currentTarget.dataset.target);
@@ -1293,7 +1392,7 @@ export const switchTab = (tabId) => {
                 const apiKeyTextarea = document.getElementById('gemini-api-key');
                 const eyeOpenIcon = document.getElementById('eye-open-icon');
                 const eyeClosedIcon = document.getElementById('eye-closed-icon');
-                
+
                 if (apiKeyTextarea && eyeOpenIcon && eyeClosedIcon) {
                     const isMasked = apiKeyTextarea.classList.contains('masked-keys');
                     if (isMasked) {
@@ -1308,7 +1407,7 @@ export const switchTab = (tabId) => {
                 }
             });
         }
-        
+
         if (toggleApiHelpBtn && apiKeyHelpPanel) {
             let keepOpen = false;
 
@@ -1377,7 +1476,7 @@ export const switchTab = (tabId) => {
             }
             switchTab(tabId);
         }));
-        
+
         if (modalCloseBtn) {
             modalCloseBtn.addEventListener('click', () => {
                 if (state.currentAbortController) {
@@ -1388,7 +1487,7 @@ state.currentAbortController = null;
             });
         }
         if (modalCopyBtn) modalCopyBtn.addEventListener('click', copyModalContent);
-        
+
         const clearDownstreamState = (options = { notify: true }) => {
             if (state.currentAbortController) {
                 try { state.currentAbortController.abort(); } catch (_) {}
@@ -1489,7 +1588,7 @@ state.currentAbortController = null;
             const hasInfo = hasInfographicDraft ? hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
             const hasEdm = window.hasEdmDraft ? window.hasEdmDraft() : !!localStorage.getItem('lumina-edm-draft');
             const hasCarousel = window.hasCarouselDraft ? window.hasCarouselDraft() : !!localStorage.getItem('lumina-carousel-draft');
-            
+
             if ((hasBlog || hasSocial || hasInfo || hasEdm || hasCarousel) && portalResumeBtn) {
                 portalResumeBtn.classList.remove('hidden');
             } else if (portalResumeBtn) {
@@ -1509,7 +1608,7 @@ state.currentAbortController = null;
             }
             console.log("[Portal] 開始全新創作 clicked");
             performDeepReset({ reloadPage: false, notify: false });
-            
+
             // 直接進入頁面，不管有無設定金鑰
             if (welcomePortal) {
                 welcomePortal.classList.add('portal-fade-out');
@@ -1552,19 +1651,19 @@ state.currentAbortController = null;
             } else if (localStorage.getItem('infographicDraft')) {
                 targetTab = 'tab6';
             }
-            
+
             if (welcomePortal) {
                 welcomePortal.classList.add('portal-fade-out');
                 setTimeout(() => {
                     welcomePortal.style.display = 'none';
                 }, 450);
             }
-            
+
             if (mainApp) {
                 mainApp.classList.remove('hidden');
                 mainApp.classList.add('app-fade-in');
             }
-            
+
             switchTab(targetTab);
             showToast('已成功恢復您上次的編輯內容！');
         };
