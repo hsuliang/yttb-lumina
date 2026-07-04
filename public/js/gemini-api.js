@@ -93,6 +93,7 @@ function getAudioTranscriptionAllowlistText() {
 
 const audioModelCooldowns = new Map();
 const DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+const DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS = 30 * 1000;
 
 function getAudioCooldownKey(apiKey, modelName) {
   return `${apiKey.slice(-8)}::${modelName}`;
@@ -567,6 +568,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
             const cooldownRemainingMs = getAudioModelCooldownRemainingMs(currentKey, modelName);
             if (cooldownRemainingMs > 0) {
                 console.warn(`[Audio API] 模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻中，剩餘 ${Math.ceil(cooldownRemainingMs / 1000)} 秒，跳過此組合...`);
+                lastModelError = new Error(`Audio API key/model cooldown: ${modelName} with Key (...${currentKey.slice(-4)})`);
                 continue;
             }
 
@@ -767,6 +769,18 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     const retryDelayMs = extractRetryDelayMs(errorMsg);
                     markAudioModelCooldown(currentKey, modelName, retryDelayMs);
                     console.warn(`[Audio API] 配額或頻率限制 (429)，模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻 ${Math.ceil(retryDelayMs / 1000)} 秒，嘗試同一組 Key 的下一個 Audio 模型...`);
+                    continue;
+                }
+
+                if (
+                    errorMsg.includes("503") ||
+                    errorMsg.includes("high demand") ||
+                    errorMsg.includes("Failed to parse stream") ||
+                    errorMsg.includes("overloaded") ||
+                    errorMsg.includes("Service Unavailable")
+                ) {
+                    markAudioModelCooldown(currentKey, modelName, DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS);
+                    console.warn(`[Audio API] 模型 ${modelName} 暫時不可用，冷卻 ${Math.ceil(DEFAULT_AUDIO_TEMPORARY_ERROR_COOLDOWN_MS / 1000)} 秒，嘗試下一個 Audio 模型...`);
                     continue;
                 }
 
