@@ -900,7 +900,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     throw new Error(translateError(finalErrorMsg));
 }
 
-function translateError(message) {
+export function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";
 
     // Audio polluted output
@@ -913,9 +913,18 @@ function translateError(message) {
         return "【AI 伺服器繁忙 (overloaded)】Gemini API 目前負載過高或正處於全球尖峰時段。這通常是暫時的，請稍候一兩分鐘後重試。";
     }
 
-    // 429 / Rate Limit / Quota Exceeded
-    if (message.includes("429") || message.includes("Quota exceeded") || message.includes("exhausted") || message.includes("rate limit")) {
-        return "【用量已達上限】您的 Gemini API 金鑰已超過每分鐘呼叫次數限制（Rate Limit）或免費額度已用盡。請稍候一分鐘再試，或更換其他金鑰。";
+    // 429 / Rate Limit / Quota Exceeded / cooldown
+    if (message.includes("429") || message.includes("Quota exceeded") || message.includes("exhausted") || message.includes("rate limit") || message.includes("Too Many Requests") || message.includes("cooldown")) {
+        return `Gemini API 配額或頻率限制已達上限
+
+目前可用的 Gemini API Key 或模型暫時無法處理音訊。
+可能原因：
+1. 短時間請求過多，觸發 RPM 限制
+2. API Key 或模型正在冷卻中
+3. 今日免費額度或專案配額已達上限
+4. Google 模型服務暫時繁忙
+
+建議稍後再試，或改用較短音檔，或確認 API Key / Project 的可用狀態。`;
     }
 
     // 400 / 403 / Invalid API Key

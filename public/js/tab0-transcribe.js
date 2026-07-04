@@ -1,4 +1,4 @@
-import { callGeminiAudioAPI, callGeminiAPI, isPollutedGeminiAudioOutput } from './gemini-api.js';
+import { callGeminiAudioAPI, callGeminiAPI, isPollutedGeminiAudioOutput, translateError } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
@@ -8,6 +8,36 @@ import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js'
  * tab0-transcribe.js
  * Tab0 字幕產生器：支援 Gemini AI 與 Whisper Worker 雙軌模式。
  */
+
+// ########## TAB 0 ERROR HANDLING HELPERS ##########
+function isAbortError(error) {
+    const message = error?.message || '';
+    return error?.name === 'AbortError' ||
+           message.includes('AbortError') ||
+           message.includes('aborted') ||
+           message.includes('The user aborted a request') ||
+           message.includes('使用者已取消辨識') ||
+           message.includes('使用者主動取消');
+}
+
+function getUserFriendlyTranscriptionError(error) {
+    const message = error?.message || String(error || '');
+    if (typeof translateError === 'function') {
+        return translateError(message);
+    }
+    return `辨識失敗：${message}`;
+}
+
+function showTranscriptionErrorModal(error) {
+    const friendlyMessage = getUserFriendlyTranscriptionError(error);
+    showModal({
+        title: '語音辨識錯誤',
+        message: friendlyMessage,
+        buttons: [
+            { text: '關閉', class: 'btn-primary', callback: hideModal }
+        ]
+    });
+}
 
 // ########## TAB 0 CONSTANTS ##########
 const TAB0_SUPPORTED_FORMATS = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.webm', '.mp4'];
@@ -594,7 +624,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
 
         const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
             onStream(fullText);
-        });
+        }, state.currentAbortController?.signal);
         const result = validateAndFixSrt(rawResponse);
 
         if (!result.isValid) {
@@ -1231,6 +1261,30 @@ export function initializeTab0() {
             const confirmDictAndStart = async () => {
                 startBtn.disabled = true;
 
+                state.currentAbortController = new AbortController();
+
+                let cancelBtn = document.getElementById('tab0-cancel-btn');
+                if (!cancelBtn && progressArea) {
+                    cancelBtn = document.createElement('button');
+                    cancelBtn.id = 'tab0-cancel-btn';
+                    cancelBtn.className = 'btn-secondary mt-4 w-full';
+                    cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">cancel</span> 取消辨識';
+
+                    cancelBtn.addEventListener('click', () => {
+                        if (state.currentAbortController) {
+                            cancelBtn.disabled = true;
+                            cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span> 正在取消...';
+                            state.currentAbortController.abort();
+                        }
+                    });
+                    progressArea.appendChild(cancelBtn);
+                }
+                if (cancelBtn) {
+                    cancelBtn.classList.remove('hidden');
+                    cancelBtn.disabled = false;
+                    cancelBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">cancel</span> 取消辨識';
+                }
+
                 try {
                     let result;
                     // 準備專有名詞 (只取 Positive)
@@ -1364,10 +1418,21 @@ export function initializeTab0() {
 
                 } catch (error) {
                     console.error('[Tab0] Transcription failed:', error);
-                    showToast(`辨識失敗：${error.message}`, { type: 'error' });
+                    if (isAbortError(error)) {
+                        showToast('已取消辨識');
+                    } else {
+                        showTranscriptionErrorModal(error);
+                    }
                 } finally {
                     stopProgressMessages();
                     updateTab0StartButton();
+                    const cancelBtn = document.getElementById('tab0-cancel-btn');
+                    if (cancelBtn) {
+                        cancelBtn.classList.add('hidden');
+                    }
+                    if (state.currentAbortController) {
+                        state.currentAbortController = null;
+                    }
                 }
             };
 
@@ -2185,7 +2250,7 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             // 即時在 UI 流式顯示當前識別進度
             const prevText = allGeminiTexts.join('\n\n');
             onStream(prevText ? prevText + '\n\n' + fullText : fullText);
-        });
+        }, state.currentAbortController?.signal);
 
         // 清理時間戳與序號
         let plainText = rawResponse
@@ -2500,7 +2565,7 @@ ${settingsText}
         let batchResult = [];
         try {
             actualGeminiAlignmentCalls++;
-            const rawJsonResponse = await callGeminiAPI(apiKey, prompt, true);
+            const rawJsonResponse = await callGeminiAPI(apiKey, prompt, true, null, state.currentAbortController?.signal);
             const cleanJson = rawJsonResponse.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
             batchResult = JSON.parse(cleanJson);
 
