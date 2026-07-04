@@ -116,7 +116,7 @@ function markAudioModelCooldown(apiKey, modelName, retryDelayMs) {
   audioModelCooldowns.set(cooldownKey, Date.now() + retryDelayMs);
 }
 
-function extractRetryDelayMs(errorMessage) {
+function extractRetryDelayMs(errorMessage, fallbackMs = DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS) {
   const retryDelayMatch = errorMessage.match(/retryDelay["']?\s*:\s*["']?([\d.]+)s/i);
   if (retryDelayMatch) {
     return Math.ceil(Number(retryDelayMatch[1]) * 1000);
@@ -127,7 +127,7 @@ function extractRetryDelayMs(errorMessage) {
     return Math.ceil(Number(pleaseRetryMatch[1]) * 1000);
   }
 
-  return DEFAULT_AUDIO_RATE_LIMIT_COOLDOWN_MS;
+  return fallbackMs;
 }
 
 /**
@@ -210,6 +210,48 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     }
 }
 
+let textKeyRotationIndex = 0;
+
+function rotateTextKeyPool(keyPool) {
+    if (!Array.isArray(keyPool) || keyPool.length <= 1) {
+        return keyPool;
+    }
+
+    const startIndex = textKeyRotationIndex % keyPool.length;
+    textKeyRotationIndex = (textKeyRotationIndex + 1) % keyPool.length;
+
+    return [
+        ...keyPool.slice(startIndex),
+        ...keyPool.slice(0, startIndex)
+    ];
+}
+
+const textModelCooldowns = new Map();
+const DEFAULT_TEXT_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+const DEFAULT_TEXT_TEMPORARY_ERROR_COOLDOWN_MS = 30 * 1000;
+
+function getTextCooldownKey(apiKey, modelName) {
+    return `${apiKey.slice(-8)}::${modelName}`;
+}
+
+function getTextModelCooldownRemainingMs(apiKey, modelName) {
+    const cooldownKey = getTextCooldownKey(apiKey, modelName);
+    const cooldownUntil = textModelCooldowns.get(cooldownKey) || 0;
+    const remainingMs = cooldownUntil - Date.now();
+
+    if (remainingMs <= 0) {
+        textModelCooldowns.delete(cooldownKey);
+        return 0;
+    }
+
+    return remainingMs;
+}
+
+function markTextModelCooldown(apiKey, modelName, retryDelayMs) {
+    const cooldownKey = getTextCooldownKey(apiKey, modelName);
+    textModelCooldowns.set(cooldownKey, Date.now() + retryDelayMs);
+}
+
 /**
  * 呼叫 Gemini API 並獲取回應。
  * 自動進行金鑰池與多模型故障降級自癒重試。
@@ -259,13 +301,22 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     let lastError = null;
 
     // 第一層：輪詢金鑰池
-    for (let i = 0; i < keyPool.length; i++) {
-        const currentKey = keyPool[i];
+    const textKeyPool = rotateTextKeyPool(keyPool);
+    console.log(`[Text API] Round-robin key order:`, textKeyPool.map(key => `...${key.slice(-4)}`));
+
+    for (const currentKey of textKeyPool) {
         const models = forceModel ? [forceModel] : await resolveFlashModelsList(currentKey);
         let lastModelError = null;
 
         // 第二層：依版本號從新到舊嘗試模型
         for (const modelName of models) {
+            const cooldownRemainingMs = getTextModelCooldownRemainingMs(currentKey, modelName);
+            if (cooldownRemainingMs > 0) {
+                console.warn(`[Text API] 模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻中，剩餘 ${Math.ceil(cooldownRemainingMs / 1000)} 秒，跳過此組合...`);
+                lastModelError = new Error(`Text API key/model cooldown: ${modelName} with Key (...${currentKey.slice(-4)})`);
+                continue;
+            }
+
             try {
                 // UI 即時更新：顯示目前使用的模型型號
                 const modelBadge = document.getElementById('modal-model-badge');
@@ -399,16 +450,24 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 }
 
                 if (isRealKeyError) {
-                    console.warn("Detected API key error, switching to next key...");
+                    console.warn("[Text API] Detected API key error, switching to next key...");
                     break; // 直接跳出內層模型循環，換下一個金鑰
                 }
 
                 if (isQuotaOrRateLimit && !isModelUnavailable) {
-                    console.warn("配額或頻率限制 (429)，切換到下一組 Key...");
-                    break;
+                    const retryDelayMs = extractRetryDelayMs(errorMsg, DEFAULT_TEXT_RATE_LIMIT_COOLDOWN_MS);
+                    markTextModelCooldown(currentKey, modelName, retryDelayMs);
+                    console.warn(`[Text API] 配額或頻率限制 (429)，模型 ${modelName} with Key (...${currentKey.slice(-4)}) 冷卻 ${Math.ceil(retryDelayMs / 1000)} 秒，嘗試下一個 Text 模型或下一組 Key...`);
+                    continue; // 嘗試同一把 key 的下一個模型
                 }
 
-                console.log(`Model ${modelName} 暫時不可用，嘗試下一個模型...`);
+                if (errorMsg.includes("503") || errorMsg.includes("high demand") || errorMsg.includes("Failed to parse stream") || errorMsg.includes("overloaded") || errorMsg.includes("Service Unavailable")) {
+                    markTextModelCooldown(currentKey, modelName, DEFAULT_TEXT_TEMPORARY_ERROR_COOLDOWN_MS);
+                    console.warn(`[Text API] 模型 ${modelName} 暫時不可用，冷卻 ${Math.ceil(DEFAULT_TEXT_TEMPORARY_ERROR_COOLDOWN_MS / 1000)} 秒，嘗試下一個模型...`);
+                    continue;
+                }
+
+                console.log(`[Text API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
             }
         }
 
