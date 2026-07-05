@@ -542,6 +542,47 @@ function formatSecondsForLog(seconds) {
     return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
+const PURE_GEMINI_RATE_LIMIT_MAX_RETRIES = 2;
+const PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
+
+function isPureGeminiRateLimitError(error) {
+    const errMsg = String(error?.message || error || '');
+    const lowerErrMsg = errMsg.toLowerCase();
+
+    return (
+        errMsg.includes('429') ||
+        lowerErrMsg.includes('quota') ||
+        lowerErrMsg.includes('resource exhausted') ||
+        lowerErrMsg.includes('too many requests') ||
+        lowerErrMsg.includes('rate limit') ||
+        lowerErrMsg.includes('rate limited') ||
+        errMsg.includes('配額') ||
+        errMsg.includes('頻率限制') ||
+        errMsg.includes('冷卻') ||
+        errMsg.includes('請求過多') ||
+        errMsg.includes('暫時無法處理音訊') ||
+        lowerErrMsg.includes('rpm')
+    );
+}
+
+function waitForPureGeminiRetry(ms, abortSignal) {
+    return new Promise((resolve, reject) => {
+        if (abortSignal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+        }
+
+        const timer = setTimeout(resolve, ms);
+
+        if (abortSignal) {
+            abortSignal.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(new DOMException('Aborted', 'AbortError'));
+            }, { once: true });
+        }
+    });
+}
+
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
 async function transcribeWithGemini(file, language, customDict, onProgress = () => { }, onChunkComplete = () => { }, onStream = () => { }) {
@@ -636,35 +677,39 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         console.log(`[Pure Gemini] Starting chunk ${i + 1}/${totalChunks}, range ${diagRange}, startSec=${diagStartSec}, endSec=${diagEndSec}, durationSec=${chunk.durationSeconds}`);
 
         let rawResponse;
-        try {
-            rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
-                onStream(fullText);
-            }, state.currentAbortController?.signal);
+        let pureGeminiAttempt = 0;
 
-            const textLength = rawResponse ? rawResponse.length : 0;
-            console.log(`[Pure Gemini] Completed chunk ${i + 1}/${totalChunks}, range ${diagRange}, textLength=${textLength}`);
-        } catch (error) {
-            console.error(`[Pure Gemini] Failed chunk ${i + 1}/${totalChunks}, range ${diagRange}, error=`, error);
-            const errMsg = String(error.message || error);
-            const lowerErrMsg = errMsg.toLowerCase();
+        while (true) {
+            try {
+                if (pureGeminiAttempt > 0) {
+                    console.warn(`[Pure Gemini] Retrying chunk ${i + 1}/${totalChunks}, attempt ${pureGeminiAttempt}/${PURE_GEMINI_RATE_LIMIT_MAX_RETRIES}, range ${diagRange}`);
+                }
 
-            if (
-                errMsg.includes('429') ||
-                lowerErrMsg.includes('quota') ||
-                lowerErrMsg.includes('resource exhausted') ||
-                lowerErrMsg.includes('too many requests') ||
-                lowerErrMsg.includes('rate limit') ||
-                lowerErrMsg.includes('rate limited') ||
-                errMsg.includes('配額') ||
-                errMsg.includes('頻率限制') ||
-                errMsg.includes('冷卻') ||
-                errMsg.includes('請求過多') ||
-                errMsg.includes('暫時無法處理音訊') ||
-                lowerErrMsg.includes('rpm')
-            ) {
-                console.error(`[Pure Gemini] Rate limit happened at chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
+                rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
+                    onStream(fullText);
+                }, state.currentAbortController?.signal);
+
+                const textLength = rawResponse ? rawResponse.length : 0;
+                console.log(`[Pure Gemini] Completed chunk ${i + 1}/${totalChunks}, range ${diagRange}, textLength=${textLength}, attempts=${pureGeminiAttempt + 1}`);
+                break;
+            } catch (error) {
+                console.error(`[Pure Gemini] Failed chunk ${i + 1}/${totalChunks}, range ${diagRange}, attempt=${pureGeminiAttempt + 1}, error=`, error);
+
+                const isRateLimit = isPureGeminiRateLimitError(error);
+
+                if (isRateLimit) {
+                    console.error(`[Pure Gemini] Rate limit happened at chunk ${i + 1}/${totalChunks}, range ${diagRange}, attempt=${pureGeminiAttempt + 1}`);
+                }
+
+                if (!isRateLimit || pureGeminiAttempt >= PURE_GEMINI_RATE_LIMIT_MAX_RETRIES) {
+                    throw error;
+                }
+
+                pureGeminiAttempt += 1;
+
+                console.warn(`[Pure Gemini] Waiting ${Math.ceil(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS / 1000)} seconds before retrying chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
+                await waitForPureGeminiRetry(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS, state.currentAbortController?.signal);
             }
-            throw error; // Re-throw to maintain existing error handling behavior
         }
 
         const result = validateAndFixSrt(rawResponse);
