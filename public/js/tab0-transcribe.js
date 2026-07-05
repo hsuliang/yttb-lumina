@@ -545,6 +545,13 @@ function formatSecondsForLog(seconds) {
 const PURE_GEMINI_RATE_LIMIT_MAX_RETRIES = 2;
 const PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
 
+const PURE_GEMINI_SRT_GUARD_MAX_RETRIES = 1;
+const PURE_GEMINI_SRT_GUARD_RETRY_WAIT_MS = 5 * 1000;
+const PURE_GEMINI_SRT_MAX_RESPONSE_LENGTH = 6000;
+const PURE_GEMINI_SRT_MAX_CUE_DURATION_SECONDS = 90;
+const PURE_GEMINI_SRT_CHUNK_END_TOLERANCE_SECONDS = 20;
+const PURE_GEMINI_SRT_MAX_CUES_PER_CHUNK = 120;
+
 function isPureGeminiRateLimitError(error) {
     const errMsg = String(error?.message || error || '');
     const lowerErrMsg = errMsg.toLowerCase();
@@ -581,6 +588,122 @@ function waitForPureGeminiRetry(ms, abortSignal) {
             }, { once: true });
         }
     });
+}
+
+function parsePureGeminiTimestampToSeconds(timestamp) {
+    const match = String(timestamp || '').match(/^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$/);
+    if (!match) return null;
+
+    const [, hh, mm, ss, ms] = match;
+    return Number(hh) * 3600 + Number(mm) * 60 + Number(ss) + Number(ms) / 1000;
+}
+
+function getPureGeminiSrtStats(srtText) {
+    const text = String(srtText || '');
+    const timestampRegex = /(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})/g;
+
+    const stats = {
+        cueCount: 0,
+        maxEndSec: 0,
+        maxCueDurationSec: 0,
+        invalidOrderCount: 0,
+        hasTimestamp: false
+    };
+
+    let match;
+    while ((match = timestampRegex.exec(text)) !== null) {
+        const startSec = parsePureGeminiTimestampToSeconds(match[1]);
+        const endSec = parsePureGeminiTimestampToSeconds(match[2]);
+
+        if (startSec === null || endSec === null) continue;
+
+        stats.hasTimestamp = true;
+        stats.cueCount += 1;
+        stats.maxEndSec = Math.max(stats.maxEndSec, endSec);
+        stats.maxCueDurationSec = Math.max(stats.maxCueDurationSec, endSec - startSec);
+
+        if (endSec <= startSec) {
+            stats.invalidOrderCount += 1;
+        }
+    }
+
+    return stats;
+}
+
+function hasSuspiciousRepeatedText(text) {
+    const compactText = String(text || '').replace(/\s+/g, '');
+    if (!compactText) return false;
+
+    // 單一字元大量連續重複，例如「我我我我我……」
+    if (/(.)\1{29,}/u.test(compactText)) {
+        return true;
+    }
+
+    // 常見中文語助詞或單字異常重複
+    if (/(我){20,}/u.test(compactText)) return true;
+    if (/(嗯){20,}/u.test(compactText)) return true;
+    if (/(啊){20,}/u.test(compactText)) return true;
+    if (/(喔){20,}/u.test(compactText)) return true;
+    if (/(好){20,}/u.test(compactText)) return true;
+
+    return false;
+}
+
+function inspectPureGeminiSrtOutput(rawResponse, chunkDurationSeconds = 60) {
+    const text = String(rawResponse || '');
+    const stats = getPureGeminiSrtStats(text);
+    const reasons = [];
+
+    const safeChunkDuration = Number.isFinite(chunkDurationSeconds) && chunkDurationSeconds > 0
+        ? chunkDurationSeconds
+        : 60;
+
+    if (text.length > PURE_GEMINI_SRT_MAX_RESPONSE_LENGTH) {
+        reasons.push(`response too long: ${text.length}`);
+    }
+
+    if (stats.hasTimestamp && stats.maxEndSec > safeChunkDuration + PURE_GEMINI_SRT_CHUNK_END_TOLERANCE_SECONDS) {
+        reasons.push(`timestamp exceeds chunk range: maxEndSec=${stats.maxEndSec}, chunkDuration=${safeChunkDuration}`);
+    }
+
+    if (stats.maxCueDurationSec > PURE_GEMINI_SRT_MAX_CUE_DURATION_SECONDS) {
+        reasons.push(`cue duration too long: ${stats.maxCueDurationSec}`);
+    }
+
+    if (stats.invalidOrderCount > 0) {
+        reasons.push(`invalid timestamp order: ${stats.invalidOrderCount}`);
+    }
+
+    if (stats.cueCount > PURE_GEMINI_SRT_MAX_CUES_PER_CHUNK) {
+        reasons.push(`too many cues: ${stats.cueCount}`);
+    }
+
+    if (!stats.hasTimestamp && text.trim().length > 200) {
+        reasons.push('long response without SRT timestamps');
+    }
+
+    if (hasSuspiciousRepeatedText(text)) {
+        reasons.push('suspicious repeated text');
+    }
+
+    return {
+        suspicious: reasons.length > 0,
+        reasons,
+        stats
+    };
+}
+
+function createPureGeminiSrtGuardError(chunkIndex, totalChunks, diagRange, safety) {
+    const error = new Error(
+        `Pure Gemini SRT output suspicious at chunk ${chunkIndex}/${totalChunks}, range ${diagRange}: ${safety.reasons.join('; ')}`
+    );
+    error.name = 'PureGeminiSrtGuardError';
+    error.pureGeminiSafety = safety;
+    return error;
+}
+
+function isPureGeminiSrtGuardError(error) {
+    return error?.name === 'PureGeminiSrtGuardError';
 }
 
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
@@ -678,11 +801,13 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
 
         let rawResponse;
         let pureGeminiAttempt = 0;
+        let rateLimitRetryCount = 0;
+        let srtGuardRetryCount = 0;
 
         while (true) {
             try {
                 if (pureGeminiAttempt > 0) {
-                    console.warn(`[Pure Gemini] Retrying chunk ${i + 1}/${totalChunks}, attempt ${pureGeminiAttempt}/${PURE_GEMINI_RATE_LIMIT_MAX_RETRIES}, range ${diagRange}`);
+                    console.warn(`[Pure Gemini] Retrying chunk ${i + 1}/${totalChunks}, attempt ${pureGeminiAttempt}, range ${diagRange}`);
                 }
 
                 rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
@@ -690,25 +815,48 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                 }, state.currentAbortController?.signal);
 
                 const textLength = rawResponse ? rawResponse.length : 0;
+                const safety = inspectPureGeminiSrtOutput(rawResponse, chunk.durationSeconds);
+
+                if (safety.suspicious) {
+                    console.error(`[Pure Gemini] Suspicious SRT output at chunk ${i + 1}/${totalChunks}, range ${diagRange}, textLength=${textLength}, reasons=`, safety.reasons, safety.stats);
+                    throw createPureGeminiSrtGuardError(i + 1, totalChunks, diagRange, safety);
+                }
+
                 console.log(`[Pure Gemini] Completed chunk ${i + 1}/${totalChunks}, range ${diagRange}, textLength=${textLength}, attempts=${pureGeminiAttempt + 1}`);
                 break;
             } catch (error) {
                 console.error(`[Pure Gemini] Failed chunk ${i + 1}/${totalChunks}, range ${diagRange}, attempt=${pureGeminiAttempt + 1}, error=`, error);
 
                 const isRateLimit = isPureGeminiRateLimitError(error);
+                const isSrtGuard = isPureGeminiSrtGuardError(error);
 
                 if (isRateLimit) {
                     console.error(`[Pure Gemini] Rate limit happened at chunk ${i + 1}/${totalChunks}, range ${diagRange}, attempt=${pureGeminiAttempt + 1}`);
                 }
 
-                if (!isRateLimit || pureGeminiAttempt >= PURE_GEMINI_RATE_LIMIT_MAX_RETRIES) {
-                    throw error;
+                if (isSrtGuard) {
+                    console.error(`[Pure Gemini] SRT guard triggered at chunk ${i + 1}/${totalChunks}, range ${diagRange}, attempt=${pureGeminiAttempt + 1}`, error.pureGeminiSafety);
                 }
 
-                pureGeminiAttempt += 1;
+                if (isRateLimit && rateLimitRetryCount < PURE_GEMINI_RATE_LIMIT_MAX_RETRIES) {
+                    rateLimitRetryCount += 1;
+                    pureGeminiAttempt += 1;
 
-                console.warn(`[Pure Gemini] Waiting ${Math.ceil(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS / 1000)} seconds before retrying chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
-                await waitForPureGeminiRetry(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS, state.currentAbortController?.signal);
+                    console.warn(`[Pure Gemini] Waiting ${Math.ceil(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS / 1000)} seconds before retrying chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
+                    await waitForPureGeminiRetry(PURE_GEMINI_RATE_LIMIT_RETRY_WAIT_MS, state.currentAbortController?.signal);
+                    continue;
+                }
+
+                if (isSrtGuard && srtGuardRetryCount < PURE_GEMINI_SRT_GUARD_MAX_RETRIES) {
+                    srtGuardRetryCount += 1;
+                    pureGeminiAttempt += 1;
+
+                    console.warn(`[Pure Gemini] Waiting ${Math.ceil(PURE_GEMINI_SRT_GUARD_RETRY_WAIT_MS / 1000)} seconds before retrying suspicious SRT chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
+                    await waitForPureGeminiRetry(PURE_GEMINI_SRT_GUARD_RETRY_WAIT_MS, state.currentAbortController?.signal);
+                    continue;
+                }
+
+                throw error;
             }
         }
 
