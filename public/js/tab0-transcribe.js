@@ -111,6 +111,54 @@ function buildTranscriptionPrompt(language, customDict, chunkDuration = 180) {
 這是第二句話的內容`;
 }
 
+function buildPureGeminiSrtRescuePrompt(language, customDict, chunkDuration = 60) {
+    const langHint = language === 'zh-TW'
+        ? '請使用繁體中文轉寫，保留原始口語語氣。'
+        : `請使用 ${language || '原音訊語言'} 轉寫。`;
+
+    const dictInstruction = customDict
+        ? `\n\n專有名詞與修正詞庫：\n${customDict}\n請優先依照上述詞庫修正人名、地名、工具名稱與專有名詞。`
+        : '';
+
+    return `這是一次重新嘗試。前一次輸出疑似產生了錯誤的 SRT、過長內容、重複文字或超出本片段範圍的時間碼。
+
+請將這段音訊重新轉寫成「極簡、嚴格、標準 SRT」。
+
+語言規則：
+${langHint}${dictInstruction}
+
+本片段長度：約 ${Math.ceil(chunkDuration)} 秒。
+
+絕對規則：
+1. 只輸出標準 SRT。
+2. 不可輸出純文字。
+3. 不可輸出 markdown。
+4. 不可輸出說明。
+5. 不可輸出 \`\`\`srt 或 \`\`\`。
+6. 時間碼必須從 00:00:00,000 開始計算。
+7. 所有時間碼都必須落在 00:00:00,000 到本片段長度內。
+8. 絕對不可輸出原始影片的全域時間碼，例如 00:21:00,000、01:02:00,000、02:15:00,000。
+9. 如果本片段約 60 秒，最後時間碼不可超過 00:01:00,000。
+10. 單一字幕區段建議 2 到 8 秒，最長不可超過 15 秒。
+11. 最多輸出 20 個字幕區塊。
+12. 每個字幕區塊只能有一行字幕文字。
+13. 不要重複單字、語助詞或無意義聲音。
+14. 不要輸出大量「我我我」、「嗯嗯嗯」、「啊啊啊」或類似重複內容。
+15. 不要補空白時間。
+16. 不要創造音訊中沒有的內容。
+17. 如果只有短句，就只輸出短句的 SRT。
+18. 整體輸出請控制在 2000 字元以內。
+
+格式範例：
+1
+00:00:00,000 --> 00:00:04,000
+這是第一句話
+
+2
+00:00:04,000 --> 00:00:08,000
+這是第二句話`;
+}
+
 // ########## SRT VALIDATION & FIX ##########
 
 /**
@@ -822,6 +870,7 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         let pureGeminiAttempt = 0;
         let rateLimitRetryCount = 0;
         let srtGuardRetryCount = 0;
+        let useSrtRescuePrompt = false;
 
         while (true) {
             try {
@@ -829,7 +878,11 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                     console.warn(`[Pure Gemini] Retrying chunk ${i + 1}/${totalChunks}, attempt ${pureGeminiAttempt}, range ${diagRange}`);
                 }
 
-                rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
+                const activePrompt = useSrtRescuePrompt
+                    ? buildPureGeminiSrtRescuePrompt(language, customDict, chunk.durationSeconds)
+                    : prompt;
+
+                rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', activePrompt, (chunkText, fullText) => {
                     onStream(fullText);
                 }, state.currentAbortController?.signal);
 
@@ -869,7 +922,9 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                 if (isSrtGuard && srtGuardRetryCount < PURE_GEMINI_SRT_GUARD_MAX_RETRIES) {
                     srtGuardRetryCount += 1;
                     pureGeminiAttempt += 1;
+                    useSrtRescuePrompt = true;
 
+                    console.warn(`[Pure Gemini] Switching to rescue SRT prompt for chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
                     console.warn(`[Pure Gemini] Waiting ${Math.ceil(PURE_GEMINI_SRT_GUARD_RETRY_WAIT_MS / 1000)} seconds before retrying suspicious SRT chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
                     await waitForPureGeminiRetry(PURE_GEMINI_SRT_GUARD_RETRY_WAIT_MS, state.currentAbortController?.signal);
                     continue;
