@@ -718,7 +718,23 @@ function hasSuspiciousRepeatedText(text) {
     if (/(喔){20,}/u.test(compactText)) return true;
     if (/(好){20,}/u.test(compactText)) return true;
 
+    // 2至6個中文字的短詞大量重複，例如「現在現在現在……」
+    if (/([\u4e00-\u9fff]{2,6})\1{12,}/.test(compactText)) {
+        return true;
+    }
+
     return false;
+}
+
+function hasMalformedTimestampArrow(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const standardSrtTimeLine = /^\s*\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}\s*$/;
+
+    return lines.some(line => {
+        const trimmed = line.trim();
+        if (!trimmed.includes('-->')) return false;
+        return !standardSrtTimeLine.test(trimmed);
+    });
 }
 
 function inspectPureGeminiSrtOutput(rawResponse, chunkDurationSeconds = 60) {
@@ -755,6 +771,10 @@ function inspectPureGeminiSrtOutput(rawResponse, chunkDurationSeconds = 60) {
 
     if (hasSuspiciousRepeatedText(text)) {
         reasons.push('suspicious repeated text');
+    }
+
+    if (hasMalformedTimestampArrow(text)) {
+        reasons.push('malformed timestamp arrow');
     }
 
     return {
