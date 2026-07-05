@@ -22,6 +22,11 @@ function isAbortError(error) {
 
 function getUserFriendlyTranscriptionError(error) {
     const message = error?.message || String(error || '');
+
+    if (error?.name === 'PureGeminiSrtGuardError' || message.includes('Pure Gemini SRT output suspicious')) {
+        return '【Gemini 字幕格式異常】\n\nGemini 回傳的字幕時間碼或內容格式異常，系統已阻止輸出可能錯誤的 SRT。\n這通常不是 API Key 無效，而是模型在某一段音訊中產生了不穩定輸出。\n建議稍後重試，或改用「超精準字幕」模式。';
+    }
+
     if (typeof translateError === 'function') {
         return translateError(message);
     }
@@ -737,7 +742,14 @@ function inspectPureGeminiSrtOutput(rawResponse, chunkDurationSeconds = 60) {
         reasons.push(`cue duration too long: ${stats.maxCueDurationSec}`);
     }
 
-    if (stats.invalidOrderCount > 0) {
+    const invalidOrderRatio = stats.cueCount > 0
+        ? stats.invalidOrderCount / stats.cueCount
+        : 0;
+
+    if (
+        stats.invalidOrderCount >= 2 &&
+        invalidOrderRatio >= 0.15
+    ) {
         reasons.push(`invalid timestamp order: ${stats.invalidOrderCount}`);
     }
 
