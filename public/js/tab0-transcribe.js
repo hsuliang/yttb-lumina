@@ -742,16 +742,8 @@ function inspectPureGeminiSrtOutput(rawResponse, chunkDurationSeconds = 60) {
         reasons.push(`cue duration too long: ${stats.maxCueDurationSec}`);
     }
 
-    const invalidOrderRatio = stats.cueCount > 0
-        ? stats.invalidOrderCount / stats.cueCount
-        : 0;
-
-    if (
-        stats.invalidOrderCount >= 2 &&
-        invalidOrderRatio >= 0.15
-    ) {
-        reasons.push(`invalid timestamp order: ${stats.invalidOrderCount}`);
-    }
+    // out-of-order timestamps are repairable by enforceMonotonicTimestamps
+    // do not fail the chunk solely for invalid order
 
     if (stats.cueCount > PURE_GEMINI_SRT_MAX_CUES_PER_CHUNK) {
         reasons.push(`too many cues: ${stats.cueCount}`);
