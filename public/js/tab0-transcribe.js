@@ -654,7 +654,13 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
                 lowerErrMsg.includes('resource exhausted') ||
                 lowerErrMsg.includes('too many requests') ||
                 lowerErrMsg.includes('rate limit') ||
-                lowerErrMsg.includes('rate limited')
+                lowerErrMsg.includes('rate limited') ||
+                errMsg.includes('配額') ||
+                errMsg.includes('頻率限制') ||
+                errMsg.includes('冷卻') ||
+                errMsg.includes('請求過多') ||
+                errMsg.includes('暫時無法處理音訊') ||
+                lowerErrMsg.includes('rpm')
             ) {
                 console.error(`[Pure Gemini] Rate limit happened at chunk ${i + 1}/${totalChunks}, range ${diagRange}`);
             }
