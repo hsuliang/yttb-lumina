@@ -439,6 +439,61 @@ function applyGapSmoothingToSrt(srtText) {
     return smoothedBlocks.map(b => `${b.id}\n${b.startTime} --> ${b.endTime}\n${b.text}`).join('\n\n');
 }
 
+function clampSrtToMediaDuration(srtText, mediaDurationSeconds) {
+    if (!srtText) return { srt: '', removedCount: 0, clampedCount: 0 };
+
+    const blocks = parseSrtToBlocks(srtText);
+    const mediaDurationMs = Math.round(mediaDurationSeconds * 1000);
+    const toleranceMs = 50; // 0.05 seconds = 50 ms
+
+    let removedCount = 0;
+    let clampedCount = 0;
+    const resultBlocks = [];
+
+    for (const block of blocks) {
+        const startMs = parseTimestampToMs(block.startTime);
+        const endMs = parseTimestampToMs(block.endTime);
+
+        if (startMs >= mediaDurationMs + toleranceMs) {
+            removedCount++;
+            continue;
+        }
+
+        let newEndMs = endMs;
+        let clamped = false;
+
+        if (endMs > mediaDurationMs) {
+            newEndMs = mediaDurationMs;
+            clamped = true;
+        }
+
+        if (newEndMs <= startMs) {
+            removedCount++;
+            continue;
+        }
+
+        if (clamped) {
+            clampedCount++;
+        }
+
+        resultBlocks.push({
+            startTime: block.startTime,
+            endTime: formatMsToSrtTime(newEndMs),
+            text: block.text
+        });
+    }
+
+    const newSrt = resultBlocks
+        .map((b, idx) => `${idx + 1}\n${b.startTime} --> ${b.endTime}\n${b.text}`)
+        .join('\n\n');
+
+    return {
+        srt: newSrt,
+        removedCount,
+        clampedCount
+    };
+}
+
 function enforceMonotonicTimestamps(srtText) {
     if (!srtText || !srtText.trim()) return srtText;
 
@@ -3180,13 +3235,20 @@ ${settingsText}
         finalPlainTexts.push(cue.text);
     }
 
-    const finalSrt = finalSrtBlocks.join('\n\n');
+    let finalSrt = finalSrtBlocks.join('\n\n');
+
+    // 套用媒體時間邊界保護
+    const clampResult = clampSrtToMediaDuration(finalSrt, resampled.duration);
+    finalSrt = clampResult.srt;
+
+    const finalOutputBlocks = parseSrtToBlocks(finalSrt);
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-    const finalTxt = finalPlainTexts.join('\n');
+    const finalTxt = finalOutputBlocks.map(b => b.text).join('\n');
 
     // 進行最終格式與品質輸出驗證
     const alignmentReport = {
         totalSegments: whisperBlocks.length,
+        finalSegmentCount: finalOutputBlocks.length,
         geminiCorrected: newReportData.geminiCorrected,
         whisperRetained: newReportData.whisperRetained,
         manualCheck: newReportData.manualCheck,
@@ -3197,13 +3259,26 @@ ${settingsText}
         debugBatches: debugBatches,
         failedSegmentDetails,
         failedBatches,
-        errors
+        errors,
+        mediaBoundaryAdjustments: {
+            removedCount: clampResult.removedCount,
+            clampedCount: clampResult.clampedCount,
+            mediaDurationSeconds: resampled.duration
+        }
     };
 
     // 進行最終格式與品質輸出驗證
     const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null);
 
-    const combinedWarnings = [...alignmentReport.validationWarnings, ...outputWarnings];
+    const mediaBoundaryWarnings = [];
+    if (clampResult.removedCount > 0) {
+        mediaBoundaryWarnings.push(`已移除 ${clampResult.removedCount} 個超出媒體長度的字幕段落`);
+    }
+    if (clampResult.clampedCount > 0) {
+        mediaBoundaryWarnings.push(`已截短 ${clampResult.clampedCount} 個超過媒體結束時間的字幕段落`);
+    }
+
+    const combinedWarnings = [...alignmentReport.validationWarnings, ...outputWarnings, ...mediaBoundaryWarnings];
     const uniqueWarningsMap = new Map();
     for (const w of combinedWarnings) {
         const match = w.match(/^(\[[^\]]+\] ID \d+:)/);
@@ -3223,7 +3298,7 @@ ${settingsText}
         vtt: finalVtt,
         text: finalTxt,
         engine: 'precise_alignment',
-        blockCount: whisperBlocks.length,
+        blockCount: finalOutputBlocks.length,
         alignmentReport: alignmentReport,
         report: alignmentReport,
         debug: debugBatches,
