@@ -3227,53 +3227,15 @@ ${settingsText}
     const finalSrtBlocks = [];
     const finalPlainTexts = [];
 
-    const omittedIds = [];
-    let cues = [];
-
-    for (const block of whisperBlocks) {
-        const aligned = alignedResultsMap[block.id];
-
-        let shouldOmit = false;
-        if (aligned) {
-            const hasText = typeof aligned.text === 'string';
-            const isEmpty = hasText && aligned.text.trim() === '';
-            const isRefOrMerged = aligned.source === 'reference' || aligned.source === 'merged';
-            const isHighOrMed = aligned.confidence === 'high' || aligned.confidence === 'medium';
-            const flags = Array.isArray(aligned.flags) ? aligned.flags : [];
-            const hasGarbledFlag = flags.includes('MAIN_GARBLED_REFERENCE_USED');
-
-            if (isEmpty && isRefOrMerged && isHighOrMed && hasGarbledFlag) {
-                shouldOmit = true;
-            }
-        }
-
-        if (shouldOmit) {
-            omittedIds.push(block.id);
-            continue;
-        }
-
-        let text = block.text;
-        if (
-            aligned &&
-            typeof aligned.text === 'string' &&
-            aligned.text.trim() !== ''
-        ) {
-            text = aligned.text;
-        }
-
-        const cleanText = stripReviewMarkers(text);
-
-        cues.push({
+    let cues = whisperBlocks.map(block => {
+        const aligned = alignedResultsMap[block.id] || { text: block.text };
+        const cleanText = stripReviewMarkers(aligned.text || block.text);
+        return {
             id: block.id,
             startTime: block.startTime,
             endTime: block.endTime,
             text: cleanText
-        });
-    }
-
-    // Renumber cues to ensure consecutive ID numbering before gap smoothing
-    cues.forEach((cue, idx) => {
-        cue.id = idx + 1;
+        };
     });
 
     cues = smoothSubtitleCueGaps(cues);
@@ -3305,7 +3267,6 @@ ${settingsText}
         validationWarnings: newReportData.validationWarnings,
         oralRepetitions: newReportData.oralRepetitions || [],
         speechSpeedOverflows: newReportData.speechSpeedOverflows || [],
-        explicitEmptyAlignmentOmissions: newReportData.explicitEmptyAlignmentOmissions || { count: 0, ids: [] },
         debugBatches: debugBatches,
         failedSegmentDetails,
         failedBatches,
@@ -3318,12 +3279,7 @@ ${settingsText}
     };
 
     // 進行最終格式與品質輸出驗證
-    const omittedIdSet = new Set(omittedIds.map(id => String(id)));
-    const validationSourceBlocks = whisperBlocks.filter(
-        block => !omittedIdSet.has(String(block.id))
-    );
-
-    const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, validationSourceBlocks, null);
+    const outputWarnings = validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null);
 
     const mediaBoundaryWarnings = [];
     if (clampResult.removedCount > 0) {
@@ -3413,27 +3369,11 @@ function rebuildAlignmentReportFromExistingData({
     const validationWarnings = [];
     const oralRepetitions = [];
     const speechSpeedOverflows = [];
-    const explicitEmptyOmissions = { count: 0, ids: [] };
     let prevAlignedInfo = null;
 
     for (let index = 0; index < whisperBlocks.length; index++) {
         const block = whisperBlocks[index];
         const aligned = alignedResultsMap[block.id] || { text: block.text, flags: [], note: '', source: 'main', confidence: 'low' };
-
-        if (alignedResultsMap[block.id]) {
-            const alg = alignedResultsMap[block.id];
-            const hasText = typeof alg.text === 'string';
-            const isEmpty = hasText && alg.text.trim() === '';
-            const isRefOrMerged = alg.source === 'reference' || alg.source === 'merged';
-            const isHighOrMed = alg.confidence === 'high' || alg.confidence === 'medium';
-            const flags = Array.isArray(alg.flags) ? alg.flags : [];
-            const hasGarbledFlag = flags.includes('MAIN_GARBLED_REFERENCE_USED');
-
-            if (isEmpty && isRefOrMerged && isHighOrMed && hasGarbledFlag) {
-                explicitEmptyOmissions.count++;
-                explicitEmptyOmissions.ids.push(block.id);
-            }
-        }
 
         if (!Array.isArray(aligned.flags)) {
             aligned.flags = [];
@@ -3588,12 +3528,7 @@ function rebuildAlignmentReportFromExistingData({
         }
     }
 
-    const omittedIdSet = new Set(explicitEmptyOmissions.ids.map(id => String(id)));
-    const validationSourceBlocks = whisperBlocks.filter(
-        block => !omittedIdSet.has(String(block.id))
-    );
-
-    const outputWarnings = finalSrt ? validatePreciseAlignmentOutput(finalSrt, finalTxt, validationSourceBlocks, null) : [];
+    const outputWarnings = finalSrt ? validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null) : [];
 
     const combinedWarnings = [...validationWarnings, ...outputWarnings];
     const uniqueWarningsMap = new Map();
@@ -3619,8 +3554,7 @@ function rebuildAlignmentReportFromExistingData({
         suspicious,
         validationWarnings: allUniqueWarnings,
         oralRepetitions,
-        speechSpeedOverflows,
-        explicitEmptyAlignmentOmissions: explicitEmptyOmissions
+        speechSpeedOverflows
     };
 }
 
