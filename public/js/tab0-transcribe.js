@@ -624,6 +624,9 @@ const PURE_GEMINI_SRT_MAX_CUE_DURATION_SECONDS = 90;
 const PURE_GEMINI_SRT_CHUNK_END_TOLERANCE_SECONDS = 20;
 const PURE_GEMINI_SRT_MAX_CUES_PER_CHUNK = 120;
 
+const PRECISE_PHASE1_RATE_LIMIT_MAX_RETRIES = 2;
+const PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
+
 function isPureGeminiRateLimitError(error) {
     const errMsg = String(error?.message || error || '');
     const lowerErrMsg = errMsg.toLowerCase();
@@ -2601,12 +2604,67 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
             reader.readAsDataURL(wavBlob);
         });
 
-        // 呼叫 Gemini Audio API
-        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', geminiPrompt, (chunkText, fullText) => {
-            // 即時在 UI 流式顯示當前識別進度
-            const prevText = allGeminiTexts.join('\n\n');
-            onStream(prevText ? prevText + '\n\n' + fullText : fullText);
-        }, state.currentAbortController?.signal);
+        let rawResponse;
+        let phase1RateLimitRetryCount = 0;
+        let phase1Attempt = 0;
+
+        while (true) {
+            phase1Attempt++;
+            try {
+                // 呼叫 Gemini Audio API
+                rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', geminiPrompt, (chunkText, fullText) => {
+                    // 即時在 UI 流式顯示當前識別進度
+                    const prevText = allGeminiTexts.join('\n\n');
+                    onStream(prevText ? prevText + '\n\n' + fullText : fullText);
+                }, state.currentAbortController?.signal);
+
+                console.log(
+                    `[Precise Transcribe] Phase 1 completed chunk ${i + 1}/${totalGeminiChunks}, attempts=${phase1Attempt}`
+                );
+                break;
+            } catch (error) {
+                if (isAbortError(error) || error?.name === 'AbortError') {
+                    throw error;
+                }
+
+                const isRateLimit = isPureGeminiRateLimitError(error);
+
+                console.warn(
+                    `[Precise Transcribe] Phase 1 failed chunk ${i + 1}/${totalGeminiChunks}, attempt=${phase1Attempt}, rateLimit=${isRateLimit}`,
+                    error
+                );
+
+                if (
+                    !isRateLimit ||
+                    phase1RateLimitRetryCount >= PRECISE_PHASE1_RATE_LIMIT_MAX_RETRIES
+                ) {
+                    throw error;
+                }
+
+                phase1RateLimitRetryCount++;
+
+                // 更新 onProgress 讓使用者看到等待重試的狀態
+                onProgress({
+                    type: 'chunks',
+                    current: i + 1,
+                    total: totalGeminiChunks,
+                    message: `1/3：Gemini 參考稿遇到頻率限制，${Math.ceil(PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS / 1000)} 秒後重試第 ${phase1RateLimitRetryCount}/${PRECISE_PHASE1_RATE_LIMIT_MAX_RETRIES} 次`,
+                    eta: etaText,
+                    label: 'Gemini 處理中...'
+                });
+
+                console.warn(
+                    `[Precise Transcribe] Phase 1 waiting ${Math.ceil(
+                        PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS / 1000
+                    )} seconds before retrying chunk ${i + 1}/${totalGeminiChunks}, retry=${phase1RateLimitRetryCount}/${PRECISE_PHASE1_RATE_LIMIT_MAX_RETRIES}`
+                );
+
+                await waitForPureGeminiRetry(
+                    PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS,
+                    state.currentAbortController?.signal
+                );
+            }
+        }
 
         // 清理時間戳與序號
         let plainText = rawResponse
