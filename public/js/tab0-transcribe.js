@@ -494,6 +494,12 @@ function clampSrtToMediaDuration(srtText, mediaDurationSeconds) {
     };
 }
 
+function countReadableSubtitleCharacters(text) {
+    if (!text) return 0;
+    const matches = text.match(/[\u4e00-\u9fa5a-zA-Z0-9]/g);
+    return matches ? matches.length : 0;
+}
+
 function enforceMonotonicTimestamps(srtText) {
     if (!srtText || !srtText.trim()) return srtText;
 
@@ -684,6 +690,9 @@ const PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
 
 const PRECISE_PHASE3_RATE_LIMIT_MAX_RETRIES = 1;
 const PRECISE_PHASE3_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
+
+const PRECISE_SPEECH_SPEED_MAX_CPS = 10;
+const PRECISE_SPEECH_SPEED_MIN_CHARS = 6;
 
 function isPureGeminiRateLimitError(error) {
     const errMsg = String(error?.message || error || '');
@@ -2567,7 +2576,8 @@ function shouldAddToSuspicious(aligned) {
         flags.includes('POSSIBLE_DUPLICATE') ||
         flags.includes('FAILED') ||
         flags.includes('REFERENCE_MISSING') ||
-        flags.includes('MAIN_GARBLED_REFERENCE_USED')
+        flags.includes('MAIN_GARBLED_REFERENCE_USED') ||
+        flags.includes('SPEECH_SPEED_OVERFLOW')
     );
 }
 
@@ -3256,6 +3266,7 @@ ${settingsText}
         suspicious: newReportData.suspicious,
         validationWarnings: newReportData.validationWarnings,
         oralRepetitions: newReportData.oralRepetitions || [],
+        speechSpeedOverflows: newReportData.speechSpeedOverflows || [],
         debugBatches: debugBatches,
         failedSegmentDetails,
         failedBatches,
@@ -3357,6 +3368,7 @@ function rebuildAlignmentReportFromExistingData({
     const suspicious = [];
     const validationWarnings = [];
     const oralRepetitions = [];
+    const speechSpeedOverflows = [];
     let prevAlignedInfo = null;
 
     for (let index = 0; index < whisperBlocks.length; index++) {
@@ -3377,6 +3389,41 @@ function rebuildAlignmentReportFromExistingData({
             aligned.note = '已移除 AI 格式標記';
         }
         aligned.text = cleanAlignedText;
+
+        const startMs = parseTimestampToMs(block.startTime);
+        const endMs = parseTimestampToMs(block.endTime);
+        const durationSeconds = isNaN(startMs) || isNaN(endMs) ? 0 : (endMs - startMs) / 1000;
+        const effectiveCharacterCount = countReadableSubtitleCharacters(cleanAlignedText);
+
+        let isOverflow = false;
+        let cps = 0;
+        if (effectiveCharacterCount >= PRECISE_SPEECH_SPEED_MIN_CHARS) {
+            if (durationSeconds <= 0) {
+                isOverflow = true;
+            } else {
+                cps = effectiveCharacterCount / durationSeconds;
+                if (cps > PRECISE_SPEECH_SPEED_MAX_CPS) {
+                    isOverflow = true;
+                }
+            }
+        }
+
+        if (isOverflow) {
+            if (!aligned.flags.includes('SPEECH_SPEED_OVERFLOW')) {
+                aligned.flags.push('SPEECH_SPEED_OVERFLOW');
+            }
+            const speedNote = durationSeconds <= 0
+                ? `[語速過載] 字幕時間長度小於等於 0 秒，包含 ${effectiveCharacterCount} 個有效字元，無法顯示。`
+                : `[語速過載] 字幕約 ${durationSeconds.toFixed(2)} 秒，包含 ${effectiveCharacterCount} 個有效字元，約 ${cps.toFixed(1)} 字／秒，超過 ${PRECISE_SPEECH_SPEED_MAX_CPS} 字／秒上限。`;
+
+            if (aligned.note) {
+                if (!aligned.note.includes('[語速過載]')) {
+                    aligned.note += `; ${speedNote}`;
+                }
+            } else {
+                aligned.note = speedNote;
+            }
+        }
 
         const geminiGarbage = classifyGarbageRisk(cleanAlignedText);
         const whisperGarbage = classifyGarbageRisk(block.text);
@@ -3461,6 +3508,24 @@ function rebuildAlignmentReportFromExistingData({
             });
             manualCheck++;
         }
+
+        if (aligned.flags.includes('SPEECH_SPEED_OVERFLOW')) {
+            const startMs = parseTimestampToMs(block.startTime);
+            const endMs = parseTimestampToMs(block.endTime);
+            const durationSeconds = isNaN(startMs) || isNaN(endMs) ? 0 : (endMs - startMs) / 1000;
+            const effectiveCharacterCount = countReadableSubtitleCharacters(cleanAlignedText);
+            const cps = durationSeconds <= 0 ? 0 : effectiveCharacterCount / durationSeconds;
+
+            speechSpeedOverflows.push({
+                id: block.id,
+                startTime: block.startTime,
+                endTime: block.endTime,
+                durationSeconds: Number(durationSeconds.toFixed(3)),
+                effectiveCharacterCount,
+                charactersPerSecond: Number(cps.toFixed(2)),
+                text: cleanAlignedText
+            });
+        }
     }
 
     const outputWarnings = finalSrt ? validatePreciseAlignmentOutput(finalSrt, finalTxt, whisperBlocks, null) : [];
@@ -3488,7 +3553,8 @@ function rebuildAlignmentReportFromExistingData({
         manualCheck,
         suspicious,
         validationWarnings: allUniqueWarnings,
-        oralRepetitions
+        oralRepetitions,
+        speechSpeedOverflows
     };
 }
 
