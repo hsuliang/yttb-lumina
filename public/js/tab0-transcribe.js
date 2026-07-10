@@ -2890,6 +2890,46 @@ async function transcribeWithPreciseAlignment(file, language, onProgress = () =>
         throw new Error('未從音訊中偵測到任何時間軸段落，無法進行校稿對齊。');
     }
 
+    // 執行尾端 VAD 診斷分析 (不影響原有流程)
+    let trailingNonSpeechDiagnostics = {
+        success: false,
+        detected: false,
+        method: 'silero-v5-non-real-time-vad',
+        model: 'v5',
+        analysisStartSeconds: 0,
+        mediaDurationSeconds: resampled.duration,
+        lastSpeechEndSeconds: null,
+        candidateNonSpeechStartSeconds: null,
+        trailingNonSpeechDurationSeconds: 0,
+        minimumTrailingNonSpeechSeconds: 2,
+        safetyMarginSeconds: 0.4,
+        elapsedMs: 0,
+        speechSegmentCount: 0,
+        speechSegments: [],
+        removedCount: 0,
+        removedIds: [],
+        diagnosticOnly: true,
+        error: null
+    };
+
+    try {
+        console.log('[超精準字幕] 開始執行片尾 VAD 診斷分析...');
+        if (typeof globalThis.__yttbAnalyzeTrailingNonSpeech !== 'function') {
+            throw new Error('尾端 VAD 診斷模組尚未載入');
+        }
+        const vadResult = await globalThis.__yttbAnalyzeTrailingNonSpeech(resampled, {
+            analysisTailSeconds: 20,
+            minimumTrailingNonSpeechSeconds: 2,
+            safetyMarginSeconds: 0.4,
+            model: 'v5'
+        });
+        trailingNonSpeechDiagnostics = vadResult;
+    } catch (err) {
+        console.warn('[超精準字幕] 執行片尾 VAD 診斷分析出錯:', err);
+        trailingNonSpeechDiagnostics.error = err.message || String(err);
+    }
+    console.log('[超精準字幕][尾端 VAD 診斷]', trailingNonSpeechDiagnostics);
+
     // ==========================================
     // PHASE 3: 雙稿精準校對 (導入語意群上下文對齊)
     // ==========================================
@@ -3267,6 +3307,7 @@ ${settingsText}
         validationWarnings: newReportData.validationWarnings,
         oralRepetitions: newReportData.oralRepetitions || [],
         speechSpeedOverflows: newReportData.speechSpeedOverflows || [],
+        trailingNonSpeechDiagnostics: trailingNonSpeechDiagnostics,
         debugBatches: debugBatches,
         failedSegmentDetails,
         failedBatches,
