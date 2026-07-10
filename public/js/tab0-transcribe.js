@@ -1487,7 +1487,7 @@ export function initializeTab0() {
             let engineLabel = '';
             if (isWhisper) {
                 engineLabel = 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)';
-            } else if (data.engine === 'precise') {
+            } else if (data.engine === 'precise' || data.engine === 'precise_alignment') {
                 engineLabel = '雙稿對齊超精準模式 (Whisper + Gemini)';
             } else {
                 engineLabel = 'Gemini AI (gemini-1.5-flash)';
@@ -1499,8 +1499,11 @@ export function initializeTab0() {
         // 渲染 alignmentReport (如果是 precise 模式且有 report)
         const reportContainer = document.getElementById('tab0-alignment-report-container');
         if (reportContainer) {
-            if (data.engine === 'precise' && data.alignmentReport) {
-                renderAlignmentReport(data.alignmentReport, reportContainer);
+            const alignmentReport = data.alignmentReport || data.report;
+            const isPreciseResult = data.engine === 'precise_alignment' || data.engine === 'precise';
+
+            if (isPreciseResult && alignmentReport) {
+                renderAlignmentReport(alignmentReport, reportContainer);
                 reportContainer.classList.remove('hidden');
             } else {
                 reportContainer.classList.add('hidden');
@@ -1741,7 +1744,9 @@ export function initializeTab0() {
                             handleStream
                         );
                         window.lastPreciseAlignmentResult = result;
-                        window.lastAlignmentReport = result ? result.alignmentReport : undefined;
+                        window.lastAlignmentReport = result
+                            ? (result.alignmentReport || result.report)
+                            : undefined;
                         console.log('[超精準字幕][外層] result:', result);
                     } else {
                         // Gemini 模式：結合專有名詞 + 錯字替換提示
@@ -3219,6 +3224,7 @@ ${settingsText}
         text: finalTxt,
         engine: 'precise_alignment',
         blockCount: whisperBlocks.length,
+        alignmentReport: alignmentReport,
         report: alignmentReport,
         debug: debugBatches,
         blocks: whisperBlocks
