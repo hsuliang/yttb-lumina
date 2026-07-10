@@ -627,6 +627,9 @@ const PURE_GEMINI_SRT_MAX_CUES_PER_CHUNK = 120;
 const PRECISE_PHASE1_RATE_LIMIT_MAX_RETRIES = 2;
 const PRECISE_PHASE1_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
 
+const PRECISE_PHASE3_RATE_LIMIT_MAX_RETRIES = 1;
+const PRECISE_PHASE3_RATE_LIMIT_RETRY_WAIT_MS = 75 * 1000;
+
 function isPureGeminiRateLimitError(error) {
     const errMsg = String(error?.message || error || '');
     const lowerErrMsg = errMsg.toLowerCase();
@@ -2976,22 +2979,111 @@ ${partialReferenceText}
 ${settingsText}
 ---`;
 
-        let batchResult = [];
-        try {
-            actualGeminiAlignmentCalls++;
-            const rawJsonResponse = await callGeminiAPI(apiKey, prompt, true, null, state.currentAbortController?.signal);
-            const cleanJson = rawJsonResponse.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-            batchResult = JSON.parse(cleanJson);
+        let rawJsonResponse;
+        let phase3RateLimitRetryCount = 0;
+        let phase3Attempt = 0;
+        let apiFailed = false;
+        let finalApiError = null;
 
-            // Validate batchResult
-            if (!Array.isArray(batchResult)) {
-                 batchResult = [];
-                 throw new Error("回傳格式非陣列");
+        while (true) {
+            phase3Attempt++;
+            try {
+                actualGeminiAlignmentCalls++;
+                rawJsonResponse = await callGeminiAPI(apiKey, prompt, true, null, state.currentAbortController?.signal);
+                console.log(
+                    `[Precise Transcribe] Phase 3 completed batch ${b + 1}/${totalBatches}, attempts=${phase3Attempt}`
+                );
+                apiFailed = false;
+                break;
+            } catch (error) {
+                if (isAbortError(error) || error?.name === 'AbortError') {
+                    throw error;
+                }
+
+                finalApiError = error;
+                const isRateLimit = isPureGeminiRateLimitError(error);
+
+                console.warn(
+                    `[Precise Transcribe] Phase 3 failed batch ${b + 1}/${totalBatches}, attempt=${phase3Attempt}, rateLimit=${isRateLimit}`,
+                    error
+                );
+
+                if (
+                    isRateLimit &&
+                    phase3RateLimitRetryCount < PRECISE_PHASE3_RATE_LIMIT_MAX_RETRIES
+                ) {
+                    phase3RateLimitRetryCount++;
+
+                    onProgress({
+                        type: 'chunks',
+                        current: b + 1,
+                        total: totalBatches,
+                        message: `3/3：Gemini 對齊遇到頻率限制，${Math.ceil(PRECISE_PHASE3_RATE_LIMIT_RETRY_WAIT_MS / 1000)} 秒後重試第 ${phase3RateLimitRetryCount}/${PRECISE_PHASE3_RATE_LIMIT_MAX_RETRIES} 次`,
+                        eta: '',
+                        label: 'Gemini 處理中...'
+                    });
+
+                    await waitForPureGeminiRetry(
+                        PRECISE_PHASE3_RATE_LIMIT_RETRY_WAIT_MS,
+                        state.currentAbortController?.signal
+                    );
+
+                    continue;
+                }
+
+                apiFailed = true;
+                break;
             }
-        } catch (err) {
-            console.warn(`[Precise Transcribe] Batch ${b + 1} Gemini 對齊失敗：`, err);
+        }
+
+        let batchResult = [];
+        if (apiFailed) {
+            const isRateLimit = isPureGeminiRateLimitError(finalApiError);
+            if (isRateLimit) {
+                onProgress({
+                    type: 'chunks',
+                    current: b + 1,
+                    total: totalBatches,
+                    message: `3/3：第 ${b + 1}/${totalBatches} 批次 Gemini 對齊仍受頻率限制，已保留 Whisper 原文`,
+                    eta: '',
+                    label: 'Gemini 處理中...'
+                });
+            } else {
+                onProgress({
+                    type: 'chunks',
+                    current: b + 1,
+                    total: totalBatches,
+                    message: `3/3：第 ${b + 1}/${totalBatches} 批次 Gemini 對齊失敗，已保留 Whisper 原文`,
+                    eta: '',
+                    label: 'Gemini 處理中...'
+                });
+            }
+
             fallbackBatchCount++;
-            failedBatches.push({ batchIndex: b, error: err.message });
+            failedBatches.push({ batchIndex: b, error: finalApiError ? finalApiError.message : "未知 API 錯誤" });
+        } else {
+            try {
+                const cleanJson = rawJsonResponse.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+                batchResult = JSON.parse(cleanJson);
+
+                // Validate batchResult
+                if (!Array.isArray(batchResult)) {
+                     batchResult = [];
+                     throw new Error("回傳格式非陣列");
+                }
+            } catch (err) {
+                console.warn(`[Precise Transcribe] Batch ${b + 1} Gemini 對齊解析或格式錯誤：`, err);
+                onProgress({
+                    type: 'chunks',
+                    current: b + 1,
+                    total: totalBatches,
+                    message: `3/3：第 ${b + 1}/${totalBatches} 批次 Gemini 對齊失敗，已保留 Whisper 原文`,
+                    eta: '',
+                    label: 'Gemini 處理中...'
+                });
+                fallbackBatchCount++;
+                failedBatches.push({ batchIndex: b, error: err.message });
+            }
         }
 
         const originalBlocksById = {};
