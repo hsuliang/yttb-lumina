@@ -1,6 +1,7 @@
 import { showToast, showModal, hideModal, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, adoptDraftSource, getCanonicalTranscript, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
@@ -576,19 +577,13 @@ export const analyzeInfographicContent = function() {
         const generateBtn = document.getElementById('generate-infographic-btn');
         const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-
+        const rawSourceText = document.getElementById('smart-area').value;
+        const requestSourceId = state.currentSourceId || activateSource(rawSourceText).sourceId;
 
         syncRolesFromInputs();
 
         // 取得輸入文字 (優選部落格/優化文章，對齊 Tab 5 邏輯)
-        let sourceContent = '';
-        if (state.blogArticleVersions && state.blogArticleVersions.length > 0) {
-            sourceContent = state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent;
-        } else if (state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0) {
-            sourceContent = `<p>${state.optimizedTextForBlog.replace(/\n/g, '</p><p>')}</p>`;
-        } else {
-            sourceContent = document.getElementById('smart-area').value;
-        }
+        let sourceContent = getPreferredSource(rawSourceText).text;
 
         if (!sourceContent || sourceContent.trim().length === 0) {
             showToast('請先貼上逐字稿內容或生成部落格文章！');
@@ -628,6 +623,13 @@ ${roleLines.join('\n')}
         if (includeLogo) {
             logoInstruction = `\n- 浮水印/Logo 規則：請在提示詞最後一欄指定：「在圖表右上角（或合適的角落）必須放上 image${logoIndex} 的 Logo 浮水印，並保留其原始比例與配色，不可重繪或裁剪。」`;
         }
+
+        const assetIntegrationInstruction = validRoles.length > 0 || includeLogo
+            ? `3. **融入使用者提供的素材**：只使用上方實際設定的角色／素材變數${includeLogo ? `，並在指定位置嵌入 image${logoIndex} 的 Logo` : ''}；不得新增未設定的 image 變數或角色。`
+            : '3. **素材限制**：使用者未設定角色、圖片素材或 Logo，不得在 Prompt 中新增 image1、image2 等素材變數或虛構人物。';
+        const blueprintAssetText = validRoles.length > 0 || includeLogo
+            ? '，並說明使用者實際設定的 image 素材應放置的位置'
+            : '；本次沒有自備 image 素材，不得虛構素材位置';
 
         // 圖表型態特徵描述
         const typeDescriptions = {
@@ -699,17 +701,18 @@ ${roleInstruction}${logoInstruction}
 
 【輸出格式規範】
 請嚴格以下列三個區塊的 Markdown 格式進行輸出，不要輸出任何額外的廢話：
+所有人名、機構、事件、引言、數字、百分比與統計結論只能取自【原始內容】；來源未提供的資料必須省略，禁止為了完成圖表而自行捏造。
 
 ### 📌 區塊一：AI 智慧推薦報告 (AI Analysis Report)
 - **排版邏輯說明**：說明為何推薦/使用此排版型態（簡述 2 句話）。
-- **版面布局 blueprint**：用文字詳細說明如何分配畫面空間（例如：上方10%放主標，中間用對角線拉出4個步驟卡片等，以及使用者設定的 image1 ~ image4 應如何精確貼在版面上）。
+- **版面布局 blueprint**：用文字詳細說明如何分配畫面空間（例如：上方10%放主標，中間用對角線拉出4個步驟卡片等${blueprintAssetText}）。
 
 ### 💬 區塊二：英文提示詞 (English Prompt)
 請生成一個可以「一鍵複製」的精緻畫風與排版 Prompt，該 Prompt 的**指令主要以純英文撰寫**（這對 Midjourney, DALL-E 3 等工具最精確，文字部分維持繁體中文）。
 該 Prompt 必須命令繪圖 AI 執行以下工作：
 1. 繪製一張符合規格的 Infographic 圖片。
 2. 限制文字數量：${captionLengthInstructions[captionLength]} (且文字文案部分應維持以繁體中文 (Traditional Chinese) 顯示，視覺指令與畫風描述為英文)。
-3. **完美融入角色圖片與 Logo 變數**：在 Prompt 中寫明如何將 \`image1 (角色A)\`、\`image2 (角色B)\` 等素材嵌入指定位置，若勾選 Logo，必須要求在指定位置嵌入 \`image${logoIndex}\`。
+${assetIntegrationInstruction}
 4. 整體風格是 [${styleDescriptionText}]，配色是 [${paletteDescriptions[palette]}]。
 
 請將這段英文提示詞放在一個 Markdown 的 \`\`\` 程式碼區塊中。
@@ -763,6 +766,7 @@ ${sourceContent}
         try {
             let isFirstInfoChunk = true;
             const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (!isCurrentSource(requestSourceId)) return;
                 if (isFirstInfoChunk && chunkText !== '') {
                     isFirstInfoChunk = false;
                     if (promptTextarea) {
@@ -790,11 +794,13 @@ ${sourceContent}
                     reportContent.textContent = fullText;
                 }
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
+            if (!isCurrentSource(requestSourceId)) return;
             
             // 解析三個區塊
             const parsed = parseInfographicResponse(result);
 
             const newVersion = {
+                sourceId: requestSourceId,
                 rawResult: result,
                 reportHtml: parsed.reportHtml,
                 promptTextEn: parsed.promptTextEn,
@@ -844,9 +850,15 @@ export const restoreInfographicDraft = function() {
             const draftJSON = localStorage.getItem(INFOGRAPHIC_DRAFT_KEY);
             if (!draftJSON) return;
             const draft = JSON.parse(draftJSON);
+            const smartArea = document.getElementById('smart-area');
+            if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
+                clearInfographicDraft();
+                return false;
+            }
 
-            document.getElementById('smart-area').value = draft.sourceContent || '';
+            if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
             state.optimizedTextForBlog = draft.optimizedContent || '';
+            state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
             state.blogSourceType = draft.sourceType || 'raw';
 
             document.getElementById('infographic-type').value = draft.type || 'auto';
@@ -872,7 +884,7 @@ export const restoreInfographicDraft = function() {
             }
 
             if (draft.versions && draft.versions.length > 0) {
-                state.infographicVersions = draft.versions;
+                state.infographicVersions = stampVersions(draft.versions, state.currentSourceId);
                 state.currentInfographicVersionIndex = draft.currentVersionIndex || 0;
 
                 renderInfographicVersionTabs();
@@ -902,6 +914,8 @@ export const clearInfographicDraft = function() {
     function resetTab6() {
         state.infographicVersions = [];
         state.currentInfographicVersionIndex = 0;
+        infographicRoles = [];
+        renderInfographicRoles();
         
         const placeholder = document.getElementById('infographic-placeholder');
         const textContainer = document.getElementById('infographic-text-container');
@@ -923,7 +937,7 @@ export const clearInfographicDraft = function() {
     window.addEventListener('lumina:clearDownstreamTabs', resetTab6);
 
     function saveInfographicDraft() {
-        const rawContent = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
+        const rawContent = getCanonicalTranscript(document.getElementById('smart-area').value);
         if (rawContent.length === 0 && state.infographicVersions.length === 0) return;
 
         const size = document.getElementById('infographic-size')?.value || '9:16';
@@ -932,6 +946,7 @@ export const clearInfographicDraft = function() {
         const customStyle = document.getElementById('infographic-custom-style')?.value || '';
 
         const draft = {
+            sourceId: state.currentSourceId,
             sourceContent: document.getElementById('smart-area').value,
             optimizedContent: state.optimizedTextForBlog,
             sourceType: state.blogSourceType,

@@ -1,6 +1,7 @@
 import { showToast, showModal, hideModal } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
@@ -18,7 +19,10 @@ export const optimizationService = {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
 
 
-        const content = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
+        const rawContent = document.getElementById('smart-area').value.trim();
+        if (!state.currentSourceId && rawContent) activateSource(rawContent);
+        const requestSourceId = state.currentSourceId;
+        const content = getCanonicalTranscript(rawContent);
         if (!content) {
             showModal({ title: '錯誤', message: '請先在「智慧區域」中輸入或整理原始字幕內容。' });
             return;
@@ -30,9 +34,11 @@ export const optimizationService = {
 
         try {
             const result = await callGeminiAPI(apiKey, prompt);
+            if (!isCurrentSource(requestSourceId)) return;
             
             // 成功後，更新全局狀態
             state.optimizedTextForBlog = result;
+            state.optimizedSourceId = requestSourceId;
             state.blogSourceType = 'optimized';
 
             // 關閉進度條模態窗

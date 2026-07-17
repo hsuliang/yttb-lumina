@@ -279,7 +279,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619<span class="text-error font-bold">R5</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．端午．20260619<span class="text-error font-bold">R6</span>
             </div>
         </div>
     </nav>
@@ -1686,15 +1686,15 @@
                     <div id="settings-tab-terminology" class="settings-tab-panel hidden flex flex-col h-full">
                         <h4 class="text-lg font-bold text-on-surface mb-2">專有名詞設定</h4>
                         <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
-                            設定專有名詞與禁用詞。這些規則將提早應用於「語音辨識」，並引導後續所有 AI 文案的生成。
+                            設定語音辨識提示與禁用詞。正確專有名詞也會在「開始整理」套用錯字替換時受到保護；整理完成後不再注入摘要或其他 AI 文案生成。
                         </p>
                         
                         <div class="flex flex-col md:flex-row gap-3 mb-4 shrink-0 items-end">
                             <div class="w-full md:w-1/3">
                                 <label class="block text-xs font-semibold text-on-surface-variant mb-1">規則類型</label>
                                 <select id="terminology-type-select" class="w-full rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none cursor-pointer appearance-none">
-                                    <option value="positive">🟢 必須使用 (正向表列)</option>
-                                    <option value="negative">🔴 絕對禁用 (負向表列)</option>
+                                    <option value="positive">🟢 辨識提示／保護正確寫法</option>
+                                    <option value="negative">🔴 語音辨識禁用詞</option>
                                 </select>
                             </div>
                             <div class="flex-1">
@@ -1886,7 +1886,7 @@
     </div>
 
     <!-- Universal Modal -->
-    <div id="modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[100] backdrop-blur-sm">
+    <div id="modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-[20000] backdrop-blur-sm">
         <div class="glass-panel modal-glow-red p-6 w-11/12 md:w-1/2 max-w-lg rounded-2xl shadow-2xl flex flex-col bg-surface-container-high/90">
             <h3 id="modal-title" class="text-lg font-bold mb-4 text-on-surface">提示</h3>
             <div id="modal-content-wrapper" class="flex-grow overflow-y-auto max-h-[60vh] pr-1">

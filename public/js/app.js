@@ -108,8 +108,14 @@ export const updateAiButtonStatus = function() {
     }
     
 export const updateSourceStatusUI = function() {
-        const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
-        const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
+        const currentBlog = state.blogArticleVersions?.[state.currentBlogVersionIndex];
+        const hasOptimizedText = Boolean(
+            state.optimizedTextForBlog &&
+            state.optimizedSourceId === state.currentSourceId
+        );
+        const hasGeneratedBlog = Boolean(
+            currentBlog && currentBlog.sourceId === state.currentSourceId
+        );
         
         let sourceType = 'raw';
         if (hasGeneratedBlog) sourceType = 'blog';
@@ -1155,7 +1161,7 @@ export const switchTab = (tabId) => {
                 const isPositive = rule.type === 'positive';
                 const bgClass = isPositive ? 'bg-success/10 border-success/20' : 'bg-error/10 border-error/20';
                 const textClass = isPositive ? 'text-success' : 'text-error';
-                const label = isPositive ? '🟢 必須使用' : '🔴 絕對禁用';
+                const label = isPositive ? '🟢 辨識提示／保護' : '🔴 辨識禁用';
                 
                 ruleEl.className = `rule-item p-2 rounded mb-2 flex items-center justify-between border ${bgClass}`;
                 ruleEl.innerHTML = ` 
@@ -1366,6 +1372,7 @@ state.currentAbortController = null;
             }
             state.originalContentForPreview = '';
             state.optimizedTextForBlog = '';
+            state.optimizedSourceId = '';
             state.blogArticleVersions = [];
             state.currentBlogVersionIndex = 0;
             state.blogSourceType = 'raw';
@@ -1400,7 +1407,11 @@ state.currentAbortController = null;
 
             state.originalFileName = '';
             state.processedSrtResult = '';
+            state.processedSourceId = '';
+            state.currentSourceId = '';
+            state.currentSourceText = '';
             state.transcribeResult = null;
+            window._draftChoice = undefined;
 
             const smartArea = document.getElementById('smart-area');
             if (smartArea) smartArea.value = '';
@@ -1443,7 +1454,25 @@ state.currentAbortController = null;
         // 自動清除下游 Tab 的事件監聽
         window.addEventListener('lumina:clearDownstreamTabs', () => {
             console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts & state.');
-            clearDownstreamState({ notify: true });
+            clearDownstreamState({ notify: false });
+        });
+
+        window.addEventListener('lumina:sourceChanged', (event) => {
+            const hadDerivedContent = Boolean(
+                state.processedSrtResult ||
+                state.optimizedTextForBlog ||
+                state.blogArticleVersions.length ||
+                state.socialPostVersions.length ||
+                state.edmVersions.length ||
+                state.carouselVersions.length ||
+                state.infographicVersions.length
+            );
+            state.processedSrtResult = '';
+            state.processedSourceId = '';
+            window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
+            if (hadDerivedContent && event.detail?.notify !== false) {
+                showToast('已清除上一份逐字稿的產出內容。');
+            }
         });
 
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)

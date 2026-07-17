@@ -2,7 +2,8 @@ import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOpt
 import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
-import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal, switchTab } from './app.js';
+import { activateSource, adoptDraftSource, getCanonicalTranscript, isCurrentSource, stampVersions } from './content-source.js';
+import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
  * tab2-blog.js
@@ -39,9 +40,15 @@ export const restoreBlogDraft = function () {
         const draftJSON = localStorage.getItem(BLOG_DRAFT_KEY);
         if (!draftJSON) return;
         const draft = JSON.parse(draftJSON);
+        const smartArea = document.getElementById('smart-area');
+        if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
+            clearBlogDraft();
+            return false;
+        }
 
-        document.getElementById('smart-area').value = draft.sourceContent || '';
+        if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
         state.optimizedTextForBlog = draft.optimizedContent || '';
+        state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
         state.blogSourceType = draft.sourceType || 'raw';
 
         document.getElementById('blog-title').value = draft.title || '';
@@ -65,8 +72,8 @@ export const restoreBlogDraft = function () {
         }
 
         if (draft.versions && draft.versions.length > 0) {
-            state.blogArticleVersions = draft.versions;
-            state.currentVersionIndex = draft.currentVersionIndex || 0;
+            state.blogArticleVersions = stampVersions(draft.versions, state.currentSourceId);
+            state.currentBlogVersionIndex = draft.currentVersionIndex || 0;
 
             renderVersionTabs();
             renderCurrentVersionUI(); // This will now load content into Quill
@@ -450,6 +457,7 @@ function renderCurrentVersionUI() {
         }
 
         const draft = {
+            sourceId: state.currentSourceId,
             sourceContent: document.getElementById('smart-area').value,
             optimizedContent: state.optimizedTextForBlog,
             sourceType: state.blogSourceType,
@@ -483,6 +491,7 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     function confirmUseOptimizedText(text) {
         state.optimizedTextForBlog = text;
+        state.optimizedSourceId = state.currentSourceId;
         state.blogSourceType = 'optimized';
 
         if (quillEditor) {
@@ -532,8 +541,10 @@ export const renderTags = function () { const tagContainer = document.getElement
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
 
         // 1. 定義來源：優先檢查是否有「已整理」的文本，若無則取用輸入框的原始文本
-        const processedContent = state.processedSrtResult ? state.processedSrtResult.trim() : '';
         const rawContent = document.getElementById('smart-area').value.trim();
+        if (!state.currentSourceId && rawContent) activateSource(rawContent);
+        const requestSourceId = state.currentSourceId;
+        const processedContent = getCanonicalTranscript(rawContent);
 
         // 2. 定義執行 AI 優化的內部函式 (避免程式碼重複)
         const executeOptimization = async (contentToUse) => {
@@ -544,38 +555,13 @@ export const renderTags = function () { const tagContainer = document.getElement
             btn.disabled = true;
             btn.classList.add('btn-loading');
 
-            // Switch to Tab 1 to see the streaming
-            switchTab('tab1');
-            const smartArea = document.getElementById('smart-area');
-            if (smartArea) {
-                smartArea.value = '';
-                smartArea.classList.add('text-center', 'animate-pulse');
-                smartArea.style.color = '#f97316';
-                smartArea.style.fontSize = '1.1rem';
-                smartArea.style.fontWeight = '600';
-                // Trigger view switch in Tab 1 if possible
-                const originalBtn = document.querySelector('.view-btn[data-view="original"]');
-                if (originalBtn) originalBtn.click();
-            }
-
             try {
-                let isFirstOptChunk = true;
-                const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
-                    if (smartArea) {
-                        if (isFirstOptChunk && chunkText !== '') {
-                            isFirstOptChunk = false;
-                            smartArea.classList.remove('text-center', 'animate-pulse');
-                            smartArea.style.color = '';
-                            smartArea.style.fontSize = '';
-                            smartArea.style.fontWeight = '';
-                        }
-                        smartArea.value = fullText;
-                        smartArea.scrollTop = smartArea.scrollHeight;
-                    }
-                });
+                const result = await callGeminiAPI(apiKey, prompt);
+                if (!isCurrentSource(requestSourceId)) return;
                 
                 // Once finished, save to state and update UI
                 state.optimizedTextForBlog = result;
+                state.optimizedSourceId = requestSourceId;
                 updateSourceStatusUI();
                 showToast('文本優化完成！', { type: 'success' });
                 
@@ -759,7 +745,12 @@ export const renderTags = function () { const tagContainer = document.getElement
     async function proceedGenerateBlogPost(variationModifier = '', shouldOverride = false) {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
 
-        const sourceText = (state.blogSourceType === 'optimized') ? state.optimizedTextForBlog : (state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim());
+        const rawSourceText = document.getElementById('smart-area').value.trim();
+        if (!state.currentSourceId && rawSourceText) activateSource(rawSourceText);
+        const requestSourceId = state.currentSourceId;
+        const sourceText = (
+            state.blogSourceType === 'optimized' && state.optimizedSourceId === requestSourceId
+        ) ? state.optimizedTextForBlog : getCanonicalTranscript(rawSourceText);
         if (!sourceText) { showModal({ title: '錯誤', message: '缺少文章生成的來源內容。' }); return; }
 
         // === Determine if this is a variation based on modifier presence ===
@@ -808,6 +799,7 @@ export const renderTags = function () { const tagContainer = document.getElement
             let prompt = assembleBlogPrompt(promptOptions);
             let isFirstBlogChunk = true;
             let fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (!isCurrentSource(requestSourceId)) return;
                 if (markdownPreview) {
                     if (isFirstBlogChunk && chunkText !== '') {
                         isFirstBlogChunk = false;
@@ -820,6 +812,7 @@ export const renderTags = function () { const tagContainer = document.getElement
                     markdownPreview.scrollTop = markdownPreview.scrollHeight;
                 }
             }, state.currentAbortController.signal);
+            if (!isCurrentSource(requestSourceId)) return;
 
             // Smart Retry Logic
             const requiredTags = ['[ARTICLE_START]', '[ARTICLE_END]', '[SEO_START]', '[SEO_END]'];
@@ -833,11 +826,13 @@ export const renderTags = function () { const tagContainer = document.getElement
                 const retryPromptOptions = { ...promptOptions, isRetry: true };
                 prompt = assembleBlogPrompt(retryPromptOptions);
                 fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                    if (!isCurrentSource(requestSourceId)) return;
                     if (markdownPreview) {
                         markdownPreview.value = fullText;
                         markdownPreview.scrollTop = markdownPreview.scrollHeight;
                     }
                 }, state.currentAbortController.signal);
+                if (!isCurrentSource(requestSourceId)) return;
 
                 if (!isResponseValid(fullResponse)) {
                     // 如果重試後還是缺少標籤，嘗試用更寬鬆的方式解析，或者拋出錯誤
@@ -913,7 +908,8 @@ export const renderTags = function () { const tagContainer = document.getElement
                 seoData.tags = extract('標籤', seoText);
             }
 
-            const newVersion = { htmlContent: getLatestHtmlContent(), seoData: seoData, advancedSeoData: { keywords: null, internalLinks: null } };
+            if (!isCurrentSource(requestSourceId)) return;
+            const newVersion = { sourceId: requestSourceId, htmlContent: getLatestHtmlContent(), seoData: seoData, advancedSeoData: { keywords: null, internalLinks: null } };
 
             if (isVariation) {
                 // The old version is already saved. Just push the new one.
@@ -974,7 +970,7 @@ export const renderTags = function () { const tagContainer = document.getElement
         if (state.blogArticleVersions.length > 0 && !confirm("這將會清除所有已生成的版本並重新開始，您確定嗎？")) {
             return;
         }
-        const rawContent = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
+        const rawContent = getCanonicalTranscript(document.getElementById('smart-area').value);
         if (state.blogSourceType === 'raw' && rawContent) {
             showModal({ title: '提醒', message: '您尚未優化文本，直接生成可能會影響文章品質。確定要繼續嗎？', buttons: [{ text: '取消', class: 'btn-secondary', callback: hideModal }, { text: '確定繼續', class: 'btn-primary', callback: () => { hideModal(); proceedGenerateBlogPost('', false); } }] });
         } else {

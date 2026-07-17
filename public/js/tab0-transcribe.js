@@ -2,6 +2,7 @@ import { callGeminiAudioAPI } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
+import { applyReplacementRules } from './srt-processor.js';
 import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
 /**
@@ -170,14 +171,13 @@ function validateAndFixSrt(rawText) {
  */
 function applyBatchReplaceToSrt(srtText, rules) {
     if (!rules || rules.length === 0 || !srtText) return srtText;
-    let result = srtText;
-    for (const rule of rules) {
-        if (rule.original) {
-            const escaped = rule.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            result = result.replace(new RegExp(escaped, 'g'), rule.replacement);
-        }
-    }
-    return result;
+    const protectedTerms = state.aiTerminologyRules
+        .filter(rule => rule.type === 'positive')
+        .map(rule => rule.term);
+    return srtText.split('\n').map(line => {
+        if (/^\d+$/.test(line.trim()) || line.includes('-->')) return line;
+        return applyReplacementRules(line, rules, protectedTerms).text;
+    }).join('\n');
 }
 
 // ########## AUDIO CHUNKING UTILITIES ##########
@@ -454,12 +454,14 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     let finalSrt = allSrtBlocks.join('\n\n');
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
+    const protectedTerms = state.aiTerminologyRules.filter(rule => rule.type === 'positive').map(rule => rule.term);
+    const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
     onProgress({ type: 'done', message: '全部辨識完成！' });
 
     return {
-        text: allText.join('\n'),
+        text: finalText,
         vtt: finalVtt,
         srt: finalSrt,
         engine: 'gemini',
@@ -625,12 +627,14 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     let finalSrt = allSrtBlocks.join('\n\n');
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
+    const protectedTerms = state.aiTerminologyRules.filter(rule => rule.type === 'positive').map(rule => rule.term);
+    const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
     onProgress({ type: 'done', message: '全部辨識完成！' });
 
     return {
-        text: allText.join('\n'),
+        text: finalText,
         vtt: finalVtt,
         srt: finalSrt,
         engine: 'whisper',
@@ -1051,12 +1055,8 @@ export function initializeTab0() {
                             tab0Badge.textContent = '模型：whisper-large-v3-turbo';
                         }
                         
-                        // Whisper 結合了強制替換和專有名詞 (因為 whisper 的 prompt 主要用來給定語境詞彙)
+                        // 專有名詞只作為辨識提示；錯字替換在辨識完成後確定性執行一次。
                         let whisperPrompt = '這是一段繁體中文字幕。' + (terminologyDict ? terminologyDict : '');
-                        if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
-                            const replaceDict = '強制替換：\n' + state.batchReplaceRules.map(r => `${r.original}=${r.replacement}`).join('\n');
-                            whisperPrompt = whisperPrompt ? whisperPrompt + '\n' + replaceDict : replaceDict;
-                        }
 
                         result = await transcribeWithWhisper(
                             selectedFile,
@@ -1066,14 +1066,8 @@ export function initializeTab0() {
                             handleChunkComplete
                         );
                     } else {
-                        // Gemini 模式：結合專有名詞 + 錯字替換提示
+                        // Gemini 模式同樣只提供專有名詞辨識提示。
                         let geminiDict = terminologyDict;
-                        if (state.batchReplaceRules && state.batchReplaceRules.length > 0) {
-                            const replaceHints = state.batchReplaceRules.map(r => `「${r.original}」必須寫成「${r.replacement}」`).join('、');
-                            geminiDict = geminiDict
-                                ? geminiDict + '\n強制替換規則：' + replaceHints
-                                : '強制替換規則：' + replaceHints;
-                        }
                         result = await transcribeWithGemini(
                             selectedFile, 
                             state.transcribeLanguage, 
@@ -1156,7 +1150,6 @@ export function initializeTab0() {
                 try { state.currentAbortController.abort(); } catch (_) {}
                 state.currentAbortController = null;
             }
-            window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
             const smartArea = document.getElementById('smart-area');
             if (smartArea) {
                 smartArea.value = content;
