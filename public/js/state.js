@@ -50,6 +50,10 @@ export const currentAbortController = null;
 
 // --- 動態狀態變數 ---
 export let state = {
+    currentSourceId: '',
+    currentSourceText: '',
+    processedSourceId: '',
+    optimizedSourceId: '',
     originalFileName: '',
     processedSrtResult: '',
     apiKeyCountdownInterval: null,

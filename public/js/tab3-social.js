@@ -1,6 +1,7 @@
 import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, adoptDraftSource, getCanonicalTranscript, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
@@ -25,9 +26,15 @@ export const restoreSocialDraft = function() {
         const draftJSON = localStorage.getItem(SOCIAL_DRAFT_KEY);
         if (!draftJSON) return;
         const draft = JSON.parse(draftJSON);
+        const smartArea = document.getElementById('smart-area');
+        if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
+            clearSocialDraft();
+            return false;
+        }
 
-        document.getElementById('smart-area').value = draft.sourceContent || '';
+        if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
         state.optimizedTextForBlog = draft.optimizedContent || '';
+        state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
         state.blogSourceType = draft.sourceType || 'raw';
         
         document.getElementById('social-objective').value = draft.objective || '引導觀看 YouTube';
@@ -37,7 +44,7 @@ export const restoreSocialDraft = function() {
         document.getElementById('social-cta').value = draft.cta || '';
 
         if(draft.versions && draft.versions.length > 0) {
-            state.socialPostVersions = draft.versions;
+            state.socialPostVersions = stampVersions(draft.versions, state.currentSourceId);
             state.currentSocialVersionIndex = draft.currentVersionIndex || 0;
 
             renderSocialVersionTabs();
@@ -79,6 +86,14 @@ function resetTab3() {
     document.getElementById('facebook-post-output').textContent = '';
     document.getElementById('instagram-post-output').textContent = '';
     document.getElementById('line-post-output').textContent = '';
+    document.getElementById('social-hashtags').value = '';
+    document.getElementById('social-cta').value = '';
+    const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
+    if (wizardSettings.coreViewpoint) {
+        delete wizardSettings.coreViewpoint;
+        localStorage.setItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD, JSON.stringify(wizardSettings));
+    }
+    if (wizardCoreViewpoint) wizardCoreViewpoint.value = '';
     
     clearSocialDraft();
 }
@@ -249,11 +264,12 @@ function renderCurrentSocialVersionUI() {
     }
     
     function saveSocialDraft() {
-        const rawContent = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
+        const rawContent = getCanonicalTranscript(document.getElementById('smart-area').value);
         const hasContent = rawContent.length > 0;
         if (!hasContent && state.socialPostVersions.length === 0) return;
 
         const draft = {
+            sourceId: state.currentSourceId,
             sourceContent: document.getElementById('smart-area').value,
             optimizedContent: state.optimizedTextForBlog,
             sourceType: state.blogSourceType,
@@ -281,13 +297,11 @@ export const switchSocialTab = function(platform) {
         async function proceedGenerateSocialPosts(variationModifier = '', shouldOverride = false) {
             const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
     
-            let sourceText = '';
-            const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
-            const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
-    
-            if (hasGeneratedBlog) sourceText = state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent.replace(/<[^>]+>/g, ' ');
-            else if (hasOptimizedText) sourceText = state.optimizedTextForBlog;
-            else sourceText = state.processedSrtResult ? state.processedSrtResult.trim() : document.getElementById('smart-area').value.trim();
+            const rawSourceText = document.getElementById('smart-area').value.trim();
+            if (!state.currentSourceId && rawSourceText) activateSource(rawSourceText);
+            const requestSourceId = state.currentSourceId;
+            const preferredSource = getPreferredSource(rawSourceText);
+            const sourceText = preferredSource.text.replace(/<[^>]+>/g, ' ');
     
             if (!sourceText) { showModal({ title: '錯誤', message: '缺少用於生成貼文的來源內容。' }); return; }
     
@@ -332,6 +346,7 @@ export const switchSocialTab = function(platform) {
                 let isFirstSocialChunk = true;
                 for (let i = 0; i < 2; i++) {
                     fullResponse = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                        if (!isCurrentSource(requestSourceId)) return;
                         if (activeOutput) {
                             if (isFirstSocialChunk && chunkText !== '') {
                                 isFirstSocialChunk = false;
@@ -344,6 +359,7 @@ export const switchSocialTab = function(platform) {
                             activeOutput.scrollTop = activeOutput.scrollHeight;
                         }
                     }, state.currentAbortController.signal);
+                    if (!isCurrentSource(requestSourceId)) return;
                     if (fullResponse.includes('[FACEBOOK_POST_START]') && fullResponse.includes('[INSTAGRAM_POST_START]') && fullResponse.includes('[LINE_POST_START]')) {
                         isValidResponse = true;
                         break;
@@ -359,7 +375,9 @@ export const switchSocialTab = function(platform) {
             const igMatch = fullResponse.match(/\[INSTAGRAM_POST_START\]([\s\S]*?)\[INSTAGRAM_POST_END\]/);
             const lineMatch = fullResponse.match(/\[LINE_POST_START\]([\s\S]*?)\[LINE_POST_END\]/);
             
+            if (!isCurrentSource(requestSourceId)) return;
             const newVersion = {
+                sourceId: requestSourceId,
                 facebook: fbMatch ? fbMatch[1].trim() : '無法解析 Facebook 貼文。',
                 instagram: igMatch ? igMatch[1].trim() : '無法解析 Instagram 貼文。',
                 line: lineMatch ? lineMatch[1].trim() : '無法解析 Line 貼文。'

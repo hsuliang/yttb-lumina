@@ -2,6 +2,7 @@ import { processSubtitles } from './srt-processor.js';
 import { showToast, showModal, hideModal, stopPromptRotation, saveFile } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
 
 /**
@@ -115,7 +116,9 @@ function resetTab1() {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
         // ########## FIX END ##########
 
-        const content = state.processedSrtResult.trim() || smartArea.value.trim();
+        if (!state.currentSourceId && smartArea.value.trim()) activateSource(smartArea.value);
+        const requestSourceId = state.currentSourceId;
+        const content = getCanonicalTranscript(smartArea.value);
         if (!content) {
             showModal({ title: '錯誤', message: '沒有可用於 AI 處理的字幕內容。' });
             return;
@@ -152,12 +155,13 @@ function resetTab1() {
         }
 
         let prompt = type === 'summary' 
-            ? `你是一位專業的內容策展人。請根據以下的影片逐字稿，寫出一段引人入勝的 YouTube 影片資訊欄摘要（約 150-200 字）。\n要求：\n1. 必須以繁體中文撰寫。\n2. 語氣要有熱情、吸引觀眾。\n3. 重點放在影片能帶給觀眾什麼價值。\n\n逐字稿如下：\n---\n${content}\n---`
+            ? `你是一位專業的內容策展人。請根據以下的影片逐字稿，寫出一段引人入勝的 YouTube 影片資訊欄摘要（約 150-200 字）。\n要求：\n1. 必須以繁體中文撰寫。\n2. 語氣要有熱情、吸引觀眾。\n3. 重點放在影片能帶給觀眾什麼價值。\n4. 所有人名、機構、數字、事件與觀點只能取自逐字稿；逐字稿未提供的資訊必須省略，不得自行補寫。\n\n逐字稿如下：\n---\n${content}\n---`
             : `你是一位專業的影片編輯。請根據以下的影片逐字稿，幫我抓出這支影片的 YouTube 章節時間軸 (Timestamps)。\n要求：\n1. 判斷話題轉換的時間點。\n2. 章節標題要簡短、吸引人，並以繁體中文撰寫。\n3. 格式必須為嚴格的 "MM:SS 章節標題" 或 "HH:MM:SS 章節標題"，分鐘和秒數必須補零（例如 00:14、01:05、10:24）。\n4. 絕對禁止輸出任何開場白、問候語或前導詞，請直接輸出時間軸內容。\n\n【正確格式範例】\n00:00 影片開始\n01:14 葉子生長與陽光\n10:05 重點整理\n\n逐字稿如下：\n---\n${content}\n---`;
 
         try {
             let isFirstChunk = true;
             const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (!isCurrentSource(requestSourceId)) return;
                 if (targetTextarea) {
                     if (isFirstChunk && chunkText !== '') {
                         isFirstChunk = false;
@@ -181,6 +185,7 @@ function resetTab1() {
                     updateCharCount(displayText);
                 }
             }, state.currentAbortController.signal);
+            if (!isCurrentSource(requestSourceId)) return;
             if (targetTextarea) updateCharCount(targetTextarea.value);
             // showModal({ title: successTitle, message: result, showCopyButton: true }); // Remove modal
         } catch (error) {
@@ -306,7 +311,6 @@ function resetTab1() {
                 } else {
                     updateContent(fullText, baseName);
                     showToast('✅ 成功匯入 PDF 文字！');
-                    window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
                 }
             } catch (error) {
                 console.error('PDF 讀取錯誤:', error);
@@ -318,7 +322,6 @@ function resetTab1() {
             reader.onload = (e) => {
                 updateContent(e.target.result, baseName);
                 showToast('✅ 成功匯入文稿！');
-                window.dispatchEvent(new CustomEvent('lumina:clearDownstreamTabs'));
             };
             reader.readAsText(file);
         }
@@ -351,12 +354,16 @@ function resetTab1() {
             fixTimestamps: fixTimestampsCheckbox.checked,
             timestampThreshold: parseInt(timestampThresholdInput.value, 10),
             batchReplaceRules: state.batchReplaceRules,
+            protectedTerms: state.aiTerminologyRules
+                .filter(rule => rule.type === 'positive')
+                .map(rule => rule.term),
             timelineShift: parseInt(timelineShiftInput.value, 10) || 0
         };
 
         try {
             const result = processSubtitles(currentSrtContent, options);
             state.processedSrtResult = result.processedSrt;
+            state.processedSourceId = state.currentSourceId;
             const report = result.report;
 
             setMode('preview');
@@ -469,10 +476,33 @@ function resetTab1() {
     }
     
     smartArea.addEventListener('input', () => {
+        const needsInvalidation = Boolean(
+            state.currentAbortController ||
+            state.processedSrtResult ||
+            state.optimizedTextForBlog ||
+            state.blogArticleVersions.length ||
+            state.socialPostVersions.length ||
+            state.edmVersions.length ||
+            state.carouselVersions.length ||
+            state.infographicVersions.length
+        );
+        const { changed } = activateSource(smartArea.value);
+        if (changed && needsInvalidation) {
+            window.dispatchEvent(new CustomEvent('lumina:sourceChanged', { detail: { notify: true } }));
+        }
         updateCharCount(smartArea.value);
         toggleEmptyState();
         if (updateTabAvailability) updateTabAvailability();
         if (updateAiButtonStatus) updateAiButtonStatus();
+    });
+
+    window.addEventListener('lumina:sourceChanged', () => {
+        const displaySummary = document.getElementById('display-summary');
+        const displayChapters = document.getElementById('display-chapters');
+        if (displayProcessed) displayProcessed.textContent = '';
+        if (displaySummary) displaySummary.value = '';
+        if (displayChapters) displayChapters.value = '';
+        exportSrtBtn.disabled = true;
     });
 
     if (tab1EmptyState) {

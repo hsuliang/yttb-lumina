@@ -53,8 +53,39 @@ function stringifySrt(subtitles) {
     }).join('\n\n');
 }
 
+export function applyReplacementRules(text, rules = [], protectedTerms = []) {
+    if (!text || !Array.isArray(rules) || rules.length === 0) {
+        return { text, replacementsMade: 0 };
+    }
+
+    let replacementsMade = 0;
+    const uniqueProtectedTerms = [...new Set(protectedTerms.filter(Boolean))]
+        .sort((a, b) => b.length - a.length);
+    const protectedSet = new Set(uniqueProtectedTerms);
+    const protectedPattern = uniqueProtectedTerms.length > 0
+        ? new RegExp(`(${uniqueProtectedTerms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g')
+        : null;
+    const segments = protectedPattern ? String(text).split(protectedPattern) : [String(text)];
+
+    const result = segments.map(segment => {
+        if (protectedSet.has(segment)) return segment;
+        let updatedSegment = segment;
+        for (const rule of rules) {
+            if (!rule?.original || rule.original === rule.replacement) continue;
+            const escaped = rule.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escaped, 'g');
+            const matches = updatedSegment.match(regex);
+            if (matches) replacementsMade += matches.length;
+            updatedSegment = updatedSegment.replace(regex, () => rule.replacement ?? '');
+        }
+        return updatedSegment;
+    }).join('');
+
+    return { text: result, replacementsMade };
+}
+
 export const processSubtitles = function(srtContent, options) {
-    const { maxCharsPerLine, keepPunctuation, fixTimestamps, timestampThreshold, batchReplaceRules, mergeShortLinesThreshold, timelineShift } = options;
+    const { maxCharsPerLine, keepPunctuation, fixTimestamps, timestampThreshold, batchReplaceRules, protectedTerms = [], mergeShortLinesThreshold, timelineShift } = options;
     let report = { fixedGaps: 0, fixedOverlaps: 0, linesSplit: 0, linesMerged: 0, replacementsMade: 0, timelineShifted: 0 };
     let isPlainText = false;
 
@@ -82,17 +113,9 @@ export const processSubtitles = function(srtContent, options) {
 
     if (batchReplaceRules.length > 0) {
         subs.forEach(sub => {
-            for (const rule of batchReplaceRules) {
-                if (rule.original) {
-                    const escaped = rule.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const regex = new RegExp(escaped, 'g');
-                    const matches = sub.text.match(regex);
-                    if(matches) {
-                        report.replacementsMade += matches.length;
-                    }
-                    sub.text = sub.text.replace(regex, rule.replacement);
-                }
-            }
+            const replacementResult = applyReplacementRules(sub.text, batchReplaceRules, protectedTerms);
+            sub.text = replacementResult.text;
+            report.replacementsMade += replacementResult.replacementsMade;
         });
     }
 

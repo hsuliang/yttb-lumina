@@ -1,6 +1,7 @@
 import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, adoptDraftSource, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
@@ -82,6 +83,8 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 export const saveEdmDraft = function() {
         if (state.edmVersions.length > 0) {
             localStorage.setItem(EDM_DRAFT_KEY, JSON.stringify({
+                sourceId: state.currentSourceId,
+                sourceContent: document.getElementById('smart-area').value,
                 versions: state.edmVersions,
                 currentIndex: state.currentEdmVersionIndex
             }));
@@ -99,8 +102,14 @@ export const restoreEdmDraft = function() {
             }
             try {
                 const parsed = JSON.parse(saved);
+                const smartArea = document.getElementById('smart-area');
+                if (!adoptDraftSource(parsed.sourceContent, parsed.sourceId)) {
+                    localStorage.removeItem(EDM_DRAFT_KEY);
+                    return false;
+                }
+                if (!smartArea.value.trim()) smartArea.value = parsed.sourceContent || '';
                 if (parsed.versions && parsed.versions.length > 0) {
-                    state.edmVersions = parsed.versions;
+                    state.edmVersions = stampVersions(parsed.versions, state.currentSourceId);
                     state.currentEdmVersionIndex = parsed.currentIndex || 0;
                     renderEdmVersionTabs();
                     renderCurrentEdmVersionUI();
@@ -136,18 +145,9 @@ export const hasEdmDraft = function() {
             style = '自訂風格 (請依據下方風格指令執行)';
         }
         
-        let sourceContent = '';
-        // Removed `let variationModifier = '';` as it's now an argument.
-        const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
-        const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
-
-        if (hasGeneratedBlog) {
-            sourceContent = state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent;
-        } else if (hasOptimizedText) {
-            sourceContent = `<p>${state.optimizedTextForBlog.replace(/\n/g, '</p><p>')}</p>`;
-        } else {
-             sourceContent = state.processedSrtResult || document.getElementById('smart-area').value;
-        }
+        const rawSourceText = document.getElementById('smart-area').value;
+        if (!state.currentSourceId && rawSourceText.trim()) activateSource(rawSourceText);
+        const sourceContent = getPreferredSource(rawSourceText).text;
 
         if(!sourceContent) {
             showModal({ title: '缺少內容來源', message: '無法找到可用於生成電子報的內容。請先在分頁 1 輸入內容。' });
@@ -158,7 +158,7 @@ export const hasEdmDraft = function() {
         // The variationModifier is now directly passed as an argument.
         
         const prompt = `你是一位專業的 Email 行銷專家與文案寫手。請根據下方提供的 [原始文章]，為 [${audience}] 這個目標群體，撰寫一封風格為 [${style}] 的電子報。
-        ${variationModifier ? `\n重要風格指令：${variationModifier}\n` : ''} // Updated conditional based on modifier presence
+        ${variationModifier ? `\n重要風格指令：${variationModifier}\n` : ''}
         請嚴格遵循以下規則：
         1.  **輸出格式**: 必須是乾淨、結構良好的 HTML 格式。
         2.  **主旨 (Subject)**: 在內容的最開始，必須包含一行用 \`<h3>\` 標籤包圍的電子報主旨。例如：<h3>🚀 本週必學的 AI 新技巧！</h3>
@@ -177,6 +177,7 @@ export const hasEdmDraft = function() {
 
     async function handleGenerateEdm(variationModifier = '', shouldOverride = false) { // Changed signature
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const requestSourceId = state.currentSourceId || activateSource(document.getElementById('smart-area').value).sourceId;
 
         
         const isVariation = variationModifier !== null; // Derived from variationModifier
@@ -216,6 +217,7 @@ export const hasEdmDraft = function() {
         try {
             let isFirstEdmChunk = true;
             const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (!isCurrentSource(requestSourceId)) return;
                 if (edmPreview) {
                     if (isFirstEdmChunk && chunkText !== '') {
                         isFirstEdmChunk = false;
@@ -227,7 +229,8 @@ export const hasEdmDraft = function() {
                     edmPreview.textContent = fullText;
                 }
             }, state.currentAbortController.signal);
-            const newVersion = { htmlContent: result };
+            if (!isCurrentSource(requestSourceId)) return;
+            const newVersion = { sourceId: requestSourceId, htmlContent: result };
 
             if (isVariation) {
                 state.edmVersions.push(newVersion);

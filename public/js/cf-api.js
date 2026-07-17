@@ -1,4 +1,5 @@
 // Cloudflare AI API Client
+import { TEXT_GENERATION_SYSTEM_INSTRUCTION } from './prompt-policy.js';
 
 export async function getCfSettings() {
     let url = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
@@ -46,7 +47,7 @@ export async function callCloudflareTextAPI(prompt, onStream = null, abortSignal
         }
     }
 
-    const systemPrompt = "請一律使用繁體中文（台灣）進行回答，絕對不要使用簡體中文。";
+    const systemPrompt = TEXT_GENERATION_SYSTEM_INSTRUCTION;
     const body = JSON.stringify({ prompt, model: actualModel, systemPrompt });
 
     try {
@@ -148,5 +149,3 @@ export async function callCloudflareTextAPI(prompt, onStream = null, abortSignal
         throw new Error(`Cloudflare API 失敗: ${errorMsg}`);
     }
 }
-
-

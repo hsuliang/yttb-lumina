@@ -1,6 +1,7 @@
 import { showToast, showModal, hideModal } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
+import { activateSource, adoptDraftSource, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
@@ -212,6 +213,8 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 export const saveCarouselDraft = function() {
         if (state.carouselVersions.length > 0) {
             localStorage.setItem(CAROUSEL_DRAFT_KEY, JSON.stringify({
+                sourceId: state.currentSourceId,
+                sourceContent: document.getElementById('smart-area').value,
                 versions: state.carouselVersions,
                 currentIndex: state.currentCarouselVersionIndex
             }));
@@ -229,8 +232,14 @@ export const restoreCarouselDraft = function() {
             }
             try {
                 const parsed = JSON.parse(saved);
+                const smartArea = document.getElementById('smart-area');
+                if (!adoptDraftSource(parsed.sourceContent, parsed.sourceId)) {
+                    localStorage.removeItem(CAROUSEL_DRAFT_KEY);
+                    return false;
+                }
+                if (!smartArea.value.trim()) smartArea.value = parsed.sourceContent || '';
                 if (parsed.versions && parsed.versions.length > 0) {
-                    state.carouselVersions = parsed.versions;
+                    state.carouselVersions = stampVersions(parsed.versions, state.currentSourceId);
                     state.currentCarouselVersionIndex = parsed.currentIndex || 0;
                     renderCarouselVersionTabs();
                     renderCurrentCarouselVersionUI();
@@ -247,6 +256,8 @@ export const clearCarouselDraft = function() {
         localStorage.removeItem(CAROUSEL_DRAFT_KEY);
         state.carouselVersions = [];
         state.currentCarouselVersionIndex = 0;
+        roles = [];
+        renderRoles();
         renderCarouselVersionTabs();
         renderCurrentCarouselVersionUI();
     }
@@ -260,17 +271,9 @@ export const hasCarouselDraft = function() {
     // --- 提示詞組裝 ---
     function assembleCarouselPrompt(variationModifier = '', shouldOverride = false) {
         // 1. 取得來源內容
-        let sourceContent = '';
-        const hasGeneratedBlog = state.blogArticleVersions && state.blogArticleVersions.length > 0;
-        const hasOptimizedText = state.optimizedTextForBlog && state.optimizedTextForBlog.trim().length > 0;
-
-        if (hasGeneratedBlog) {
-            sourceContent = state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent;
-        } else if (hasOptimizedText) {
-            sourceContent = `<p>${state.optimizedTextForBlog.replace(/\n/g, '</p><p>')}</p>`;
-        } else {
-            sourceContent = document.getElementById('smart-area').value;
-        }
+        const rawSourceText = document.getElementById('smart-area').value;
+        if (!state.currentSourceId && rawSourceText.trim()) activateSource(rawSourceText);
+        let sourceContent = getPreferredSource(rawSourceText).text;
 
         if(!sourceContent) {
             showModal({ title: '缺少內容來源', message: '無法找到可用於生成輪播圖的內容。請先在分頁 1 輸入內容。' });
@@ -312,6 +315,13 @@ ${roleLines.join('\n')}`;
         } else {
             logoInstruction = `\n- 浮水印/Logo 規則：本集設定不加入Logo 圖示，提示詞中絕對不可出現任何關於 logo、浮水印或商標相關的描述。`;
         }
+
+        const exampleSubject = validRoles.length > 0
+            ? `畫面主體使用 ${validRoles.map((role, idx) => `image${idx + 1} (${role})`).join('、')}，依本頁內容安排表情、動作與互動`
+            : '畫面主體使用與本頁內容直接相關的物件、環境或抽象概念，不出現主持人、來賓或其他人物';
+        const exampleLogo = includeLogo
+            ? `，右上角放置 image${logoIndex} 的 Logo 圖示`
+            : '';
 
         // 3. 確定風格
         let styleDescription = "";
@@ -451,7 +461,7 @@ ${roleLines.join('\n')}`;
   
   1. **適用繪圖工具與提示詞優化**：
      - 本提示詞主要用於 ChatGPT (DALL-E 3) 或是 Nana Banana 繪圖工具，請以流暢、細緻的「繁體中文描述」撰寫繪圖提示詞（不要使用 Midjourney 的參數如 --ar, --no 等）。
-     - 為了確保角色一致性，必須完整保留角色變數與其括號內的原名，例如「image2 (小壁虎)」或「image1 (ㄚ亮笑長)」，絕對不要將其名稱自行翻譯或變更（如將小壁虎翻譯成 gecko）。
+     - 為了確保角色一致性，若使用者有設定角色，必須完整保留角色變數與其括號內的原名，例如「image1 (使用者設定的角色名稱)」，絕對不要自行翻譯、改名或新增未設定角色。
      - 為了防止這些工具生成「四宮格、二格、拼貼、分割畫面或組圖」，每張圖的提示詞中，必須明確加入防分割限制詞：「這是一張單一且完整的圖片，絕對不要使用分割畫面、拼貼格、多圖組合或漫畫方格的形式 (single complete image, no split screen, no collage, no grid, no panels, no comic strip)」。
   
   2. **圖片規格與風格**：
@@ -482,7 +492,7 @@ ${layoutInstructionsText}
   生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張
   
   [第 1 張]
-  請生成 1:1 正方形社群輪播圖，風格為現代、簡潔的扁平插畫，帶有友好且具教育意義的氛圍。色彩運用柔和且具吸引力，以藍綠、米白和淡黃色為主調。畫面中心，image2 (小壁虎) 呈現出一種略帶焦慮和不知所措的表情... [在此詳細描述場景與人物互動關係，必須以變數指代角色如 image1, image2，以及融入logo指代如右上角必須直接放上 image3 的logo圖示...], 這是一張單一且完整的圖片，絕對不要使用分割畫面、拼貼格、多圖組合或漫畫方格的形式 (single complete image, no split screen, no collage, no grid, no panels, no comic strip)。
+  請生成 1:1 正方形社群輪播圖。[依使用者選擇的風格與原始文章描述配色及構圖]。${exampleSubject}${exampleLogo}。這是一張單一且完整的圖片，絕對不要使用分割畫面、拼貼格、多圖組合或漫畫方格的形式 (single complete image, no split screen, no collage, no grid, no panels, no comic strip)。
   圖上排版與文字標示：
   ${exampleFormatText}
   不可出現任何版權角色。整體要適合社群快速滑讀。
@@ -501,7 +511,7 @@ ${layoutInstructionsText}
     // --- API 呼叫與生成邏輯 ---
     async function handleGenerateCarousel(variationModifier = '', shouldOverride = false) {
         const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
-
+        const requestSourceId = state.currentSourceId || activateSource(document.getElementById('smart-area').value).sourceId;
 
         const isVariation = variationModifier !== '';
         const prompt = assembleCarouselPrompt(variationModifier, shouldOverride);
@@ -539,6 +549,7 @@ ${layoutInstructionsText}
             let fullResult = "";
             let isFirstCarouselChunk = true;
             const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
+                if (!isCurrentSource(requestSourceId)) return;
                 fullResult = fullText;
                 let displayText = fullText;
 
@@ -554,6 +565,7 @@ ${layoutInstructionsText}
                     carouselPromptTextarea.scrollTop = carouselPromptTextarea.scrollHeight;
                 }
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
+            if (!isCurrentSource(requestSourceId)) return;
             
             // 確保生成文字最前方有固定的開頭
             let finalResult = result.trim();
@@ -563,6 +575,7 @@ ${layoutInstructionsText}
             }
 
             const newVersion = {
+                sourceId: requestSourceId,
                 textContent: finalResult
             };
 
