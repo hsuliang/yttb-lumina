@@ -132,21 +132,23 @@ function assembleSocialPrompt(options) {
     let lineRules = wizardSettings.lineColloquial ? ['- 規則: 請務必使用更像朋友聊天的口語化詞彙（例如：「話說」、「～啊」、「啦」）。'] : [];
     if (wizardSettings.lineSticker) lineRules.push('- 規則: 在適當的地方，用文字建議適合的貼圖，例如 `(熊大灑花)`、`(兔兔驚訝)`。');
 
-    return `你是一位專業的社群小編。請根據以下[逐字稿]和指定的[參數]，為 Facebook、Instagram、Line 這三個平台各生成一篇推廣貼文。請嚴格按照指定的格式與分隔標記輸出，不要有任何額外的文字或說明。
+    return `你是一位專業的社群內容總監。請根據以下[逐字稿]和指定的[參數]，把同一份內容依照不同平台的閱讀情境，分別改寫成 Facebook、Instagram、Line 推廣貼文。優先抓出受眾痛點與具體解方、反差衝突，或逐字稿中的有力金句，避免流水帳摘要。
+
+所有人名、機構、數字、事件、引言與觀點只能取自逐字稿；未提供的事實不得自行補寫。請嚴格按照指定的格式與分隔標記輸出，不要有任何額外的文字或說明。
 
 [通用參數]:
 ${globalRules.join('\n')}
 
 [FACEBOOK_POST_START]
-(適合 Facebook 的貼文，可包含 Emoji 和 Hashtags。${fbRules.length > 0 ? '\n' + fbRules.join('\n') : ''})
+(撰寫一篇能引發轉發、收藏與留言分享經驗的深度貼文。以最具啟發性的真實引言或受眾痛點情境破題，依序完成「引言／痛點破題 → 情境鋪陳 → 核心解方 → 行動呼籲與互動問題 → Hashtags」。語氣感性、有故事感且具啟發性，可適量使用 Emoji；文末附上 3-5 個相關 Hashtags。${fbRules.length > 0 ? '\n' + fbRules.join('\n') : ''})
 [FACEBOOK_POST_END]
 
 [INSTAGRAM_POST_START]
-(適合 Instagram 的貼文，文案較精簡，並在文末附上 5-10 個相關 Hashtags。${igRules.length > 0 ? '\n' + igRules.join('\n') : ''})
+(撰寫一篇適合 Instagram 閱讀與收藏的深度貼文。以有力金句或痛點情境開場，依序完成「引言／痛點破題 → 精簡的情境鋪陳 → 核心解方 → 明確 CTA → Hashtags」。段落短、節奏鮮明並適量使用 Emoji；文末附上 5-10 個相關 Hashtags。${igRules.length > 0 ? '\n' + igRules.join('\n') : ''})
 [INSTAGRAM_POST_END]
 
 [LINE_POST_START]
-(適合 Line 的貼文，語氣更口語化、更親切。${lineRules.length > 0 ? '\n' + lineRules.join('\n') : ''})
+(撰寫一則能在一秒內促使讀者點擊的 Line 官方帳號／群組推播。依序完成「朋友般的親切問候或痛點提問 → 一句話揭露最強亮點並保留懸念 → 明確邀請點擊連結」。內容必須極短、親切、急迫且高轉換；若[行動呼籲]或逐字稿沒有提供網址，使用「【置入短連結】」作為可編輯位置，不得虛構網址。${lineRules.length > 0 ? '\n' + lineRules.join('\n') : ''})
 [LINE_POST_END]
 
 [逐字稿]:
