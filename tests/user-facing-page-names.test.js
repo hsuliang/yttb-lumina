@@ -11,6 +11,7 @@ const userInterfaceSource = [
     'public/js/tab4-edm.js',
     'public/js/tab5-carousel.js',
     'public/js/tab6-infographic.js',
+    'public/js/tab7-thumbnail.js',
 ].map(readProjectFile).join('\n');
 
 test('user-facing guidance uses page names instead of Tab numbers', () => {

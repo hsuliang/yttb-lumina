@@ -33,6 +33,14 @@ export const AI_PROMPT_MESSAGES = { chapters: [ "AI 正在精讀影片內容，�
         "正在編寫 Mermaid 結構圖代碼以供即時預覽...",
         "AI 正在進行最後修飾，請稍候..."
     ],
+    thumbnail: [
+        "正在精讀影片內容，找出最有點擊張力的核心衝突...",
+        "正在設計封面主角的動作、表情與故事場景...",
+        "正在規劃 16:9 構圖、鏡頭角度與標題留白...",
+        "正在鎖定角色臉部一致性與圖片素材指代...",
+        "正在強化繁體中文標題的字體與對比效果...",
+        "AI 正在整合光影與視覺風格，請稍候..."
+    ],
     transcribe: [
         "正在將音檔上傳至語音辨識引擎...",
         "AI 正在仔細聆聽您的語音內容...",
@@ -77,6 +85,8 @@ export let state = {
     currentCarouselVersionIndex: 0,
     infographicVersions: [],
     currentInfographicVersionIndex: 0,
+    thumbnailVersions: [],
+    currentThumbnailVersionIndex: 0,
     transcribeResult: null,
     transcribeLanguage: 'auto',
     transcribeEngine: 'gemini'

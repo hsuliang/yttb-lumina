@@ -9,6 +9,7 @@ const draftModules = [
     'public/js/tab4-edm.js',
     'public/js/tab5-carousel.js',
     'public/js/tab6-infographic.js',
+    'public/js/tab7-thumbnail.js',
     'public/js/ui-components.js'
 ];
 

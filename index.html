@@ -134,7 +134,7 @@
                 </h1>
             </div>
             <p class="text-lg text-gray-300 max-w-2xl leading-relaxed mb-4">
-                歡迎使用全方位 AI 數位內容創作助手！一鍵將影片字幕稿整理為部落格文章、社群貼文、電子報、輪播圖與資訊圖表規劃，大幅提升您的創作效率。
+                歡迎使用全方位 AI 數位內容創作助手！一鍵將影片字幕稿整理為部落格文章、社群貼文、電子報、輪播圖、資訊圖表與 YouTube 封面提示詞，大幅提升您的創作效率。
             </p>
 
             <!-- API 金鑰狀態卡片 -->
@@ -196,6 +196,13 @@
                         <h3 class="font-bold text-white text-base">資訊圖表規劃結構</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">深度分析文稿，為您規劃出適合製作成 Infographic 的資訊結構報告與繪圖提示詞。</p>
+                </div>
+                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl text-[#fb7185]">🎬</span>
+                        <h3 class="font-bold text-white text-base">YT 封面提示詞</h3>
+                    </div>
+                    <p class="text-xs text-gray-400 leading-normal">從影片內容提煉吸睛標題、角色動作、鏡頭構圖與 16:9 YouTube 封面繪圖提示詞。</p>
                 </div>
             </div>
 
@@ -260,6 +267,10 @@
                 <span class="material-symbols-outlined">insert_chart</span>
                 <span class="text-[15px] font-semibold flex-1">資訊圖表提示詞</span>
             </a>
+            <a class="tab-btn flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant font-medium hover:bg-surface-variant/20 hover:text-on-surface transition-all duration-200" href="#" data-tab="tab7">
+                <span class="material-symbols-outlined">video_camera_front</span>
+                <span class="text-[15px] font-semibold flex-1">YT封面提示詞</span>
+            </a>
         </div>
 
 
@@ -279,7 +290,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260726<span class="text-error font-bold">R7</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260726<span class="text-error font-bold">R8</span>
             </div>
         </div>
     </nav>
@@ -1470,6 +1481,126 @@
                                     </div>
                                     <textarea id="infographic-prompt-textarea" readonly class="w-full flex-1 p-4 bg-surface-container-lowest/50 text-on-surface font-mono text-xs rounded-xl focus:outline-none resize-none leading-relaxed border border-outline-variant/10 custom-scrollbar"></textarea>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== TAB 7: YOUTUBE THUMBNAIL PROMPTS ==================== -->
+            <div id="tab7" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
+                <div class="flex justify-between items-end shrink-0">
+                    <h2 class="font-headline-lg text-headline-lg text-on-surface">🎬 YT 封面提示詞生成</h2>
+                </div>
+
+                <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                        <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2 shrink-0">
+                            <span class="material-symbols-outlined text-primary text-[20px]">video_camera_front</span>封面設定
+                        </h3>
+
+                        <div class="flex-1 overflow-y-auto pr-1 space-y-4">
+                            <div class="space-y-1.5">
+                                <label id="thumbnail-source-status" class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider block">內容來源：字幕原始檔</label>
+                                <button id="thumbnail-go-to-optimize-btn" class="w-full py-2 flex items-center justify-center gap-1.5 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 transition-colors font-body-sm text-body-sm">
+                                    <span class="material-symbols-outlined text-[16px]">auto_awesome</span>最佳化文字以提升品質
+                                </button>
+                            </div>
+
+                            <hr class="border-outline-variant/10">
+
+                            <div class="space-y-3">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold uppercase tracking-wider block">自訂素材/角色設定 (最多 4 個)</label>
+                                <div id="thumbnail-roles-container" class="space-y-2"></div>
+                                <button id="thumbnail-add-role-btn" class="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-outline-variant hover:border-primary/50 hover:bg-primary/5 text-on-surface-variant hover:text-primary transition-all font-body-sm text-body-sm">
+                                    <span class="material-symbols-outlined text-[16px]">add_circle</span>新增角色
+                                </button>
+                            </div>
+
+                            <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-lowest/50 border border-outline-variant/10">
+                                <div class="relative flex items-center justify-center w-5 h-5 shrink-0">
+                                    <input class="peer appearance-none w-5 h-5 border-2 border-outline-variant rounded bg-transparent checked:bg-primary checked:border-primary transition-colors cursor-pointer" id="thumbnail-include-logo" type="checkbox">
+                                    <span class="material-symbols-outlined absolute text-[16px] text-on-primary opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity">check</span>
+                                </div>
+                                <label class="font-body-md text-body-sm text-on-surface cursor-pointer select-none flex-1" for="thumbnail-include-logo">在提示詞中包含 Logo 圖示</label>
+                            </div>
+
+                            <hr class="border-outline-variant/10">
+
+                            <div class="space-y-1.5">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-title">封面標題（選填）</label>
+                                <input id="thumbnail-title" type="text" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface focus:outline-none" placeholder="留空由 AI 產生吸睛繁中標題">
+                                <p class="font-body-sm text-[11px] text-on-surface-variant">標題字數不設限；留空時 AI 會依影片內容自動產生吸睛繁中標題。</p>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-shot">構圖／鏡頭</label>
+                                <div class="relative">
+                                    <select id="thumbnail-shot" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none appearance-none pr-10">
+                                        <option value="auto" selected>AI 參考內容自動決定（推薦）</option>
+                                        <option value="low-angle-wide">充滿動態張力的廣角仰角</option>
+                                        <option value="close-up">景深極淺的近景特寫</option>
+                                        <option value="eye-level-wide">充滿張力與透視感的廣角平視</option>
+                                        <option value="high-angle">廣角俯視鏡頭</option>
+                                        <option value="symmetrical-panoramic">強烈透視感的對稱式全景</option>
+                                    </select>
+                                    <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[20px]">expand_more</span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-style">圖片視覺風格</label>
+                                <div class="relative">
+                                    <select id="thumbnail-style" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none appearance-none pr-10">
+                                        <option value="auto" selected>AI 參考內容自動決定風格（推薦）</option>
+                                        <option value="saturated-3d">極度飽和的現代 3D 綜藝動畫</option>
+                                        <option value="cinematic-realistic">電影級超寫實渲染</option>
+                                        <option value="bright-3d-animation">飽和明亮的 3D 歡樂動畫</option>
+                                        <option value="cyberpunk-neon">懸疑賽博龐克霓虹科技</option>
+                                        <option value="warm-realistic-photo">電影級暖光高畫質寫實攝影</option>
+                                        <option value="custom">自訂風格</option>
+                                    </select>
+                                    <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[20px]">expand_more</span>
+                                </div>
+                            </div>
+
+                            <div id="thumbnail-custom-style-container" class="hidden space-y-1">
+                                <label for="thumbnail-custom-style" class="font-semibold text-xs text-on-surface-variant">自訂風格提示詞</label>
+                                <textarea id="thumbnail-custom-style" class="w-full glass-input rounded-lg p-2.5 font-body-sm text-body-sm text-on-surface focus:outline-none resize-none" placeholder="例如：復古電視節目海報風，高飽和撞色與粗顆粒質感..." rows="2"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 border-t border-outline-variant/10 flex gap-3 mt-auto shrink-0">
+                            <button id="generate-thumbnail-variation-btn" class="px-4 py-2.5 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-variant/30 hover:border-outline-variant transition-colors flex items-center justify-center gap-1.5 font-label-md text-label-md text-xs" disabled>
+                                <span class="material-symbols-outlined text-[18px]">sync</span>另一版本
+                            </button>
+                            <button id="generate-thumbnail-btn" class="flex-1 py-3 rounded-lg bg-secondary-container text-on-secondary-container font-bold hover:brightness-115 transition-all flex items-center justify-center gap-1.5 font-label-md text-label-md text-sm shadow-md">
+                                <span class="material-symbols-outlined text-[18px]">auto_awesome</span>生成提示詞
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex-grow min-h-0 bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 relative flex flex-col overflow-hidden shadow-lg shadow-black/10">
+                        <div class="px-6 py-4 border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-low/30 shrink-0">
+                            <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
+                                <span class="material-symbols-outlined text-primary text-[20px]">visibility</span>內容預覽
+                            </h3>
+                        </div>
+                        <div id="thumbnail-versions-tabs-container" class="flex px-6 py-2 border-b border-outline-variant/10 bg-surface/20 shrink-0 gap-2"></div>
+                        <div class="flex-grow overflow-hidden relative">
+                            <div id="thumbnail-placeholder" class="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-surface/10 pointer-events-none z-10">
+                                <span class="material-symbols-outlined text-5xl text-on-surface-variant/30 mb-3">video_camera_front</span>
+                                <h4 class="font-headline-md text-headline-md text-on-surface-variant/50">準備生成 YT 封面提示詞</h4>
+                                <p class="font-body-sm text-body-sm text-on-surface-variant/40 mt-1 max-w-sm">AI 將分析影片內容，產生角色一致、標題醒目且符合 16:9 構圖的封面提示詞。</p>
+                            </div>
+                            <div id="thumbnail-output-container" class="hidden w-full h-full flex flex-col relative z-20 overflow-hidden p-6 gap-3">
+                                <div class="flex items-center justify-between shrink-0 gap-3">
+                                    <span class="text-sm md:text-base font-bold text-on-surface">YT 封面提示詞</span>
+                                    <button id="copy-thumbnail-prompt-btn" class="px-3 py-1.5 rounded-lg bg-secondary text-[#341100] hover:brightness-110 text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow transition-all">
+                                        <span class="material-symbols-outlined text-[14px]">content_copy</span>複製提示詞
+                                    </button>
+                                </div>
+                                <textarea id="thumbnail-prompt-textarea" readonly class="w-full flex-1 p-4 bg-surface-container-lowest/50 text-on-surface font-mono text-xs rounded-xl focus:outline-none resize-none leading-relaxed border border-outline-variant/10"></textarea>
                             </div>
                         </div>
                     </div>

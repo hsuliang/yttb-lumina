@@ -6,6 +6,7 @@ import { initializeTab3 } from './tab3-social.js';
 import { initializeTab4 } from './tab4-edm.js';
 import { initializeTab5 } from './tab5-carousel.js';
 import { initializeTab6, analyzeInfographicContent } from './tab6-infographic.js';
+import { initializeTab7 } from './tab7-thumbnail.js';
 import { showToast, showModal, hideModal, copyModalContent, saveFile } from './ui-components.js';
 import { resolveFlashModelsList } from './gemini-api.js';
 import { isGeminiKeyAvailable } from './gemini-routing.js';
@@ -103,6 +104,7 @@ export const updateAiButtonStatus = function() {
         updateButtonState(document.getElementById('generate-edm-btn'), '生成電子報內容', isAiDisabled);
         updateButtonState(document.getElementById('generate-carousel-btn'), '生成輪播圖提示詞', isAiDisabled);
         updateButtonState(document.getElementById('generate-infographic-btn'), '生成資訊圖表提示詞', isAiDisabled);
+        updateButtonState(document.getElementById('generate-thumbnail-btn'), '生成 YT 封面提示詞', isAiDisabled);
 
         // 處理 Variation 按鈕的禁用狀態
         const blogVariationBtn = document.getElementById('generate-blog-variation-btn');
@@ -119,6 +121,9 @@ export const updateAiButtonStatus = function() {
 
         const infographicVariationBtn = document.getElementById('generate-infographic-variation-btn');
         if(infographicVariationBtn) infographicVariationBtn.disabled = state.infographicVersions.length === 0;
+
+        const thumbnailVariationBtn = document.getElementById('generate-thumbnail-variation-btn');
+        if(thumbnailVariationBtn) thumbnailVariationBtn.disabled = state.thumbnailVersions.length === 0;
     }
     
 export const updateSourceStatusUI = function() {
@@ -165,7 +170,7 @@ export const updateSourceStatusUI = function() {
             }
         };
 
-        ['blog', 'social', 'edm', 'carousel', 'infographic'].forEach(updateElements);
+        ['blog', 'social', 'edm', 'carousel', 'infographic', 'thumbnail'].forEach(updateElements);
     }
 
     // --- 儲存媒介存取輔助函式 ---
@@ -663,7 +668,8 @@ export const updateTabAvailability = function() {
             { btn: document.querySelector('.tab-btn[data-tab="tab3"]'), defaultTitle: '為多個社群平台生成貼文' },
             { btn: document.querySelector('.tab-btn[data-tab="tab4"]'), defaultTitle: '將文章內容生成電子報' },
             { btn: document.querySelector('.tab-btn[data-tab="tab5"]'), defaultTitle: '社群輪播圖提示詞' },
-            { btn: document.querySelector('.tab-btn[data-tab="tab6"]'), defaultTitle: '資訊圖表提示詞' }
+            { btn: document.querySelector('.tab-btn[data-tab="tab6"]'), defaultTitle: '資訊圖表提示詞' },
+            { btn: document.querySelector('.tab-btn[data-tab="tab7"]'), defaultTitle: 'YT 封面提示詞' }
         ];
 
         tabs.forEach(tab => {
@@ -702,6 +708,7 @@ export const switchTab = (tabId) => {
         try { initializeTab4(); } catch(e) { console.error("Error initializing Tab 4:", e); }
         try { initializeTab5(); } catch(e) { console.error("Error initializing Tab 5:", e); }
         try { if (initializeTab6) { initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
+        try { if (initializeTab7) { initializeTab7(); } } catch(e) { console.error("Error initializing Tab 7:", e); }
 
         try { updateApiKeyStatus(); window.addEventListener('settings-updated', updateApiKeyStatus); } catch(e) { console.error("Error updating API key status:", e); }
 
@@ -1408,6 +1415,8 @@ state.currentAbortController = null;
             state.currentCarouselVersionIndex = 0;
             state.infographicVersions = [];
             state.currentInfographicVersionIndex = 0;
+            state.thumbnailVersions = [];
+            state.currentThumbnailVersionIndex = 0;
 
             if (options.notify) {
                 showToast('已自動清除舊的產出內容，準備迎接新創作！');
@@ -1476,7 +1485,8 @@ state.currentAbortController = null;
                 state.socialPostVersions.length ||
                 state.edmVersions.length ||
                 state.carouselVersions.length ||
-                state.infographicVersions.length
+                state.infographicVersions.length ||
+                state.thumbnailVersions.length
             );
             state.processedSrtResult = '';
             state.processedSourceId = '';
