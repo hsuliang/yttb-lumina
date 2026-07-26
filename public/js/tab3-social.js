@@ -1,9 +1,9 @@
 import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
-import { activateSource, adoptDraftSource, getCanonicalTranscript, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
+import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
 /**
  * tab3-social.js
@@ -15,60 +15,6 @@ const SOCIAL_SETTINGS_STORAGE_KEYS = {
     TONE: 'aliang-yttb-setting-social-tone',
     PROMPT_WIZARD: 'aliang-yttb-setting-social-wizard'
 };
-const SOCIAL_DRAFT_KEY = 'aliang-yttb-draft-social';
-
-export const hasSocialDraft = function() {
-    return localStorage.getItem(SOCIAL_DRAFT_KEY) !== null;
-}
-
-export const restoreSocialDraft = function() {
-    try {
-        const draftJSON = localStorage.getItem(SOCIAL_DRAFT_KEY);
-        if (!draftJSON) return;
-        const draft = JSON.parse(draftJSON);
-        const smartArea = document.getElementById('smart-area');
-        if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
-            clearSocialDraft();
-            return false;
-        }
-
-        if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
-        state.optimizedTextForBlog = draft.optimizedContent || '';
-        state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
-        state.blogSourceType = draft.sourceType || 'raw';
-        
-        document.getElementById('social-objective').value = draft.objective || '引導觀看 YouTube';
-        document.getElementById('social-length').value = draft.length || '中等';
-        document.getElementById('social-tone-select').value = draft.tone || '充滿能量與感染力';
-        document.getElementById('social-hashtags').value = draft.hashtags || '';
-        document.getElementById('social-cta').value = draft.cta || '';
-
-        if(draft.versions && draft.versions.length > 0) {
-            state.socialPostVersions = stampVersions(draft.versions, state.currentSourceId);
-            state.currentSocialVersionIndex = draft.currentVersionIndex || 0;
-
-            renderSocialVersionTabs();
-            renderCurrentSocialVersionUI();
-
-            document.getElementById('social-placeholder').classList.add('hidden');
-            document.getElementById('social-output-container').classList.remove('hidden');
-            document.getElementById('generate-social-variation-btn').disabled = false;
-            document.getElementById('social-copy-btn').classList.remove('hidden');
-        }
-        
-        if (updateTabAvailability) updateTabAvailability();
-        if (updateAiButtonStatus) updateAiButtonStatus();
-
-        showToast('社群貼文草稿已成功恢復！');
-    } catch (e) {
-        console.error('無法讀取社群貼文草稿:', e);
-        clearSocialDraft();
-    }
-}
-
-export const clearSocialDraft = function() {
-    localStorage.removeItem(SOCIAL_DRAFT_KEY);
-}
 
 function resetTab3() {
     state.socialPostVersions = [];
@@ -95,7 +41,6 @@ function resetTab3() {
     }
     if (wizardCoreViewpoint) wizardCoreViewpoint.value = '';
     
-    clearSocialDraft();
 }
 
 window.addEventListener('lumina:clearDownstreamTabs', resetTab3);
@@ -265,26 +210,6 @@ function renderCurrentSocialVersionUI() {
         socialToneSelect.value = localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.TONE) || '充滿能量與感染力';
     }
     
-    function saveSocialDraft() {
-        const rawContent = getCanonicalTranscript(document.getElementById('smart-area').value);
-        const hasContent = rawContent.length > 0;
-        if (!hasContent && state.socialPostVersions.length === 0) return;
-
-        const draft = {
-            sourceId: state.currentSourceId,
-            sourceContent: document.getElementById('smart-area').value,
-            optimizedContent: state.optimizedTextForBlog,
-            sourceType: state.blogSourceType,
-            objective: socialObjectiveSelect.value, length: socialLengthSelect.value, tone: socialToneSelect.value,
-            hashtags: socialHashtagsInput.value, cta: socialCtaTextarea.value,
-            versions: state.socialPostVersions,
-            currentVersionIndex: state.currentSocialVersionIndex,
-            timestamp: new Date().getTime(),
-        };
-        try { localStorage.setItem(SOCIAL_DRAFT_KEY, JSON.stringify(draft)); } 
-        catch (e) { console.error('無法儲存社群貼文草稿:', e); }
-    }
-
 export const switchSocialTab = function(platform) {
         state.activeSocialTab = platform;
         socialTabBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.platform === platform));
@@ -397,7 +322,6 @@ export const switchSocialTab = function(platform) {
             renderCurrentSocialVersionUI();
 
             generateSocialVariationBtn.disabled = false;
-            saveSocialDraft();
             switchSocialTab('facebook');
         } catch (error) {
             if (error.name === 'AbortError' || (error.message && error.message.includes('aborted'))) {
@@ -467,11 +391,9 @@ export const switchSocialTab = function(platform) {
     socialCopyBtn.addEventListener('click', copySocialPost);
     socialTabBtns.forEach(btn => btn.addEventListener('click', () => switchSocialTab(btn.dataset.platform)));
 
-    socialObjectiveSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.OBJECTIVE, e.target.value); saveSocialDraft(); });
-    socialLengthSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.LENGTH, e.target.value); saveSocialDraft(); });
-    socialToneSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.TONE, e.target.value); saveSocialDraft(); });
-    socialHashtagsInput.addEventListener('input', saveSocialDraft);
-    socialCtaTextarea.addEventListener('input', saveSocialDraft);
+    socialObjectiveSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.OBJECTIVE, e.target.value); });
+    socialLengthSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.LENGTH, e.target.value); });
+    socialToneSelect.addEventListener('change', (e) => { saveSocialSetting(SOCIAL_SETTINGS_STORAGE_KEYS.TONE, e.target.value); });
 
     const socialObjectiveOptions = { '引導觀看 YouTube': '引導觀看 YouTube', '引導閱讀部落格': '引導閱讀部落格', '引發留言互動': '引發留言互動', '分享核心觀點': '分享核心觀點' };
     const socialLengthOptions = { '簡短': '簡短 (一句話)', '中等': '中等 (一段)', '詳細': '詳細 (多段)' };
@@ -481,17 +403,5 @@ export const switchSocialTab = function(platform) {
     populateSelectWithOptions(socialToneSelect, toneOptions);
     
     loadSocialSettings();
-
-    if (hasSocialDraft()) {
-        setTimeout(() => {
-            if (window.checkGlobalDrafts()) {
-                restoreSocialDraft();
-            } else {
-                clearSocialDraft();
-                if(updateTabAvailability) updateTabAvailability();
-                window.dispatchEvent(new Event('lumina:draftCleared'));
-            }
-        }, 100);
-    }
 
 export function initializeTab3() {}

@@ -2,6 +2,14 @@ import { state } from './state.js';
 import { buildTranscriptionTerminologyInstruction, TEXT_GENERATION_SYSTEM_INSTRUCTION } from './prompt-policy.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { callCloudflareTextAPI } from './cf-api.js';
+import {
+    GEMINI_FALLBACK_MODEL,
+    GEMINI_REQUEST_INTERVAL_MS,
+    buildApprovedFlashModelList,
+    classifyGeminiError,
+    filterModelsForKey,
+    isGeminiKeyAvailable,
+} from './gemini-routing.js';
 
 /**
  * gemini-api.js
@@ -12,7 +20,7 @@ import { callCloudflareTextAPI } from './cf-api.js';
 /**
  * 【使用官方 SDK 版本】
  * 呼叫 Gemini API 並獲取回應。
- * SDK 會自動處理重試與指數退避。
+ * 重試、節流與金鑰輪替由本模組統一處理。
  *
  * @param {string} apiKey - 您的 Gemini API Key。
  * @param {string} prompt - 要發送給模型的提示詞。
@@ -21,7 +29,160 @@ import { callCloudflareTextAPI } from './cf-api.js';
  * @throws {Error} 如果 API 請求最終失敗，則拋出錯誤。
  */
 const modelCache = new Map();
-const FALLBACK_MODEL = 'gemini-flash-latest';
+const keyNextRequestAt = new Map();
+
+function readStoredKeyEntries() {
+    let isSession = false;
+    let stored = localStorage.getItem('geminiApiKeys');
+    if (!stored) {
+        stored = sessionStorage.getItem('geminiApiKeys');
+        isSession = true;
+    }
+
+    if (!stored) return { entries: [], isSession };
+
+    try {
+        const parsed = JSON.parse(stored);
+        const entries = Array.isArray(parsed)
+            ? parsed.map(entry => typeof entry === 'string' ? { key: entry, count: 0 } : entry).filter(entry => entry?.key)
+            : [];
+        return { entries, isSession };
+    } catch (error) {
+        console.warn('Failed to parse geminiApiKeys from storage', error);
+        return { entries: [], isSession };
+    }
+}
+
+function writeStoredKeyEntries(entries, isSession) {
+    const storage = isSession ? sessionStorage : localStorage;
+    storage.setItem('geminiApiKeys', JSON.stringify(entries));
+}
+
+function updateStoredKeyEntry(apiKey, updater) {
+    const { entries, isSession } = readStoredKeyEntries();
+    const entry = entries.find(item => item.key === apiKey);
+    if (!entry) return null;
+    updater(entry);
+    writeStoredKeyEntries(entries, isSession);
+    return entry;
+}
+
+function getStoredKeyEntry(apiKey) {
+    return readStoredKeyEntries().entries.find(entry => entry.key === apiKey) || { key: apiKey, count: 0 };
+}
+
+function buildKeyPool(preferredKey) {
+    const now = Date.now();
+    const { entries } = readStoredKeyEntries();
+    let availableEntries = entries.filter(entry => isGeminiKeyAvailable(entry, now));
+
+    if (availableEntries.length === 0 && preferredKey && entries.length === 0) {
+        availableEntries = [{ key: preferredKey, count: 0 }];
+    }
+
+    availableEntries.sort((a, b) => (a.count || 0) - (b.count || 0));
+    const keys = availableEntries.map(entry => entry.key);
+
+    if (preferredKey && keys.includes(preferredKey)) {
+        return [preferredKey, ...keys.filter(key => key !== preferredKey)];
+    }
+    return keys;
+}
+
+function getPacificDayKey(timestamp = Date.now()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(timestamp));
+}
+
+function recordKeyAttempt(apiKey, modelName) {
+    updateStoredKeyEntry(apiKey, entry => {
+        const day = getPacificDayKey();
+        entry.usageByModel = entry.usageByModel || {};
+        const usage = entry.usageByModel[modelName];
+        entry.usageByModel[modelName] = usage?.day === day
+            ? { day, requests: (usage.requests || 0) + 1 }
+            : { day, requests: 1 };
+        entry.lastAttemptAt = Date.now();
+    });
+}
+
+function recordKeySuccess(apiKey) {
+    updateStoredKeyEntry(apiKey, entry => {
+        entry.count = (entry.count || 0) + 1;
+        entry.consecutiveFailures = 0;
+        entry.lastErrorReason = '';
+        if (Number(entry.cooldownUntil || 0) <= Date.now()) {
+            entry.cooldownUntil = 0;
+        }
+    });
+}
+
+function markKeyCooldown(apiKey, decision) {
+    updateStoredKeyEntry(apiKey, entry => {
+        entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
+        entry.lastErrorReason = decision.reason;
+        entry.cooldownUntil = Math.max(
+            Number(entry.cooldownUntil || 0),
+            Date.now() + Number(decision.cooldownMs || 0),
+        );
+    });
+}
+
+function markModelCooldown(apiKey, modelName, decision) {
+    updateStoredKeyEntry(apiKey, entry => {
+        entry.modelCooldowns = entry.modelCooldowns || {};
+        entry.modelCooldowns[modelName] = Math.max(
+            Number(entry.modelCooldowns[modelName] || 0),
+            Date.now() + Number(decision.cooldownMs || 0),
+        );
+        entry.lastErrorReason = decision.reason;
+    });
+}
+
+function abortableDelay(delayMs, abortSignal) {
+    if (delayMs <= 0) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const finish = () => {
+            if (abortSignal) abortSignal.removeEventListener('abort', handleAbort);
+            resolve();
+        };
+        const timeoutId = setTimeout(finish, delayMs);
+        const handleAbort = () => {
+            clearTimeout(timeoutId);
+            const error = new Error('The user aborted a request');
+            error.name = 'AbortError';
+            reject(error);
+        };
+        if (!abortSignal) return;
+        if (abortSignal.aborted) {
+            handleAbort();
+        } else {
+            abortSignal.addEventListener('abort', handleAbort, { once: true });
+        }
+    });
+}
+
+async function waitForKeyRequestSlot(apiKey, abortSignal) {
+    const now = Date.now();
+    const storedEntry = getStoredKeyEntry(apiKey);
+    const readyAt = Math.max(
+        now,
+        Number(storedEntry.nextRequestAt || 0),
+        Number(keyNextRequestAt.get(apiKey) || 0),
+    );
+    const nextRequestAt = readyAt + GEMINI_REQUEST_INTERVAL_MS;
+
+    keyNextRequestAt.set(apiKey, nextRequestAt);
+    updateStoredKeyEntry(apiKey, entry => {
+        entry.nextRequestAt = Math.max(Number(entry.nextRequestAt || 0), nextRequestAt);
+    });
+
+    await abortableDelay(readyAt - now, abortSignal);
+}
 
 /**
  * 解析特定 API Key 可用的所有 Flash 模型，並按版本從新到舊排序
@@ -31,10 +192,10 @@ const FALLBACK_MODEL = 'gemini-flash-latest';
  */
 export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     if (!apiKey) {
-        return [FALLBACK_MODEL];
+        return [GEMINI_FALLBACK_MODEL];
     }
     
-    if (modelCache.has(apiKey)) {
+    if (!throwOnError && modelCache.has(apiKey)) {
         const cached = modelCache.get(apiKey);
         if (Date.now() - cached.timestamp < 3600000) { // 1 hour TTL
             return cached.data;
@@ -42,7 +203,7 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     }
 
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${apiKey}`);
         if (!response.ok) {
             throw new Error(`Failed to fetch models: ${response.status}`);
         }
@@ -51,55 +212,15 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
             throw new Error('Invalid response format');
         }
 
-        // 1. 過濾：只保留包含 'flash' 且支援 'generateContent' 的正式模型，排除預覽版 (preview, lite) 及特定用途 (image, vision)
-        const flashModels = data.models.filter(m => {
-            const name = m.name || '';
-            const nameLower = name.toLowerCase();
-            const hasGenerateContent = m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent');
-            return hasGenerateContent && 
-                   nameLower.includes('flash') && 
-                   !nameLower.includes('preview') && 
-                   !nameLower.includes('lite') &&
-                   !nameLower.includes('image') &&
-                   !nameLower.includes('vision');
-        });
-
-        if (flashModels.length === 0) {
-            return [FALLBACK_MODEL];
-        }
-
-        // 2. 解析版本號：提取 'gemini-X.Y-flash' 中的 X.Y 數字
-        const parsedModels = flashModels.map(m => {
-            const parts = m.name.split('/');
-            const suffix = parts[parts.length - 1];
-            const versionMatch = suffix.match(/gemini-(\d+\.?\d*)-flash/i);
-            const versionNum = versionMatch ? parseFloat(versionMatch[1]) : 0;
-            
-            return { suffix, versionNum };
-        });
-
-        // 3. 版本號由高到低排序 (降冪)
-        parsedModels.sort((a, b) => {
-            if (b.versionNum !== a.versionNum) {
-                return b.versionNum - a.versionNum;
-            }
-            return b.suffix.localeCompare(a.suffix, undefined, { numeric: true, sensitivity: 'base' });
-        });
-
-        const list = parsedModels.map(m => m.suffix).filter(m => m);
-        
-        // 確保極穩定的底線模型存在於清單中
-        if (!list.includes(FALLBACK_MODEL)) {
-            list.push(FALLBACK_MODEL);
-        }
+        const list = buildApprovedFlashModelList(data.models);
 
         console.log("Resolved Flash models order:", list);
         modelCache.set(apiKey, { data: list, timestamp: Date.now() });
         return list;
     } catch (e) {
-        console.warn("[系統警告] 動態模型解析失敗，已啟用動態常綠降級方案:", FALLBACK_MODEL, e);
+        console.warn("[系統警告] 動態模型解析失敗，已啟用動態常綠降級方案:", GEMINI_FALLBACK_MODEL, e);
         if (throwOnError) throw e;
-        return [FALLBACK_MODEL];
+        return [GEMINI_FALLBACK_MODEL];
     }
 }
 
@@ -121,32 +242,14 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
         return await callCloudflareTextAPI(prompt, onStream, abortSignal, forceModel);
     }
 
-    // 建立金鑰嘗試池
-    let keyPool = [];
-    try {
-        const stored = localStorage.getItem('geminiApiKeys') || sessionStorage.getItem('geminiApiKeys');
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed)) {
-                keyPool = parsed.map(entry => entry.key);
-            }
-        }
-    } catch (e) {
-        console.warn("Failed to parse geminiApiKeys from storage", e);
-    }
-
-    // 確保傳入的偏好金鑰排在第一位，且已被加進池子中
-    if (apiKey) {
-        keyPool = keyPool.filter(k => k !== apiKey);
-        keyPool.unshift(apiKey);
-    }
+    const keyPool = buildKeyPool(apiKey);
 
     if (keyPool.length === 0) {
         if (aiEngine === 'auto' && !forceJson) {
-            console.warn('無 Gemini Key，直接進入 Cloudflare 備援機制');
+            console.warn('無健康的 Gemini Key，直接進入 Cloudflare 備援機制');
             return await callCloudflareTextAPI(prompt, onStream, abortSignal);
         }
-        throw new Error("找不到有效的 API Key，請先設定。");
+        throw new Error("目前沒有可用的 API Key；金鑰可能尚未設定或正在配額冷卻中。");
     }
 
     let lastError = null;
@@ -154,12 +257,16 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
     // 第一層：輪詢金鑰池
     for (let i = 0; i < keyPool.length; i++) {
         const currentKey = keyPool[i];
-        const models = await resolveFlashModelsList(currentKey);
+        const resolvedModels = await resolveFlashModelsList(currentKey);
+        const models = filterModelsForKey(resolvedModels, getStoredKeyEntry(currentKey));
         let lastModelError = null;
 
         // 第二層：依版本號從新到舊嘗試模型
         for (const modelName of models) {
             try {
+                await waitForKeyRequestSlot(currentKey, abortSignal);
+                recordKeyAttempt(currentKey, modelName);
+
                 // UI 即時更新：顯示目前使用的模型型號
                 const modelBadge = document.getElementById('modal-model-badge');
                 const modelNameEl = document.getElementById('modal-model-name');
@@ -222,32 +329,8 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                     responseText = response.text();
                 }
 
-                // 成功後更新金鑰池的計數器
-                try {
-                    let isSession = false;
-                    let stored = localStorage.getItem('geminiApiKeys');
-                    if (!stored) {
-                        stored = sessionStorage.getItem('geminiApiKeys');
-                        isSession = true;
-                    }
-                    if (stored) {
-                        const parsed = JSON.parse(stored);
-                        if (Array.isArray(parsed)) {
-                            const entry = parsed.find(e => e.key === currentKey);
-                            if (entry) {
-                                entry.count = (entry.count || 0) + 1;
-                                if (isSession) {
-                                    sessionStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                } else {
-                                    localStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                }
-                                console.log(`[API Key Usage Updated] Key: ...${currentKey.slice(-4)}, Count: ${entry.count}`);
-                            }
-                        }
-                    }
-                } catch (ex) {
-                    console.warn("Failed to update key count in storage", ex);
-                }
+                recordKeySuccess(currentKey);
+                console.log(`[API Key Usage Updated] Key: ...${currentKey.slice(-4)}`);
 
                 return responseText;
 
@@ -256,27 +339,24 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 const errorMsg = error.message || '';
                 console.warn(`Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
-                // ★ 改善錯誤分類邏輯：
-                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
-                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
-                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
-                const isRealKeyError = errorMsg.includes("API key not valid") || 
-                                       errorMsg.includes("not valid") || 
-                                       errorMsg.includes("invalid") || 
-                                       (errorMsg.includes("403") && !errorMsg.includes("limit"));
-
-                if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
+                const decision = classifyGeminiError(error);
+                if (decision.action === 'abort') {
                     console.warn("使用者主動取消請求，中止所有嘗試。");
                     throw error;
                 }
 
-                if (isRealKeyError) {
-                    console.warn("Detected API key error, switching to next key...");
-                    break; // 直接跳出內層模型循環，換下一個金鑰
+                if (decision.action === 'stop') {
+                    throw error;
                 }
-                
-                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
-                console.log(`Model ${modelName} 暫時不可用，嘗試下一個模型...`);
+
+                if (decision.action === 'next_key') {
+                    markKeyCooldown(currentKey, decision);
+                    console.warn(`Key 已標記為 ${decision.reason}，切換下一組獨立 Project Key。`);
+                    break;
+                }
+
+                markModelCooldown(currentKey, modelName, decision);
+                console.log(`Model ${modelName} 已標記為 ${decision.reason}，嘗試同一 Key 的下一個模型...`);
             }
         }
 
@@ -311,27 +391,10 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
 export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText, onStream = null, abortSignal = null) {
     
 
-    // 建立金鑰嘗試池（與 callGeminiAPI 相同邏輯）
-    let keyPool = [];
-    try {
-        const stored = localStorage.getItem('geminiApiKeys') || sessionStorage.getItem('geminiApiKeys');
-        if (stored) {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed)) {
-                keyPool = parsed.map(entry => entry.key);
-            }
-        }
-    } catch (e) {
-        console.warn("Failed to parse geminiApiKeys from storage", e);
-    }
-
-    if (apiKey) {
-        keyPool = keyPool.filter(k => k !== apiKey);
-        keyPool.unshift(apiKey);
-    }
+    const keyPool = buildKeyPool(apiKey);
 
     if (keyPool.length === 0) {
-        throw new Error("找不到有效的 API Key，請先設定。");
+        throw new Error("目前沒有可用的 API Key；金鑰可能尚未設定或正在配額冷卻中。");
     }
 
     let lastError = null;
@@ -339,20 +402,16 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     for (let i = 0; i < keyPool.length; i++) {
         const currentKey = keyPool[i];
         const allModels = await resolveFlashModelsList(currentKey);
-
-        // ★ 音訊專用：過濾掉 "-image" 後綴的模型（它們不支援音訊輸入，免費方案 limit=0）
-        const audioModels = allModels.filter(m => !m.includes('-image'));
-        console.log(`[Audio API] 音訊可用模型 (已過濾 image 模型):`, audioModels);
-
-        if (audioModels.length === 0) {
-            console.warn("[Audio API] 過濾後無可用模型，使用原始清單");
-        }
-        const models = audioModels.length > 0 ? audioModels : allModels;
+        const models = filterModelsForKey(allModels, getStoredKeyEntry(currentKey));
+        console.log('[Audio API] 音訊候選 Flash 模型:', models);
 
         let lastModelError = null;
 
         for (const modelName of models) {
             try {
+                await waitForKeyRequestSlot(currentKey, abortSignal);
+                recordKeyAttempt(currentKey, modelName);
+
                 const modelBadge = document.getElementById('modal-model-badge');
                 const modelNameEl = document.getElementById('modal-model-name');
                 if (modelBadge && modelNameEl) {
@@ -437,31 +496,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     responseText = response.text();
                 }
 
-                // 更新金鑰使用計數
-                try {
-                    let isSession = false;
-                    let stored = localStorage.getItem('geminiApiKeys');
-                    if (!stored) {
-                        stored = sessionStorage.getItem('geminiApiKeys');
-                        isSession = true;
-                    }
-                    if (stored) {
-                        const parsed = JSON.parse(stored);
-                        if (Array.isArray(parsed)) {
-                            const entry = parsed.find(e => e.key === currentKey);
-                            if (entry) {
-                                entry.count = (entry.count || 0) + 1;
-                                if (isSession) {
-                                    sessionStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                } else {
-                                    localStorage.setItem('geminiApiKeys', JSON.stringify(parsed));
-                                }
-                            }
-                        }
-                    }
-                } catch (ex) {
-                    console.warn("Failed to update key count in storage", ex);
-                }
+                recordKeySuccess(currentKey);
 
                 return responseText;
 
@@ -470,27 +505,24 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                 const errorMsg = error.message || '';
                 console.warn(`[Audio API] Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${errorMsg}`);
 
-                // ★ 改善錯誤分類邏輯：
-                // 1. 503 = 伺服器繁忙（暫時性，對所有 Key 都一樣）→ 試下一個模型
-                // 2. 429 + limit:0 = 模型不可用（免費方案不支援）→ 試下一個模型
-                // 3. 400/403/API key not valid = Key 真的有問題 → 換 Key
-                const isRealKeyError = errorMsg.includes("API key not valid") ||
-                                       errorMsg.includes("not valid") ||
-                                       errorMsg.includes("invalid") ||
-                                       (errorMsg.includes("403") && !errorMsg.includes("limit"));
-
-                if (error.name === 'AbortError' || errorMsg.includes('abort') || errorMsg.includes('The user aborted a request')) {
+                const decision = classifyGeminiError(error);
+                if (decision.action === 'abort') {
                     console.warn("[Audio API] 使用者主動取消請求，中止所有嘗試。");
                     throw error;
                 }
 
-                if (isRealKeyError) {
-                    console.warn("[Audio API] Key 無效，切換到下一組 Key...");
-                    break; // 跳出模型迴圈，換下一組 Key
+                if (decision.action === 'stop') {
+                    throw error;
                 }
 
-                // 503 或 429 → 繼續嘗試下一個模型（不換 Key）
-                console.log(`[Audio API] 模型 ${modelName} 暫時不可用，嘗試下一個模型...`);
+                if (decision.action === 'next_key') {
+                    markKeyCooldown(currentKey, decision);
+                    console.warn(`[Audio API] Key 已標記為 ${decision.reason}，切換下一組獨立 Project Key。`);
+                    break;
+                }
+
+                markModelCooldown(currentKey, modelName, decision);
+                console.log(`[Audio API] 模型 ${modelName} 已標記為 ${decision.reason}，嘗試下一個模型...`);
             }
         }
 

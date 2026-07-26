@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { state } from '../public/js/state.js';
 import {
     activateSource,
-    adoptDraftSource,
     createSourceId,
     getCanonicalTranscript,
     getPreferredSource,
     isCurrentSource,
+    shouldConfirmSourceReplacement,
 } from '../public/js/content-source.js';
 
 function resetState() {
@@ -46,10 +46,8 @@ test('derived content is selected only when it belongs to the active source', ()
     assert.equal(createSourceId('目前逐字稿'), sourceId);
 });
 
-test('drafts from another transcript cannot replace the active workspace', () => {
-    resetState();
-    activateSource('目前逐字稿');
-
-    assert.equal(adoptDraftSource('另一份舊逐字稿'), false);
-    assert.equal(state.currentSourceText, '目前逐字稿');
+test('replacement confirmation is required only for different non-empty transcripts', () => {
+    assert.equal(shouldConfirmSourceReplacement('逐字稿 A', '逐字稿 B'), true);
+    assert.equal(shouldConfirmSourceReplacement('逐字稿 A', '逐字稿 A\n'), false);
+    assert.equal(shouldConfirmSourceReplacement('', '逐字稿 B'), false);
 });

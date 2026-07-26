@@ -315,12 +315,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     applyTheme(savedTheme);
 });
-window.checkGlobalDrafts = function() {
-    if (window._draftChoice !== undefined) return window._draftChoice;
-    window._draftChoice = confirm('偵測到您有未儲存的草稿，是否要全部恢復？');
-    return window._draftChoice;
-};
-
 /**
  * 通用檔案下載工具（基於 FileSaver.js 的可靠實作）。
  * 解決部分瀏覽器忽略 a.download 屬性導致檔名變成 UUID 的問題。

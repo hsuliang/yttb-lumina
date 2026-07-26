@@ -51,16 +51,8 @@ export function isCurrentSource(sourceId) {
     return Boolean(sourceId) && sourceId === state.currentSourceId;
 }
 
-export function adoptDraftSource(sourceContent = '', sourceId = '') {
-    const resolvedId = sourceId || createSourceId(sourceContent);
-    if (!resolvedId) return false;
-    if (state.currentSourceId && state.currentSourceId !== resolvedId) return false;
-
-    state.currentSourceId = resolvedId;
-    state.currentSourceText = String(sourceContent).replace(/\r\n/g, '\n').trim();
-    return true;
-}
-
-export function stampVersions(versions = [], sourceId = state.currentSourceId) {
-    return versions.map(version => ({ ...version, sourceId: version.sourceId || sourceId }));
+export function shouldConfirmSourceReplacement(currentContent = '', incomingContent = '') {
+    const currentId = createSourceId(currentContent);
+    const incomingId = createSourceId(incomingContent);
+    return Boolean(currentId && incomingId && currentId !== incomingId);
 }

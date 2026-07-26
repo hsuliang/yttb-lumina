@@ -1,9 +1,9 @@
 import { showToast, showModal, hideModal, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
-import { activateSource, adoptDraftSource, getCanonicalTranscript, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
+import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
 /**
  * js/tab6-infographic.js
@@ -12,7 +12,6 @@ import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, updateTabAva
 
     let infographicRoles = [];
     let activePromptLang = 'en'; // 'en' or 'zh'
-    const INFOGRAPHIC_DRAFT_KEY = 'aliang-yttb-draft-infographic';
 
     // 初始化 TAB6
 export const initializeTab6 = function() {
@@ -20,12 +19,7 @@ export const initializeTab6 = function() {
         const typeSelect = document.getElementById('infographic-type');
         const addRoleBtn = document.getElementById('infographic-add-role-btn');
         const rolesContainer = document.getElementById('infographic-roles-container');
-        const includeLogoCheckbox = document.getElementById('infographic-include-logo');
         const styleSelect = document.getElementById('infographic-style');
-        const customStyleInput = document.getElementById('infographic-custom-style');
-        const paletteSelect = document.getElementById('infographic-palette');
-        const sizeSelect = document.getElementById('infographic-size');
-        const captionLengthSelect = document.getElementById('infographic-caption-length');
         const generateBtn = document.getElementById('generate-infographic-btn');
         const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
         const copyPromptBtn = document.getElementById('copy-infographic-prompt-btn');
@@ -47,7 +41,6 @@ export const initializeTab6 = function() {
                     syncRolesFromInputs();
                     infographicRoles.push({ name: '' });
                     renderInfographicRoles();
-                    saveInfographicDraft();
                 }
             });
         }
@@ -61,7 +54,6 @@ export const initializeTab6 = function() {
                     syncRolesFromInputs();
                     infographicRoles.splice(index, 1);
                     renderInfographicRoles();
-                    saveInfographicDraft();
                 }
             });
         }
@@ -75,34 +67,22 @@ export const initializeTab6 = function() {
                     typeSelect.dataset.isAutoRecommend = 'true';
                     analyzeInfographicContent();
                 }
-                saveInfographicDraft();
             });
         }
 
-        // 監聽設定變更以儲存草稿
         if (styleSelect) {
-            styleSelect.addEventListener('change', () => {
-                toggleCustomStyleVisibility();
-                saveInfographicDraft();
-            });
+            styleSelect.addEventListener('change', toggleCustomStyleVisibility);
         }
-        if (customStyleInput) customStyleInput.addEventListener('input', saveInfographicDraft);
-        if (paletteSelect) paletteSelect.addEventListener('change', saveInfographicDraft);
-        if (sizeSelect) sizeSelect.addEventListener('change', saveInfographicDraft);
-        if (captionLengthSelect) captionLengthSelect.addEventListener('change', saveInfographicDraft);
-        if (includeLogoCheckbox) includeLogoCheckbox.addEventListener('change', saveInfographicDraft);
 
         // 英/中提示詞頁籤切換
         if (enTab && zhTab) {
             enTab.addEventListener('click', () => {
                 activePromptLang = 'en';
                 renderCurrentInfographicVersionUI();
-                saveInfographicDraft();
             });
             zhTab.addEventListener('click', () => {
                 activePromptLang = 'zh';
                 renderCurrentInfographicVersionUI();
-                saveInfographicDraft();
             });
         }
 
@@ -135,18 +115,6 @@ export const initializeTab6 = function() {
             });
         }
 
-        // 載入草稿 (防禦性檢查)
-        if (hasInfographicDraft && hasInfographicDraft()) {
-            setTimeout(() => {
-                if (window.checkGlobalDrafts()) {
-                    restoreInfographicDraft && restoreInfographicDraft();
-                } else {
-                    clearInfographicDraft && clearInfographicDraft();
-                    if (updateTabAvailability) updateTabAvailability();
-                    window.dispatchEvent(new Event('lumina:draftCleared'));
-                }
-            }, 150);
-        }
     };
 
     // 同步 input 內容回 `infographicRoles` 陣列
@@ -175,12 +143,9 @@ export const initializeTab6 = function() {
                 </div>
                 <button type="button" class="infographic-delete-role-btn text-red-500 hover:text-red-700 text-xs font-semibold px-1 focus:outline-none" data-index="${index}" title="刪除此角色">✕</button>
             `;
-            // 監聽輸入框變更事件以同步並儲存草稿
+            // 監聽輸入框變更事件以同步目前頁面的角色狀態
             const input = div.querySelector('.infographic-role-name');
-            input.addEventListener('input', () => {
-                syncRolesFromInputs();
-                saveInfographicDraft();
-            });
+            input.addEventListener('input', syncRolesFromInputs);
             container.appendChild(div);
         });
 
@@ -211,7 +176,7 @@ export const analyzeInfographicContent = function() {
 
         const content = smartArea.value.trim();
         if (content.length === 0) {
-            statusEl.textContent = '🔍 請先在分頁 1 貼上您的字幕或文章內容。';
+            statusEl.textContent = '🔍 請先在「逐字稿整理」頁面貼上字幕或文章內容。';
             return;
         }
 
@@ -817,7 +782,6 @@ ${sourceContent}
 
             renderInfographicVersionTabs();
             renderCurrentInfographicVersionUI();
-            saveInfographicDraft();
 
             showToast(`資訊圖表提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
@@ -845,72 +809,6 @@ ${sourceContent}
         }
     }
 
-export const restoreInfographicDraft = function() {
-        try {
-            const draftJSON = localStorage.getItem(INFOGRAPHIC_DRAFT_KEY);
-            if (!draftJSON) return;
-            const draft = JSON.parse(draftJSON);
-            const smartArea = document.getElementById('smart-area');
-            if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
-                clearInfographicDraft();
-                return false;
-            }
-
-            if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
-            state.optimizedTextForBlog = draft.optimizedContent || '';
-            state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
-            state.blogSourceType = draft.sourceType || 'raw';
-
-            document.getElementById('infographic-type').value = draft.type || 'auto';
-            document.getElementById('infographic-style').value = draft.style || 'auto';
-            const customStyleInput = document.getElementById('infographic-custom-style');
-            if (customStyleInput) customStyleInput.value = draft.customStyle || '';
-            document.getElementById('infographic-palette').value = draft.palette || 'auto';
-            
-            const sizeSelect = document.getElementById('infographic-size');
-            if (sizeSelect) sizeSelect.value = draft.size || '9:16';
-
-            const captionLengthSelect = document.getElementById('infographic-caption-length');
-            if (captionLengthSelect) captionLengthSelect.value = draft.captionLength || 'medium';
-
-            const logoCheckbox = document.getElementById('infographic-include-logo');
-            if (logoCheckbox) logoCheckbox.checked = (draft.includeLogo === true);
-
-            activePromptLang = draft.activePromptLang || 'en';
-
-            if (draft.roles && Array.isArray(draft.roles)) {
-                infographicRoles = draft.roles;
-                renderInfographicRoles();
-            }
-
-            if (draft.versions && draft.versions.length > 0) {
-                state.infographicVersions = stampVersions(draft.versions, state.currentSourceId);
-                state.currentInfographicVersionIndex = draft.currentVersionIndex || 0;
-
-                renderInfographicVersionTabs();
-                renderCurrentInfographicVersionUI();
-            }
-
-            toggleCustomStyleVisibility();
-
-            if (updateTabAvailability) updateTabAvailability();
-            if (updateAiButtonStatus) updateAiButtonStatus();
-
-            showToast('資訊圖表提示詞草稿已成功恢復！');
-        } catch (e) {
-            console.error('無法讀取資訊圖表提示詞草稿:', e);
-            clearInfographicDraft();
-        }
-    };
-
-export const hasInfographicDraft = function() {
-        return localStorage.getItem(INFOGRAPHIC_DRAFT_KEY) !== null;
-    };
-
-export const clearInfographicDraft = function() {
-        localStorage.removeItem(INFOGRAPHIC_DRAFT_KEY);
-    };
-
     function resetTab6() {
         state.infographicVersions = [];
         state.currentInfographicVersionIndex = 0;
@@ -931,42 +829,6 @@ export const clearInfographicDraft = function() {
         if (generateVariationBtn) generateVariationBtn.disabled = true;
         if (promptTextarea) promptTextarea.value = '';
 
-        clearInfographicDraft();
     }
 
     window.addEventListener('lumina:clearDownstreamTabs', resetTab6);
-
-    function saveInfographicDraft() {
-        const rawContent = getCanonicalTranscript(document.getElementById('smart-area').value);
-        if (rawContent.length === 0 && state.infographicVersions.length === 0) return;
-
-        const size = document.getElementById('infographic-size')?.value || '9:16';
-        const includeLogo = document.getElementById('infographic-include-logo')?.checked ?? false;
-        const captionLength = document.getElementById('infographic-caption-length')?.value || 'medium';
-        const customStyle = document.getElementById('infographic-custom-style')?.value || '';
-
-        const draft = {
-            sourceId: state.currentSourceId,
-            sourceContent: document.getElementById('smart-area').value,
-            optimizedContent: state.optimizedTextForBlog,
-            sourceType: state.blogSourceType,
-            type: document.getElementById('infographic-type').value,
-            style: document.getElementById('infographic-style').value,
-            customStyle: customStyle,
-            palette: document.getElementById('infographic-palette').value,
-            size: size,
-            captionLength: captionLength,
-            includeLogo: includeLogo,
-            activePromptLang: activePromptLang,
-            roles: infographicRoles,
-            versions: state.infographicVersions,
-            currentVersionIndex: state.currentInfographicVersionIndex,
-            timestamp: new Date().getTime(),
-        };
-
-        try {
-            localStorage.setItem(INFOGRAPHIC_DRAFT_KEY, JSON.stringify(draft));
-        } catch (e) {
-            console.error('無法儲存資訊圖表提示詞草稿:', e);
-        }
-    }

@@ -1,13 +1,14 @@
 import { optimizationService } from './optimization-service.js';
 import { initializeTab0 } from './tab0-transcribe.js';
 import { initializeTab1 } from './tab1-srt.js';
-import { hasBlogDraft, clearBlogDraft, updateStepperUI, initializeTab2 } from './tab2-blog.js';
-import { hasSocialDraft, clearSocialDraft, initializeTab3 } from './tab3-social.js';
-import { initializeTab4, clearEdmDraft } from './tab4-edm.js';
-import { initializeTab5, clearCarouselDraft } from './tab5-carousel.js';
-import { initializeTab6, hasInfographicDraft, clearInfographicDraft, analyzeInfographicContent } from './tab6-infographic.js';
+import { updateStepperUI, initializeTab2 } from './tab2-blog.js';
+import { initializeTab3 } from './tab3-social.js';
+import { initializeTab4 } from './tab4-edm.js';
+import { initializeTab5 } from './tab5-carousel.js';
+import { initializeTab6, analyzeInfographicContent } from './tab6-infographic.js';
 import { showToast, showModal, hideModal, copyModalContent, saveFile } from './ui-components.js';
 import { resolveFlashModelsList } from './gemini-api.js';
+import { isGeminiKeyAvailable } from './gemini-routing.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
 
@@ -15,6 +16,19 @@ import { VariationHub } from './variation-hub.js';
  * app.js
  * 應用程式主邏輯，負責初始化各模組與處理全域事件。
  */
+
+const LEGACY_DRAFT_STORAGE_KEYS = [
+    'aliang-yttb-draft-blog',
+    'aliang-yttb-draft-social',
+    'aliang-yttb-draft-infographic',
+    'lumina-edm-draft',
+    'lumina-carousel-draft',
+    'blogDraft',
+    'socialDraft',
+    'infographicDraft'
+];
+
+LEGACY_DRAFT_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
 
 
     // --- 元素選擇 ---
@@ -192,7 +206,7 @@ export const updateSourceStatusUI = function() {
                             return { key: entry, count: 0 };
                         }
                         if (entry && typeof entry === 'object') {
-                            return { key: entry.key || '', count: entry.count || 0 };
+                            return { ...entry, key: entry.key || '', count: entry.count || 0 };
                         }
                         return { key: '', count: 0 };
                     }).filter(entry => entry.key.length > 0);
@@ -297,9 +311,12 @@ export const getBalancedApiKey = function() {
             if (!Array.isArray(keysList) || keysList.length === 0) {
                 return getStorageItem('geminiApiKey') || '';
             }
+
+            const availableKeys = keysList.filter(entry => isGeminiKeyAvailable(entry));
+            if (availableKeys.length === 0) return '';
             
-            const minCount = Math.min(...keysList.map(k => k.count || 0));
-            const candidates = keysList.filter(k => (k.count || 0) === minCount);
+            const minCount = Math.min(...availableKeys.map(k => k.count || 0));
+            const candidates = availableKeys.filter(k => (k.count || 0) === minCount);
             const selected = candidates[Math.floor(Math.random() * candidates.length)];
             
             // 不在此處 +1，計數統一由 gemini-api.js 的成功回呼處理，避免雙重計數
@@ -392,7 +409,14 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             
             results.forEach((r, idx) => {
                 if (r.status === 'fulfilled') {
-                    validApiKeys.push(r.value);
+                    validApiKeys.push({
+                        ...r.value,
+                        cooldownUntil: 0,
+                        nextRequestAt: 0,
+                        consecutiveFailures: 0,
+                        lastErrorReason: '',
+                        modelCooldowns: {},
+                    });
                 } else {
                     invalidKeys.push(modalApiKeys[idx]);
                 }
@@ -645,7 +669,7 @@ export const updateTabAvailability = function() {
         tabs.forEach(tab => {
             if (tab.btn) {
                 tab.btn.disabled = false;
-                tab.btn.title = hasContent ? tab.defaultTitle : '請先在分頁 1 貼上您的字幕內容';
+                tab.btn.title = hasContent ? tab.defaultTitle : '請先在「逐字稿整理」頁面貼上字幕內容';
                 tab.btn.classList.toggle('opacity-40', !hasContent);
                 tab.btn.classList.toggle('cursor-not-allowed', !hasContent);
             }
@@ -1385,18 +1409,6 @@ state.currentAbortController = null;
             state.infographicVersions = [];
             state.currentInfographicVersionIndex = 0;
 
-            if (clearBlogDraft) clearBlogDraft();
-            if (clearSocialDraft) clearSocialDraft();
-            if (clearInfographicDraft) clearInfographicDraft();
-            if (clearEdmDraft) clearEdmDraft();
-            if (clearCarouselDraft) clearCarouselDraft();
-
-            localStorage.removeItem('lumina-edm-draft');
-            localStorage.removeItem('lumina-carousel-draft');
-            localStorage.removeItem('blogDraft');
-            localStorage.removeItem('socialDraft');
-            localStorage.removeItem('infographicDraft');
-
             if (options.notify) {
                 showToast('已自動清除舊的產出內容，準備迎接新創作！');
             }
@@ -1411,7 +1423,6 @@ state.currentAbortController = null;
             state.currentSourceId = '';
             state.currentSourceText = '';
             state.transcribeResult = null;
-            window._draftChoice = undefined;
 
             const smartArea = document.getElementById('smart-area');
             if (smartArea) smartArea.value = '';
@@ -1439,7 +1450,7 @@ state.currentAbortController = null;
                 e.stopPropagation();
                 showModal({
                     title: '確認重置',
-                    message: '您確定要重置所有內容嗎？這將會清除所有輸入和已生成的草稿。',
+                    message: '您確定要重置所有內容嗎？這將會清除所有輸入和已生成的內容。',
                     buttons: [
                         { text: '取消', class: 'bg-surface-variant text-on-surface', callback: () => hideModal() },
                         { text: '確定重置', class: 'btn-danger', callback: () => {
@@ -1453,7 +1464,7 @@ state.currentAbortController = null;
 
         // 自動清除下游 Tab 的事件監聽
         window.addEventListener('lumina:clearDownstreamTabs', () => {
-            console.log('[App] Received clearDownstreamTabs event. Clearing downstream drafts & state.');
+            console.log('[App] Received clearDownstreamTabs event. Clearing downstream state.');
             clearDownstreamState({ notify: false });
         });
 
@@ -1478,28 +1489,8 @@ state.currentAbortController = null;
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
         const welcomePortal = document.getElementById('welcome-portal');
         const mainApp = document.getElementById('main-app-container');
-        const portalResumeBtn = document.getElementById('portal-resume-btn');
         const portalStartBtn = document.getElementById('portal-start-btn');
         const portalKeySettingBtn = document.getElementById('portal-key-setting-btn');
-
-        const checkDraftsAndShowResume = () => {
-            const hasBlog = hasBlogDraft ? hasBlogDraft() : !!localStorage.getItem('blogDraft');
-            const hasSocial = hasSocialDraft ? hasSocialDraft() : !!localStorage.getItem('socialDraft');
-            const hasInfo = hasInfographicDraft ? hasInfographicDraft() : !!localStorage.getItem('infographicDraft');
-            const hasEdm = window.hasEdmDraft ? window.hasEdmDraft() : !!localStorage.getItem('lumina-edm-draft');
-            const hasCarousel = window.hasCarouselDraft ? window.hasCarouselDraft() : !!localStorage.getItem('lumina-carousel-draft');
-            
-            if ((hasBlog || hasSocial || hasInfo || hasEdm || hasCarousel) && portalResumeBtn) {
-                portalResumeBtn.classList.remove('hidden');
-            } else if (portalResumeBtn) {
-                portalResumeBtn.classList.add('hidden');
-            }
-        };
-
-        checkDraftsAndShowResume();
-
-        // Re-check when any tab clears its draft (e.g. user cancels restore)
-        window.addEventListener('lumina:draftCleared', checkDraftsAndShowResume);
 
         const handleStartBtnClick = (e) => {
             if (e) {
@@ -1531,43 +1522,6 @@ state.currentAbortController = null;
             showApiKeyModal();
         };
 
-        const handleResumeBtnClick = (e) => {
-            if (e) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            console.log("[Portal] 繼續上次編輯 clicked");
-            let targetTab = 'tab1';
-            if (hasBlogDraft && hasBlogDraft()) {
-                targetTab = 'tab2';
-            } else if (hasSocialDraft && hasSocialDraft()) {
-                targetTab = 'tab3';
-            } else if (hasInfographicDraft && hasInfographicDraft()) {
-                targetTab = 'tab6';
-            } else if (localStorage.getItem('blogDraft')) {
-                targetTab = 'tab2';
-            } else if (localStorage.getItem('socialDraft')) {
-                targetTab = 'tab3';
-            } else if (localStorage.getItem('infographicDraft')) {
-                targetTab = 'tab6';
-            }
-            
-            if (welcomePortal) {
-                welcomePortal.classList.add('portal-fade-out');
-                setTimeout(() => {
-                    welcomePortal.style.display = 'none';
-                }, 450);
-            }
-            
-            if (mainApp) {
-                mainApp.classList.remove('hidden');
-                mainApp.classList.add('app-fade-in');
-            }
-            
-            switchTab(targetTab);
-            showToast('已成功恢復您上次的編輯內容！');
-        };
-
         // 直接綁定事件，提供最穩定的互動
         if (portalStartBtn) {
             portalStartBtn.addEventListener('click', handleStartBtnClick);
@@ -1575,10 +1529,6 @@ state.currentAbortController = null;
         if (portalKeySettingBtn) {
             portalKeySettingBtn.addEventListener('click', handleKeySettingBtnClick);
         }
-        if (portalResumeBtn) {
-            portalResumeBtn.addEventListener('click', handleResumeBtnClick);
-        }
-
         // 同時保留事件代理，作為雙重保險
         if (welcomePortal) {
             welcomePortal.addEventListener('click', (e) => {
@@ -1589,8 +1539,6 @@ state.currentAbortController = null;
                     handleStartBtnClick(e);
                 } else if (target.id === 'portal-key-setting-btn') {
                     handleKeySettingBtnClick(e);
-                } else if (target.id === 'portal-resume-btn') {
-                    handleResumeBtnClick(e);
                 }
             });
         }

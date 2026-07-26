@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal, toggleAccordion, populateSelectWithOpt
 import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
-import { activateSource, adoptDraftSource, getCanonicalTranscript, isCurrentSource, stampVersions } from './content-source.js';
+import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
@@ -29,79 +29,6 @@ const SETTINGS_STORAGE_KEYS = {
     BLOG_TONE: 'aliang-yttb-setting-blog-tone',
     PROMPT_WIZARD: 'aliang-yttb-setting-prompt-wizard'
 };
-const BLOG_DRAFT_KEY = 'aliang-yttb-draft-blog';
-
-export const hasBlogDraft = function () {
-    return localStorage.getItem(BLOG_DRAFT_KEY) !== null;
-}
-
-export const restoreBlogDraft = function () {
-    try {
-        const draftJSON = localStorage.getItem(BLOG_DRAFT_KEY);
-        if (!draftJSON) return;
-        const draft = JSON.parse(draftJSON);
-        const smartArea = document.getElementById('smart-area');
-        if (!adoptDraftSource(draft.sourceContent, draft.sourceId)) {
-            clearBlogDraft();
-            return false;
-        }
-
-        if (!smartArea.value.trim()) smartArea.value = draft.sourceContent || '';
-        state.optimizedTextForBlog = draft.optimizedContent || '';
-        state.optimizedSourceId = draft.optimizedContent ? state.currentSourceId : '';
-        state.blogSourceType = draft.sourceType || 'raw';
-
-        document.getElementById('blog-title').value = draft.title || '';
-        document.getElementById('blog-yt-id').value = draft.ytId || '';
-        document.getElementById('blog-persona').value = draft.persona || '第一人稱視角';
-        document.getElementById('blog-word-count').value = draft.wordCount || '約 1200 字';
-        document.getElementById('blog-tone').value = draft.tone || '充滿能量與感染力';
-
-        state.currentBlogTags = draft.tags || [];
-        if (renderTags) renderTags();
-
-        if (draft.ctaPreset) {
-            document.getElementById('cta-preset-select').value = draft.ctaPreset;
-        }
-        document.getElementById('blog-cta').value = draft.ctaContent || '';
-        if (handleCtaChange) handleCtaChange();
-
-        const internalLinksEl = document.getElementById('internal-links-source');
-        if (internalLinksEl) {
-            internalLinksEl.value = draft.internalLinksSource || '';
-        }
-
-        if (draft.versions && draft.versions.length > 0) {
-            state.blogArticleVersions = stampVersions(draft.versions, state.currentSourceId);
-            state.currentBlogVersionIndex = draft.currentVersionIndex || 0;
-
-            renderVersionTabs();
-            renderCurrentVersionUI(); // This will now load content into Quill
-
-            document.getElementById('blog-placeholder').classList.add('hidden');
-            document.getElementById('blog-output-container').classList.remove('hidden');
-            document.getElementById('generate-blog-variation-btn').disabled = false;
-
-            const analyzeKeywordsBtn = document.getElementById('analyze-keywords-btn');
-            const analyzeInternalLinksBtn = document.getElementById('analyze-internal-links-btn');
-            if (analyzeKeywordsBtn) analyzeKeywordsBtn.disabled = false;
-            if (analyzeInternalLinksBtn) analyzeInternalLinksBtn.disabled = false;
-        }
-
-        if (updateStepperUI) updateStepperUI();
-        if (updateTabAvailability) updateTabAvailability();
-        if (updateAiButtonStatus) updateAiButtonStatus();
-
-        showToast('部落格草稿已成功恢復！');
-    } catch (e) {
-        console.error('無法讀取部落格草稿:', e);
-        clearBlogDraft();
-    }
-}
-
-export const clearBlogDraft = function () {
-    localStorage.removeItem(BLOG_DRAFT_KEY);
-}
 
 function formatQuillVideos(html) {
     if (!html) return '';
@@ -178,7 +105,7 @@ export const updateStepperUI = function () {
     const isOptimized = state.blogSourceType === 'optimized' || state.blogSourceType === 'blog';
     const hasGeneratedBlog = state.blogArticleVersions.length > 0;
 
-    if (hasSourceContent || hasBlogDraft()) { step1.classList.add('completed'); }
+    if (hasSourceContent) { step1.classList.add('completed'); }
     else { step1.classList.add('active'); return; }
 
     if (isOptimized) { step2.classList.add('completed'); }
@@ -189,7 +116,7 @@ export const updateStepperUI = function () {
         step2.classList.add('completed');
         step3.classList.add('completed');
         document.getElementById('generate-blog-btn').textContent = "重新生成文章";
-    } else if (hasSourceContent || hasBlogDraft()) {
+    } else if (hasSourceContent) {
         step3.classList.add('active');
         document.getElementById('generate-blog-btn').textContent = "生成部落格文章";
     }
@@ -448,31 +375,6 @@ function renderCurrentVersionUI() {
         if (tone) blogToneSelect.value = tone;
     }
 
-    function saveBlogDraft() {
-        const hasContent = document.getElementById('smart-area').value.trim().length > 0;
-        if (!hasContent && state.blogArticleVersions.length === 0 && !getLatestHtmlContent()) return;
-
-        if (state.blogArticleVersions[state.currentBlogVersionIndex]) {
-            state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent = getLatestHtmlContent();
-        }
-
-        const draft = {
-            sourceId: state.currentSourceId,
-            sourceContent: document.getElementById('smart-area').value,
-            optimizedContent: state.optimizedTextForBlog,
-            sourceType: state.blogSourceType,
-            title: blogTitleInput.value, ytId: blogYtIdInput.value,
-            persona: blogPersonaSelect.value, wordCount: blogWordCountSelect.value, tone: blogToneSelect.value,
-            tags: state.currentBlogTags, ctaPreset: ctaPresetSelect.value, ctaContent: blogCtaTextarea.value,
-            versions: state.blogArticleVersions,
-            currentVersionIndex: state.currentBlogVersionIndex,
-            internalLinksSource: internalLinksSource ? internalLinksSource.value : '',
-            timestamp: new Date().getTime(),
-        };
-        try { localStorage.setItem(BLOG_DRAFT_KEY, JSON.stringify(draft)); }
-        catch (e) { console.error('無法儲存部落格草稿:', e); }
-    }
-
 export const handleCtaChange = function () {
         const selected = ctaPresetSelect.value;
         saveCtaBtn.classList.toggle('hidden', selected !== 'custom');
@@ -483,8 +385,8 @@ export const handleCtaChange = function () {
     }
     function loadCustomCTAsFromStorage() { try { const storedCtas = localStorage.getItem(CUSTOM_CTA_STORAGE_KEY); return storedCtas ? JSON.parse(storedCtas) : []; } catch (error) { console.error("無法讀取自訂 CTA:", error); return []; } }
     function renderCtaSelect(selectedValue = 'custom') { const customCtas = loadCustomCTAsFromStorage(); let allCtaOptions = { 'custom': '自訂 CTA', ...Object.fromEntries(Object.entries(PRESET_CTAS).map(([key, value]) => [key, value.title])) }; customCtas.forEach((cta, index) => { allCtaOptions[`custom_${index}`] = `[自訂] ${cta.title}`; }); const currentVal = ctaPresetSelect.value; populateSelectWithOptions(ctaPresetSelect, allCtaOptions); ctaPresetSelect.value = allCtaOptions[currentVal] ? currentVal : selectedValue; }
-    function addTag(tagText) { const trimmedTag = tagText.trim(); if (trimmedTag && !state.currentBlogTags.includes(trimmedTag)) { state.currentBlogTags.push(trimmedTag); renderTags(); saveBlogDraft(); } }
-    function removeTag(tagToRemove) { state.currentBlogTags = state.currentBlogTags.filter(tag => tag !== tagToRemove); renderTags(); saveBlogDraft(); }
+    function addTag(tagText) { const trimmedTag = tagText.trim(); if (trimmedTag && !state.currentBlogTags.includes(trimmedTag)) { state.currentBlogTags.push(trimmedTag); renderTags(); } }
+    function removeTag(tagToRemove) { state.currentBlogTags = state.currentBlogTags.filter(tag => tag !== tagToRemove); renderTags(); }
 export const renderTags = function () { const tagContainer = document.getElementById('tag-container'); tagContainer.querySelectorAll('.tag-pill').forEach(pill => pill.remove());[...state.currentBlogTags].reverse().forEach(tag => { const pill = document.createElement('span'); pill.className = 'tag-pill'; pill.textContent = tag; const deleteBtn = document.createElement('span'); deleteBtn.className = 'tag-delete-btn'; deleteBtn.innerHTML = '&times;'; deleteBtn.setAttribute('role', 'button'); deleteBtn.setAttribute('tabindex', '0'); deleteBtn.addEventListener('click', () => removeTag(tag)); pill.appendChild(deleteBtn); tagContainer.prepend(pill); }); }
     function loadCustomTagsFromStorage() { try { const storedTags = localStorage.getItem(CUSTOM_TAGS_STORAGE_KEY); return storedTags ? JSON.parse(storedTags) : []; } catch (error) { console.error("無法讀取自訂標籤:", error); return []; } }
     function renderTagSuggestions() { const tagSuggestions = document.getElementById('tag-suggestions'); tagSuggestions.innerHTML = ''; const customTags = loadCustomTagsFromStorage(); const allSuggestions = [...new Set([...PRESET_TAGS, ...customTags])]; allSuggestions.forEach(tag => { const suggestion = document.createElement('span'); suggestion.className = 'tag-suggestion'; suggestion.textContent = tag; suggestion.setAttribute('role', 'button'); suggestion.setAttribute('tabindex', '0'); suggestion.addEventListener('click', () => { addTag(tag); }); tagSuggestions.appendChild(suggestion); }); }
@@ -500,7 +402,6 @@ export const renderTags = function () { const tagContainer = document.getElement
         }
 
         if (updateSourceStatusUI) updateSourceStatusUI();
-        saveBlogDraft();
         hideModal();
         showToast('文本已優化並載入編輯器！');
         updateStepperUI();
@@ -526,7 +427,7 @@ export const renderTags = function () { const tagContainer = document.getElement
         ctaPresetSelect.value = 'custom'; handleCtaChange();
         state.currentBlogTags = []; renderTags();
         if (quillEditor) quillEditor.setText('');
-        clearBlogDraft(); updateStepperUI();
+        updateStepperUI();
         renderVersionTabs();
         generateBlogVariationBtn.disabled = true;
     }
@@ -625,7 +526,7 @@ export const renderTags = function () { const tagContainer = document.getElement
             // 情況 B：只有原始文本 (未經過 Tab 1 整理) -> 詢問使用者
             showModal({
                 title: '提醒：尚未整理字幕',
-                message: '系統偵測到您尚未在分頁 1 執行「開始整理」。\n\n直接使用原始字幕（包含時間軸與換行）進行優化，可能會因為雜訊過多影響 AI 的產出品質。\n\n建議您先回到分頁 1 點擊「開始整理」按鈕。',
+                message: '系統偵測到您尚未在「逐字稿整理」頁面執行「開始整理」。\n\n直接使用原始字幕（包含時間軸與換行）進行優化，可能會因為雜訊過多影響 AI 的產出品質。\n\n建議您先回到「逐字稿整理」頁面點擊「開始整理」按鈕。',
                 buttons: [
                     { text: '取消，回去整理', class: 'btn-secondary', callback: hideModal },
                     {
@@ -661,7 +562,6 @@ export const renderTags = function () { const tagContainer = document.getElement
             const jsonData = JSON.parse(jsonString);
             state.blogArticleVersions[state.currentBlogVersionIndex].advancedSeoData.keywords = jsonData;
             renderKeywords(jsonData);
-            saveBlogDraft();
         } catch (error) {
             console.error("關鍵字分析失敗:", error);
             if (error.message && error.message.includes('overloaded')) {
@@ -715,7 +615,6 @@ export const renderTags = function () { const tagContainer = document.getElement
             const jsonData = JSON.parse(jsonString);
             state.blogArticleVersions[state.currentBlogVersionIndex].advancedSeoData.internalLinks = jsonData;
             renderInternalLinks(jsonData);
-            saveBlogDraft();
         } catch (error) {
             console.error("內部連結分析失敗:", error);
             if (error.message && error.message.includes('overloaded')) {
@@ -928,7 +827,6 @@ export const renderTags = function () { const tagContainer = document.getElement
             analyzeInternalLinksBtn.disabled = false;
             generateBlogVariationBtn.disabled = false;
 
-            saveBlogDraft();
             // blogPlaceholder.classList.add('hidden'); // Done early
             // blogOutputContainer.classList.remove('hidden'); // Done early
             switchBlogView('preview');
@@ -1019,7 +917,7 @@ export const renderTags = function () { const tagContainer = document.getElement
     generateBlogVariationBtn.addEventListener('click', generateBlogVariation);
     downloadHtmlBtn.addEventListener('click', downloadAsHtml);
     downloadMdBtn.addEventListener('click', downloadAsMarkdown);
-    ctaPresetSelect.addEventListener('change', () => { handleCtaChange(); saveBlogDraft(); });
+    ctaPresetSelect.addEventListener('change', handleCtaChange);
     saveCtaBtn.addEventListener('click', saveCustomCTA);
     deleteCtaBtn.addEventListener('click', deleteCustomCTA);
     aiStyleToggleBtn.addEventListener('click', () => toggleAccordion(aiStyleToggleBtn, aiStylePanel));
@@ -1029,7 +927,6 @@ export const renderTags = function () { const tagContainer = document.getElement
     document.querySelectorAll('.seo-copy-btn').forEach(button => button.addEventListener('click', () => copyButtonLogic(button)));
     document.querySelectorAll('.source-copy-btn').forEach(button => button.addEventListener('click', () => copyButtonLogic(button)));
 
-    blogTitleInput.addEventListener('input', saveBlogDraft);
     blogYtIdInput.addEventListener('input', (e) => {
         const val = e.target.value.trim();
         if (val.includes('/') || val.includes('.') || val.includes('?')) {
@@ -1039,18 +936,14 @@ export const renderTags = function () { const tagContainer = document.getElement
                 showToast(`已自動解析出 YouTube 影片 ID: ${parsedId}`);
             }
         }
-        saveBlogDraft();
     });
-    blogPersonaSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_PERSONA, e.target.value); saveBlogDraft(); });
-    blogWordCountSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_WORD_COUNT, e.target.value); saveBlogDraft(); });
-    blogToneSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_TONE, e.target.value); saveBlogDraft(); });
-    blogCtaTextarea.addEventListener('input', saveBlogDraft);
+    blogPersonaSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_PERSONA, e.target.value); });
+    blogWordCountSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_WORD_COUNT, e.target.value); });
+    blogToneSelect.addEventListener('change', (e) => { saveSetting(SETTINGS_STORAGE_KEYS.BLOG_TONE, e.target.value); });
 
     advancedSeoToggleBtn.addEventListener('click', () => toggleAccordion(advancedSeoToggleBtn, advancedSeoPanel));
     analyzeKeywordsBtn.addEventListener('click', analyzeKeywords);
     analyzeInternalLinksBtn.addEventListener('click', analyzeInternalLinks);
-    internalLinksSource.addEventListener('input', saveBlogDraft);
-
     openPromptWizardBtn.addEventListener('click', openPromptWizard);
     closePromptWizardBtn.addEventListener('click', closePromptWizard);
     savePromptWizardBtn.addEventListener('click', savePromptSettings);
@@ -1091,28 +984,11 @@ export const renderTags = function () { const tagContainer = document.getElement
     };
     quillEditor = new Quill('#blog-editor-container', editorOptions);
 
-    let saveTimeout;
     quillEditor.on('text-change', (delta, oldDelta, source) => {
-        if (source === 'user') {
-            clearTimeout(saveTimeout);
-            saveTimeout = setTimeout(() => {
-                saveBlogDraft();
-                showToast('草稿已自動儲存', { type: 'success', duration: 1500 });
-            }, 2000);
+        if (source === 'user' && state.blogArticleVersions[state.currentBlogVersionIndex]) {
+            state.blogArticleVersions[state.currentBlogVersionIndex].htmlContent = getLatestHtmlContent();
         }
     });
-
-    if (hasBlogDraft()) {
-        setTimeout(() => {
-            if (window.checkGlobalDrafts()) {
-                restoreBlogDraft();
-            } else {
-                clearBlogDraft();
-                if (updateTabAvailability) updateTabAvailability();
-                window.dispatchEvent(new Event('lumina:draftCleared'));
-            }
-        }, 100);
-    }
     updateStepperUI();
 
 export function initializeTab2() {}

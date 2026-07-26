@@ -1,7 +1,7 @@
 import { showToast, showModal, hideModal, populateSelectWithOptions, stopPromptRotation } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
-import { activateSource, adoptDraftSource, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
+import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
@@ -74,67 +74,16 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
         state.currentEdmVersionIndex = index;
         renderEdmVersionTabs();
         renderCurrentEdmVersionUI();
-        saveEdmDraft();
     }
 
-    // --- 草稿持久化 ---
-    const EDM_DRAFT_KEY = 'lumina-edm-draft';
-
-export const saveEdmDraft = function() {
-        if (state.edmVersions.length > 0) {
-            localStorage.setItem(EDM_DRAFT_KEY, JSON.stringify({
-                sourceId: state.currentSourceId,
-                sourceContent: document.getElementById('smart-area').value,
-                versions: state.edmVersions,
-                currentIndex: state.currentEdmVersionIndex
-            }));
-        } else {
-            localStorage.removeItem(EDM_DRAFT_KEY);
-        }
-    }
-
-export const restoreEdmDraft = function() {
-        const saved = localStorage.getItem(EDM_DRAFT_KEY);
-        if (saved) {
-            if (!window.checkGlobalDrafts()) {
-                localStorage.removeItem(EDM_DRAFT_KEY);
-                return false;
-            }
-            try {
-                const parsed = JSON.parse(saved);
-                const smartArea = document.getElementById('smart-area');
-                if (!adoptDraftSource(parsed.sourceContent, parsed.sourceId)) {
-                    localStorage.removeItem(EDM_DRAFT_KEY);
-                    return false;
-                }
-                if (!smartArea.value.trim()) smartArea.value = parsed.sourceContent || '';
-                if (parsed.versions && parsed.versions.length > 0) {
-                    state.edmVersions = stampVersions(parsed.versions, state.currentSourceId);
-                    state.currentEdmVersionIndex = parsed.currentIndex || 0;
-                    renderEdmVersionTabs();
-                    renderCurrentEdmVersionUI();
-                    return true;
-                }
-            } catch (e) {
-                console.error("無法還原 EDM 草稿:", e);
-            }
-        }
-        return false;
-    }
-
-export const clearEdmDraft = function() {
-        localStorage.removeItem(EDM_DRAFT_KEY);
+    function resetTab4() {
         state.edmVersions = [];
         state.currentEdmVersionIndex = 0;
         renderEdmVersionTabs();
         renderCurrentEdmVersionUI();
     }
     
-    window.addEventListener('lumina:clearDownstreamTabs', clearEdmDraft);
-    
-export const hasEdmDraft = function() {
-        return !!localStorage.getItem(EDM_DRAFT_KEY);
-    }
+    window.addEventListener('lumina:clearDownstreamTabs', resetTab4);
 
     // --- 核心邏輯 ---
     function assembleEdmPrompt(variationModifier = '', shouldOverride = false) { // Changed signature
@@ -150,7 +99,7 @@ export const hasEdmDraft = function() {
         const sourceContent = getPreferredSource(rawSourceText).text;
 
         if(!sourceContent) {
-            showModal({ title: '缺少內容來源', message: '無法找到可用於生成電子報的內容。請先在分頁 1 輸入內容。' });
+            showModal({ title: '缺少內容來源', message: '無法找到可用於生成電子報的內容。請先在「逐字稿整理」頁面輸入內容。' });
             return null;
         }
 
@@ -244,7 +193,6 @@ export const hasEdmDraft = function() {
             // This will properly set innerHTML and remove pre-wrap
             if (edmPreview) edmPreview.style.whiteSpace = 'normal';
             renderCurrentEdmVersionUI();
-            saveEdmDraft();
 
             showToast(`電子報 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
@@ -306,8 +254,6 @@ export const hasEdmDraft = function() {
     // --- 初始化 ---
     populateSelectWithOptions(edmAudienceSelect, audienceOptions);
     populateSelectWithOptions(edmStyleSelect, styleOptions);
-    if (!restoreEdmDraft()) {
-        renderCurrentEdmVersionUI();
-    }
+    renderCurrentEdmVersionUI();
 
 export function initializeTab4() {}

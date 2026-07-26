@@ -1,7 +1,7 @@
 import { showToast, showModal, hideModal } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
-import { activateSource, adoptDraftSource, getPreferredSource, isCurrentSource, stampVersions } from './content-source.js';
+import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
@@ -204,56 +204,9 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
         state.currentCarouselVersionIndex = index;
         renderCarouselVersionTabs();
         renderCurrentCarouselVersionUI();
-        saveCarouselDraft();
     }
 
-    // --- 草稿持久化 ---
-    const CAROUSEL_DRAFT_KEY = 'lumina-carousel-draft';
-
-export const saveCarouselDraft = function() {
-        if (state.carouselVersions.length > 0) {
-            localStorage.setItem(CAROUSEL_DRAFT_KEY, JSON.stringify({
-                sourceId: state.currentSourceId,
-                sourceContent: document.getElementById('smart-area').value,
-                versions: state.carouselVersions,
-                currentIndex: state.currentCarouselVersionIndex
-            }));
-        } else {
-            localStorage.removeItem(CAROUSEL_DRAFT_KEY);
-        }
-    }
-
-export const restoreCarouselDraft = function() {
-        const saved = localStorage.getItem(CAROUSEL_DRAFT_KEY);
-        if (saved) {
-            if (!window.checkGlobalDrafts()) {
-                localStorage.removeItem(CAROUSEL_DRAFT_KEY);
-                return false;
-            }
-            try {
-                const parsed = JSON.parse(saved);
-                const smartArea = document.getElementById('smart-area');
-                if (!adoptDraftSource(parsed.sourceContent, parsed.sourceId)) {
-                    localStorage.removeItem(CAROUSEL_DRAFT_KEY);
-                    return false;
-                }
-                if (!smartArea.value.trim()) smartArea.value = parsed.sourceContent || '';
-                if (parsed.versions && parsed.versions.length > 0) {
-                    state.carouselVersions = stampVersions(parsed.versions, state.currentSourceId);
-                    state.currentCarouselVersionIndex = parsed.currentIndex || 0;
-                    renderCarouselVersionTabs();
-                    renderCurrentCarouselVersionUI();
-                    return true;
-                }
-            } catch (e) {
-                console.error("無法還原 Carousel 草稿:", e);
-            }
-        }
-        return false;
-    }
-
-export const clearCarouselDraft = function() {
-        localStorage.removeItem(CAROUSEL_DRAFT_KEY);
+    function resetTab5() {
         state.carouselVersions = [];
         state.currentCarouselVersionIndex = 0;
         roles = [];
@@ -262,11 +215,7 @@ export const clearCarouselDraft = function() {
         renderCurrentCarouselVersionUI();
     }
     
-    window.addEventListener('lumina:clearDownstreamTabs', clearCarouselDraft);
-    
-export const hasCarouselDraft = function() {
-        return !!localStorage.getItem(CAROUSEL_DRAFT_KEY);
-    }
+    window.addEventListener('lumina:clearDownstreamTabs', resetTab5);
 
     // --- 提示詞組裝 ---
     function assembleCarouselPrompt(variationModifier = '', shouldOverride = false) {
@@ -276,7 +225,7 @@ export const hasCarouselDraft = function() {
         let sourceContent = getPreferredSource(rawSourceText).text;
 
         if(!sourceContent) {
-            showModal({ title: '缺少內容來源', message: '無法找到可用於生成輪播圖的內容。請先在分頁 1 輸入內容。' });
+            showModal({ title: '缺少內容來源', message: '無法找到可用於生成輪播圖的內容。請先在「逐字稿整理」頁面輸入內容。' });
             return null;
         }
 
@@ -589,7 +538,6 @@ ${layoutInstructionsText}
 
             renderCarouselVersionTabs();
             renderCurrentCarouselVersionUI();
-            saveCarouselDraft();
 
             showToast(`社群輪播圖提示詞 ${isVariation ? '新版本' : ''} 已生成！`, { type: 'success' });
 
@@ -668,9 +616,7 @@ ${layoutInstructionsText}
 
     // 初始化角色輸入框與顯示狀態
     renderRoles();
-    if (!restoreCarouselDraft()) {
-        renderCurrentCarouselVersionUI();
-    }
+    renderCurrentCarouselVersionUI();
 
     // 監聽風格切換事件與初始化顯示狀態
     if (carouselStyleSelect) {

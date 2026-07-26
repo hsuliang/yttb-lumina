@@ -3,6 +3,8 @@ import { callGeminiAudioAPI } from './gemini-api.js';
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
 import { applyReplacementRules } from './srt-processor.js';
+import { shouldConfirmSourceReplacement } from './content-source.js';
+import { offsetSrtTimestamps, splitPcmChunk } from './transcription-timeline.js';
 import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
 /**
@@ -113,7 +115,7 @@ function fixTimecode(tc) {
 
 function validateAndFixSrt(rawText) {
     // 移除 markdown code block 包裝
-    let text = rawText.trim();
+    let text = String(rawText || '').trim();
     text = text.replace(/^```(?:srt)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
     text = text.trim();
 
@@ -244,46 +246,6 @@ function splitAudioBuffer(resampledBuffer, chunkDurationSeconds = 600) {
     return chunks;
 }
 
-/**
- * 對 SRT 字串內所有時間戳加上偏移秒數，並重新編號
- * @param {string} srt - 原始 SRT 字串
- * @param {number} offsetSeconds - 要加上的偏移（秒）
- * @param {number} seqOffset - 序號偏移（從幾號開始）
- */
-function offsetSrtTimestamps(srt, offsetSeconds, seqOffset = 0) {
-    if (!srt) return '';
-
-    function addMs(timeStr, addMs) {
-        const m = timeStr.match(/^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/);
-        if (!m) return timeStr;
-        let totalMs = (
-            parseInt(m[1]) * 3600000 +
-            parseInt(m[2]) * 60000 +
-            parseInt(m[3]) * 1000 +
-            parseInt(m[4])
-        ) + addMs;
-        totalMs = Math.max(0, totalMs);
-        const h = Math.floor(totalMs / 3600000);
-        const min = Math.floor((totalMs % 3600000) / 60000);
-        const sec = Math.floor((totalMs % 60000) / 1000);
-        const ms = totalMs % 1000;
-        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
-    }
-
-    const offsetMs = Math.round(offsetSeconds * 1000);
-    let localSeq = 1;
-
-    return srt
-        .replace(
-            /(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/g,
-            (_, s, e) => `${addMs(s, offsetMs)} --> ${addMs(e, offsetMs)}`
-        )
-        .replace(
-            /^(\d+)$/gm,
-            () => String(seqOffset + localSeq++)
-        );
-}
-
 // ########## VTT → SRT CONVERSION (for Whisper) ##########
 function convertVttToSrt(vttText) {
     let text = vttText.trim();
@@ -387,15 +349,48 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     const allText = [];
     let globalSeq = 1;
     const chunkStartTimes = [];
+    const failedRanges = [];
+    let recoveredChunkCount = 0;
+
+    const formatAudioTime = (seconds) => {
+        const totalSeconds = Math.max(0, Math.round(seconds));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const remainingSeconds = totalSeconds % 60;
+        return [hours, minutes, remainingSeconds].map(value => String(value).padStart(2, '0')).join(':');
+    };
+
+    const transcribeChunk = async (chunk) => {
+        const prompt = buildTranscriptionPrompt(language, customDict, chunk.durationSeconds);
+        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(wavBlob);
+        });
+        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
+            onStream(fullText);
+        });
+        return { rawResponse, result: validateAndFixSrt(rawResponse) };
+    };
+
+    const appendChunkResult = (chunk, result) => {
+        if (result.srt.trim()) {
+            const offsetted = offsetSrtTimestamps(result.srt, chunk.offsetSeconds, globalSeq - 1);
+            const blocks = offsetted.split(/\n\n/).filter(block => block.trim());
+            allSrtBlocks.push(...blocks);
+            globalSeq += blocks.length;
+            onChunkComplete(blocks.join('\n\n'));
+        }
+        if (result.plainText) allText.push(result.plainText.trim());
+    };
 
     // 4. 逐段辨識並合併 SRT
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const startMin = Math.floor(chunk.offsetSeconds / 60);
         const startSec = Math.floor(chunk.offsetSeconds % 60);
-        
-        // 針對每一段建立 prompt，限制其秒數
-        const prompt = buildTranscriptionPrompt(language, customDict, chunk.durationSeconds);
 
         let etaText = '';
         if (i > 0 && chunkStartTimes.length > 0) {
@@ -416,36 +411,50 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
 
         chunkStartTimes.push(Date.now());
 
-        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(wavBlob);
-        });
+        const primaryAttempt = await transcribeChunk(chunk);
 
-        const rawResponse = await callGeminiAudioAPI(apiKey, base64, 'audio/wav', prompt, (chunkText, fullText) => {
-            onStream(fullText);
-        });
-        const result = validateAndFixSrt(rawResponse);
-
-        if (!result.isValid) {
-            console.warn(`[Tab0] Gemini 第 ${i + 1} 段回傳內容無法解析為 SRT，原始回應：`, rawResponse);
-            // 如果某段失敗，我們只能把它當純文字
-            allText.push(rawResponse);
+        if (primaryAttempt.result.isValid) {
+            appendChunkResult(chunk, primaryAttempt.result);
         } else {
-            if (result.srt.trim()) {
-                const offsetted = offsetSrtTimestamps(result.srt, chunk.offsetSeconds, globalSeq - 1);
-                const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
-                allSrtBlocks.push(...blocks);
-                globalSeq += blocks.length;
-                onChunkComplete(blocks.join('\n\n'));
+            console.warn(`[Tab0] Gemini 第 ${i + 1} 段回傳內容無法解析為 SRT，改以 90 秒子分段補救。原始回應：`, primaryAttempt.rawResponse);
+            const recoveryChunks = splitPcmChunk(chunk, 90);
+            recoveredChunkCount++;
+
+            for (let recoveryIndex = 0; recoveryIndex < recoveryChunks.length; recoveryIndex++) {
+                const recoveryChunk = recoveryChunks[recoveryIndex];
+                onProgress({
+                    type: 'chunks',
+                    current: i + 1,
+                    total: totalChunks,
+                    message: `第 ${i + 1} 段格式異常，補救辨識 ${recoveryIndex + 1}/${recoveryChunks.length}（${formatAudioTime(recoveryChunk.offsetSeconds)} 開始）`,
+                    eta: '依 API 呼叫限制安全排程中',
+                });
+
+                const recoveryAttempt = await transcribeChunk(recoveryChunk);
+                if (recoveryAttempt.result.isValid) {
+                    appendChunkResult(recoveryChunk, recoveryAttempt.result);
+                    continue;
+                }
+
+                const rangeStart = recoveryChunk.offsetSeconds;
+                const rangeEnd = rangeStart + recoveryChunk.durationSeconds;
+                failedRanges.push({
+                    startSeconds: rangeStart,
+                    endSeconds: rangeEnd,
+                    label: `${formatAudioTime(rangeStart)}–${formatAudioTime(rangeEnd)}`,
+                });
+                const recoveryPlainText = String(recoveryAttempt.rawResponse || '').trim();
+                if (recoveryPlainText) {
+                    allText.push(recoveryPlainText);
+                }
+                console.warn(
+                    `[Tab0] Gemini 補救分段 ${formatAudioTime(rangeStart)}–${formatAudioTime(rangeEnd)} 仍無法解析為 SRT，原始回應：`,
+                    recoveryAttempt.rawResponse
+                );
             }
-            if (result.plainText) allText.push(result.plainText.trim());
         }
 
-        // 避免觸發 API Rate Limit (15 RPM)
-        // 每次處理完一個片段，強制延遲 4.5 秒，將 15 次請求分散到超過一分鐘
+        // 額外保留分段間隔；底層 API 排程器仍會依每組 Key 的 RPM 安全間隔執行。
         if (i < chunks.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 4500));
         }
@@ -458,7 +467,19 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
-    onProgress({ type: 'done', message: '全部辨識完成！' });
+    onProgress({
+        type: 'done',
+        message: failedRanges.length > 0 ? '辨識流程結束，部分區段需要重新處理。' : '全部辨識完成！'
+    });
+
+    let warning = null;
+    if (failedRanges.length > 0) {
+        warning = `辨識未完整：${failedRanges.map(range => range.label).join('、')} 仍無法產生有效字幕。已保留其他成功內容。`;
+    } else if (recoveredChunkCount > 0) {
+        warning = `有 ${recoveredChunkCount} 個 180 秒分段格式異常，已自動拆成 90 秒補回；SRT 時間軸已依原始音訊位置重新對齊。`;
+    } else if (totalChunks > 1) {
+        warning = `長音訊分段辨識：共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒），SRT 時間戳已自動對齊合併。`;
+    }
 
     return {
         text: finalText,
@@ -466,9 +487,9 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         srt: finalSrt,
         engine: 'gemini',
         blockCount: allSrtBlocks.length,
-        warning: totalChunks > 1
-            ? `長音訊分段辨識：共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒），SRT 時間戳已自動對齊合併。`
-            : null,
+        warning,
+        incomplete: failedRanges.length > 0,
+        failedRanges,
     };
 }
 
@@ -924,7 +945,7 @@ export function initializeTab0() {
         }
 
         // 顯示警告（如果有）
-        if (data.warning) {
+        if (data.warning && !data.incomplete) {
             showToast(data.warning, { type: 'warning' });
         }
 
@@ -1079,7 +1100,11 @@ export function initializeTab0() {
                     }
 
                     displayResults(result);
-                    showToast('🎉 語音辨識完成！', { type: 'success' });
+                    if (result.incomplete) {
+                        showToast(result.warning || '辨識未完整，請檢查結果。', { type: 'error' });
+                    } else {
+                        showToast('🎉 語音辨識完成！', { type: 'success' });
+                    }
 
                 } catch (error) {
                     console.error('[Tab0] Transcription failed:', error);
@@ -1138,7 +1163,7 @@ export function initializeTab0() {
         });
     }
 
-    // --- 傳入 Tab1 ---
+    // --- 傳入逐字稿整理頁面 ---
     if (sendToTab1Btn) {
         sendToTab1Btn.addEventListener('click', () => {
             const content = state.transcribeResult?.srt || state.transcribeResult?.text || '';
@@ -1146,17 +1171,37 @@ export function initializeTab0() {
                 showToast('沒有可傳入的內容。', { type: 'warning' });
                 return;
             }
-            if (state.currentAbortController) {
-                try { state.currentAbortController.abort(); } catch (_) {}
-                state.currentAbortController = null;
-            }
             const smartArea = document.getElementById('smart-area');
-            if (smartArea) {
+            if (!smartArea) return;
+
+            const replaceAndOpenTab1 = () => {
+                if (state.currentAbortController) {
+                    try { state.currentAbortController.abort(); } catch (_) {}
+                    state.currentAbortController = null;
+                }
                 smartArea.value = content;
                 smartArea.dispatchEvent(new Event('input', { bubbles: true }));
+                window.dispatchEvent(new Event('lumina:showTab1Input'));
+                switchTab('tab1');
+                showToast('✅ 字幕已傳入「逐字稿整理」頁面，準備開始整理！');
+            };
+
+            if (shouldConfirmSourceReplacement(smartArea.value, content)) {
+                showModal({
+                    title: '取代目前逐字稿？',
+                    message: '逐字稿整理頁面已有另一份逐字稿。取代後，系統會清除由舊逐字稿產生的摘要、文章與其他內容。',
+                    buttons: [
+                        { text: '取消', class: 'btn-secondary', callback: hideModal },
+                        { text: '取代', class: 'btn-danger', callback: () => {
+                            hideModal();
+                            replaceAndOpenTab1();
+                        }}
+                    ]
+                });
+                return;
             }
-            switchTab('tab1');
-            showToast('✅ 字幕已傳入 Tab1，準備開始整理！');
+
+            replaceAndOpenTab1();
         });
     }
 

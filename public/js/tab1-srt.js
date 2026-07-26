@@ -521,6 +521,11 @@ ${content}
         exportSrtBtn.disabled = true;
     });
 
+    window.addEventListener('lumina:showTab1Input', () => {
+        setMode('input');
+        smartArea.focus();
+    });
+
     if (tab1EmptyState) {
         tab1EmptyState.addEventListener('click', (e) => {
             if (e.target.closest('label') || e.target.closest('a') || e.target.tagName === 'INPUT') return;
