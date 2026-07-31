@@ -873,6 +873,14 @@ export const switchTab = (tabId) => {
                         workerTestStatus.className = 'text-sm text-error mt-2';
                         return;
                     }
+                    let workerVersion = '';
+                    try {
+                        const healthData = await healthResp.json();
+                        workerVersion = typeof healthData?.version === 'string'
+                            ? healthData.version.trim()
+                            : '';
+                    } catch (_) {}
+                    const versionLabel = workerVersion ? `${workerVersion} ` : '';
 
                     // 2. 測試 Token 驗證
                     const authTestUrl = `${baseUrl}/api/generate-text`;
@@ -883,13 +891,13 @@ export const switchTab = (tabId) => {
                     });
                     
                     if (authResp.status === 401 || authResp.status === 403) {
-                        workerTestStatus.textContent = '❌ 連線成功，但 Token 驗證失敗 (密碼錯誤)';
+                        workerTestStatus.textContent = `❌ ${versionLabel}連線成功，但 Token 驗證失敗 (密碼錯誤)`;
                         workerTestStatus.className = 'text-sm text-error mt-2';
                     } else if (authResp.status === 400 || authResp.ok) {
-                        workerTestStatus.textContent = '✅ 連線成功，Token 驗證通過！';
+                        workerTestStatus.textContent = `✅ ${versionLabel}連線成功，Token 驗證通過！`;
                         workerTestStatus.className = 'text-sm text-success mt-2';
                     } else {
-                        workerTestStatus.textContent = `⚠️ 連線成功，但發生未知錯誤 (${authResp.status})`;
+                        workerTestStatus.textContent = `⚠️ ${versionLabel}連線成功，但發生未知錯誤 (${authResp.status})`;
                         workerTestStatus.className = 'text-sm text-warning mt-2';
                     }
                 } catch (error) {

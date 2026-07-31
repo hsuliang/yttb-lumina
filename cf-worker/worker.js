@@ -1,18 +1,25 @@
 /**
  * yttb-lumina Whisper Worker
  * 部署在 Cloudflare Workers，使用 @cf/openai/whisper-large-v3-turbo 模型
+ * Version: 1.2.6
  *
  * 端點：
  *   GET  /api/health     → 健康檢查
- *   POST /api/transcribe → 音訊辨識（Binary WAV 或 multipart/form-data）
+ *   POST /api/transcribe → 音訊辨識（Binary audio）
  *
  * 環境變數（選填）：
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-const WORKER_VERSION = '1.1.0';
+// 版本規則：每次發布程式變更時 patch 加 1，例如 1.2.6 → 1.2.7。
+const WORKER_VERSION = '1.2.6';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
+const AI_TRANSCRIPT_LABEL = '《 字幕君：ㄚ亮笑長的內容助手》';
+const MUSIC_LABEL = '【音樂】';
+const MAX_SUBTITLE_DURATION_MS = 6000;
+const MAX_SUBTITLE_CHARS = 28;
+const MIN_SUBTITLE_DURATION_MS = 700;
 
 const ENGLISH_DICT_SET = new Set([
     'a', 'a few', 'a little', 'a lot', 'able', 'about', 'above', 'abroad',
@@ -176,33 +183,18 @@ function shouldMergeEnglish(w1, w2, dictSet) {
     const l2 = w2.toLowerCase();
     const combined = l1 + l2;
 
-    if (dictSet.has(combined)) return true;
-
-    const isW1Valid = dictSet.has(l1);
-    const isW2Valid = dictSet.has(l2);
-
-    if (!isW1Valid || !isW2Valid) {
-        if (/^\d+$/.test(w1) || /^\d+$/.test(w2)) return false;
-
-        const isFragment = (w) => {
-            if (w.length <= 3) return true;
-            return w.endsWith('ing') || w.endsWith('ed') || w.endsWith('ly') || w.endsWith('er') || 
-                   w.endsWith('es') || w.endsWith('tion') || w.endsWith('ment') || w.endsWith('able') || 
-                   w.endsWith('ness') || w.endsWith('ful');
-        };
-
-        if (!isW1Valid && !isW2Valid) return true;
-        if (!isW1Valid && isW2Valid) return isFragment(l1);
-        if (isW1Valid && !isW2Valid) return isFragment(l2);
-    }
-
-    return false;
+    // 僅修復「兩側都不是完整單字，但合併後是字典單字」的明確拆字。
+    // 不再猜測未知字或常見字尾，避免 ChatGPT Codex → ChatGPTCodex。
+    return !dictSet.has(l1) && !dictSet.has(l2) && dictSet.has(combined);
 }
 
 function fixSpellingInText(text, dictSet) {
     if (!text) return text;
-    const tokens = text.split(/([a-zA-Z0-9\-\'\’]+)/);
-    if (tokens.length < 3) return text;
+    const acronymRepaired = text
+        .replace(/\b(?:[A-Z]\s+){1,}[A-Z]\b/g, value => value.replace(/\s+/g, ''))
+        .replace(/\b([A-Z])\s+(\d+)\b/g, '$1$2');
+    const tokens = acronymRepaired.split(/([a-zA-Z0-9\-\'\’]+)/);
+    if (tokens.length < 3) return acronymRepaired;
 
     let result = tokens[0];
     let i = 1;
@@ -242,7 +234,7 @@ function parseTimestampToMs(timeStr) {
         const secs = parseFloat(parts[2]);
         return Math.round((hours * 3600 + mins * 60 + secs) * 1000);
     }
-    return 0;
+    return Number.NaN;
 }
 
 function formatMsToSrtTime(ms) {
@@ -255,119 +247,724 @@ function formatMsToSrtTime(ms) {
 
 // ─── VTT → SRT 轉換 ──────────────────────────────────────────────
 function vttToSrt(vttText) {
-    let text = (vttText || '').trim();
-    // 移除 WEBVTT header 與 NOTE 區塊
-    text = text.replace(/^WEBVTT\s*\n*/m, '');
-    text = text.replace(/NOTE[\s\S]*?\n\n/g, '');
-    text = text.trim();
+    const lines = String(vttText || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+    const timelinePattern = /^((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})\s*-->\s*((?:\d{2}:)?\d{2}:\d{2}[.,]\d{3})/;
+    const cues = [];
+    let current = null;
+    let inNote = false;
 
-    const blocks = text.split(/\n\s*\n/).filter(b => b.trim().length > 0);
-    let seqNum = 1;
-    const srtBlocks = [];
+    const flush = () => {
+        if (!current) return;
+        const text = normalizeSubtitleText(current.lines.join(' '));
+        if (text && current.endMs > current.startMs) {
+            cues.push({ startMs: current.startMs, endMs: current.endMs, text });
+        }
+        current = null;
+    };
 
-    for (const block of blocks) {
-        const lines = block.trim().split('\n').filter(l => l.trim().length > 0);
-        const timeLineIdx = lines.findIndex(l => l.includes('-->'));
-        if (timeLineIdx === -1) continue;
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (/^NOTE(?:\s|$)/.test(line)) {
+            flush();
+            inNote = true;
+            continue;
+        }
+        if (inNote) {
+            if (!line) inNote = false;
+            continue;
+        }
 
-        const timeLine = lines[timeLineIdx];
-        const times = timeLine.split('-->');
-        if (times.length !== 2) continue;
+        const match = line.match(timelinePattern);
+        if (match) {
+            flush();
+            const startMs = parseTimestampToMs(match[1]);
+            const endMs = parseTimestampToMs(match[2]);
+            current = Number.isFinite(startMs) && Number.isFinite(endMs)
+                ? { startMs, endMs, lines: [] }
+                : null;
+            continue;
+        }
 
-        const startMs = parseTimestampToMs(times[0]);
-        const endMs = parseTimestampToMs(times[1]);
-
-        const subtitleText = lines.slice(timeLineIdx + 1).join('\n').trim();
-        if (!subtitleText) continue;
-
-        const srtTimeLine = `${formatMsToSrtTime(startMs)} --> ${formatMsToSrtTime(endMs)}`;
-        srtBlocks.push(`${seqNum}\n${srtTimeLine}\n${subtitleText}`);
-        seqNum++;
+        if (!current || !line || /^(?:WEBVTT|STYLE|REGION)$/i.test(line)) continue;
+        // 即使模型回傳格式不完整，也不允許下一條時間軸成為字幕文字。
+        if (line.includes('-->')) continue;
+        current.lines.push(line);
     }
-
-    return srtBlocks.join('\n\n');
+    flush();
+    return serializeSrtCues(cues);
 }
 
-// ─── 合併字元級 SRT → 完整句子 ────────────────────────────────────
-// Whisper 對中文會產生每字一段的細粒度字幕，需要合併成完整句子
-// 斷句基準（優先順序）：
-//   1. 遇到句子結尾標點（。！？…）→ 強制斷段
-//   2. 時間間距 > maxGapMs ms（長暫停） → 強制斷段
-//   3. 單句時長超過 maxDurationMs（避免字幕過長） → 強制斷段
-//   ❌ 不用字數當基準，保持完整語意
-function mergeSrtBlocks(srtText, maxGapMs = 800, maxDurationMs = 5000) {
-    if (!srtText || !srtText.trim()) return srtText;
+function segmentTimeToMs(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value * 1000);
+    if (typeof value === 'string') return parseTimestampToMs(value);
+    return Number.NaN;
+}
 
-    // 解析 SRT 塊
-    const blocks = srtText.trim().split(/\n\n/).filter(b => b.trim());
-    const parsed = [];
+function segmentsToSrt(segments) {
+    if (!Array.isArray(segments) || segments.length === 0) return '';
+    const cues = [];
+    for (const segment of segments) {
+        const startMs = segmentTimeToMs(segment?.start ?? segment?.start_time);
+        const endMs = segmentTimeToMs(segment?.end ?? segment?.end_time);
+        const text = normalizeSubtitleText(segment?.text || '');
+        if (!text || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
+        cues.push({ startMs, endMs, text });
+    }
+    return serializeSrtCues(cues);
+}
+
+// ─── 字幕解析、正規化與自然斷句 ────────────────────────────────────
+const HARD_ENDERS = /[。！？.!?…]$/u;
+const SOFT_ENDERS = /[，、；：,;:]$/u;
+const CHINESE_WORD_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter('zh-TW', { granularity: 'word' })
+    : null;
+
+function subtitleLength(text) {
+    return Array.from(String(text || '').replace(/\s+/g, '')).length;
+}
+
+function normalizeSubtitleText(text) {
+    return String(text || '')
+        .replace(/\[(?:music|instrumental music)\]|\((?:music|instrumental music)\)/gi, MUSIC_LABEL)
+        .replace(/[♪♫♬]+/g, MUSIC_LABEL)
+        .replace(/(?:【音樂】\s*){2,}/g, MUSIC_LABEL)
+        .replace(/\s+([，。！？、；：,.!?;:])/g, '$1')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+}
+
+function parseSrtCues(srtText) {
+    if (!srtText || !srtText.trim()) return [];
+    const cues = [];
+    const blocks = srtText.trim().split(/\n\s*\n/).filter(Boolean);
 
     for (const block of blocks) {
         const lines = block.trim().split('\n');
-        if (lines.length < 3) continue;
-        const timeLine = lines[1];
-        const times = timeLine.split('-->');
+        const timeLineIndex = lines.findIndex(line => line.includes('-->'));
+        if (timeLineIndex < 0) continue;
+        const times = lines[timeLineIndex].split('-->');
         if (times.length !== 2) continue;
 
         const startMs = parseTimestampToMs(times[0]);
         const endMs = parseTimestampToMs(times[1]);
-        const text = lines.slice(2).join(' ').trim();
-        const fixedText = fixSpellingInText(text, ENGLISH_DICT_SET);
-        parsed.push({ startMs, endMs, text: fixedText });
+        const text = normalizeSubtitleText(lines.slice(timeLineIndex + 1).join(' '));
+        if (!text || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue;
+        cues.push({ startMs, endMs, text });
     }
 
-    if (parsed.length === 0) return srtText;
+    return cues.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+}
 
-    // 斷句標點：句號、驚嘆號、問號、省略號（逗號/頓號視為句中，不強制斷）
-    const hardEnders = /[。！？…]/;
+function serializeSrtCues(cues) {
+    return cues
+        .filter(cue => cue.text && cue.endMs > cue.startMs)
+        .map((cue, index) => `${index + 1}\n${formatMsToSrtTime(cue.startMs)} --> ${formatMsToSrtTime(cue.endMs)}\n${cue.text.trim()}`)
+        .join('\n\n');
+}
 
-    const merged = [];
-    let cur = null;
+function findNaturalSplit(chars, limit) {
+    const minimum = Math.max(1, Math.floor(limit * 0.45));
+    const maximum = Math.min(limit, chars.length - 1);
+    const text = chars.join('');
+    const boundaries = [];
+    if (CHINESE_WORD_SEGMENTER) {
+        let offset = 0;
+        for (const part of CHINESE_WORD_SEGMENTER.segment(text)) {
+            offset += Array.from(part.segment).length;
+            if (offset >= minimum && offset <= maximum) boundaries.push(offset);
+        }
+    }
+    if (boundaries.length === 0) {
+        for (let index = minimum; index <= maximum; index++) boundaries.push(index);
+    }
 
-    for (const blk of parsed) {
-        if (!cur) {
-            cur = { startMs: blk.startMs, endMs: blk.endMs, text: blk.text };
+    for (let index = boundaries.length - 1; index >= 0; index--) {
+        const boundary = boundaries[index];
+        if (/[。！？!?…，、；：,;:\s]/u.test(chars[boundary - 1])) return boundary;
+    }
+
+    const semanticStart = /^(?:但更重要的是|更重要的是|但是|可是|不過|所以|因此|然後|接下來|另外|其實|如果|因為|有些|好|那)/u;
+    for (let index = boundaries.length - 1; index >= 0; index--) {
+        const boundary = boundaries[index];
+        if (semanticStart.test(chars.slice(boundary).join('').trimStart())) return boundary;
+    }
+
+    const incompleteEnding = /(?:的|在|把|被|跟|和|與|或|因為|所以|但是|可是|然後|就是|其實|如果|要|會|可以|需要|讓)$/u;
+    for (let index = boundaries.length - 1; index >= 0; index--) {
+        const boundary = boundaries[index];
+        if (!incompleteEnding.test(chars.slice(0, boundary).join('').trimEnd())) return boundary;
+    }
+    return boundaries.at(-1) || maximum;
+}
+
+function splitTextNaturally(text, maxChars, minimumPieces = 1) {
+    const pieces = [];
+    let remaining = Array.from(text.trim());
+    const target = Math.max(1, Math.min(maxChars, Math.ceil(remaining.length / minimumPieces)));
+
+    while (remaining.length > target) {
+        const splitAt = findNaturalSplit(remaining, target);
+        const piece = remaining.slice(0, splitAt).join('').trim();
+        if (piece) pieces.push(piece);
+        remaining = remaining.slice(splitAt);
+        while (remaining[0] === ' ') remaining.shift();
+    }
+    const tail = remaining.join('').trim();
+    if (tail) pieces.push(tail);
+    return pieces;
+}
+
+function splitLongCue(cue, maxDurationMs, maxChars) {
+    const length = subtitleLength(cue.text);
+    const duration = cue.endMs - cue.startMs;
+    const requiredPieces = Math.max(
+        1,
+        Math.ceil(length / maxChars),
+        Math.ceil(duration / maxDurationMs)
+    );
+    if (requiredPieces === 1) return [cue];
+    if (length < requiredPieces) {
+        return [{ ...cue, endMs: Math.min(cue.endMs, cue.startMs + maxDurationMs) }];
+    }
+
+    const pieces = splitTextNaturally(cue.text, maxChars, requiredPieces);
+    if (pieces.length < 2) return [cue];
+    const weights = pieces.map(piece => Math.max(1, subtitleLength(piece)));
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+    let cursor = cue.startMs;
+
+    return pieces.map((piece, index) => {
+        const remainingPieces = pieces.length - index - 1;
+        const weightedEnd = Math.round(
+            cue.startMs + duration * (weights.slice(0, index + 1).reduce((sum, value) => sum + value, 0) / totalWeight)
+        );
+        const endMs = index === pieces.length - 1 ? cue.endMs : Math.max(
+            cue.endMs - remainingPieces * maxDurationMs,
+            Math.min(weightedEnd, cursor + maxDurationMs)
+        );
+        const part = { startMs: cursor, endMs, text: piece };
+        cursor = endMs;
+        return part;
+    }).filter(part => part.endMs > part.startMs);
+}
+
+function canMergeShortUtterances(current, next, gap) {
+    return gap <= 250
+        && subtitleLength(current.text) <= 6
+        && subtitleLength(next.text) <= 8
+        && subtitleLength(current.text + next.text) <= 12
+        && next.endMs - current.startMs <= 3000;
+}
+
+function joinSubtitleText(left, right, mergeEnglishFragment = false) {
+    if (!left) return right;
+    if (!right) return left;
+    const chinesePhrasePause = /\p{Script=Han}$/u.test(left)
+        && /^\p{Script=Han}/u.test(right)
+        && subtitleLength(left) >= 2
+        && subtitleLength(right) >= 2
+        && /^(?:但更重要的是|更重要的是|但是|可是|不過|所以|因此|然後|接下來|另外|其實|如果|因為|有些|很多|好|那)/u.test(right);
+    const latinBoundary = /[a-zA-Z0-9.!?]$/.test(left) && /^[a-zA-Z0-9]/.test(right);
+    const needsSpace = chinesePhrasePause || (latinBoundary && !mergeEnglishFragment);
+    return left + (needsSpace ? ' ' : '') + right;
+}
+
+function canMergeForReadability(left, right) {
+    const gap = right.startMs - left.endMs;
+    return gap >= 0
+        && gap <= 300
+        && right.endMs - left.startMs <= MAX_SUBTITLE_DURATION_MS
+        && subtitleLength(joinSubtitleText(left.text, right.text)) <= MAX_SUBTITLE_CHARS;
+}
+
+function improveShortCueTimings(cues, minDurationMs = MIN_SUBTITLE_DURATION_MS) {
+    const result = cues.map(cue => ({ ...cue }));
+    for (let i = 0; i < result.length; i++) {
+        const cue = result[i];
+        if (cue.endMs - cue.startMs >= minDurationMs) continue;
+
+        const next = result[i + 1];
+        const previous = result[i - 1];
+        if (next && (canMergeShortUtterances(cue, next, next.startMs - cue.endMs)
+            || canMergeForReadability(cue, next))) {
+            cue.endMs = next.endMs;
+            cue.text = joinSubtitleText(cue.text, next.text);
+            result.splice(i + 1, 1);
+            i--;
             continue;
         }
-        const gap = blk.startMs - cur.endMs;
-        const duration = blk.endMs - cur.startMs;
-        const hasPunctuation = hardEnders.test(cur.text.slice(-1)); // 句子結尾標點
-        
-        const isLongPause = gap > maxGapMs;                         // 長暫停
-        const isTooLong = duration > maxDurationMs                  // 超過 5 秒安全上限
-            || cur.text.length >= 25;                               // 超過 25 個字強制斷行
-
-        // 斷行規則：
-        // 1. 有標點且長度 >= 3
-        // 2. 遇到長暫停 (無條件斷行)
-        // 3. 句子太長或時間太久 (無條件斷行)
-        let shouldBreak = (hasPunctuation && cur.text.length >= 3)
-            || isLongPause
-            || isTooLong;
-
-        // 檢查是否處於英文單字拆分的中間 (是的話強制不斷行，並消除空格)
-        const w1 = cur.text.match(/[a-zA-Z0-9\-\'\’]+$/)?.[0];
-        const w2 = blk.text.match(/^[a-zA-Z0-9\-\'\’]+/)?.[0];
-        const isMiddleOfWord = w1 && w2 && shouldMergeEnglish(w1, w2, ENGLISH_DICT_SET);
-
-        if (isMiddleOfWord) {
-            shouldBreak = false;
+        if (previous && canMergeForReadability(previous, cue)) {
+            previous.endMs = cue.endMs;
+            previous.text = joinSubtitleText(previous.text, cue.text);
+            result.splice(i, 1);
+            i -= 2;
+            continue;
         }
+
+        const nextStart = next?.startMs ?? cue.startMs + minDurationMs;
+        cue.endMs = Math.max(cue.endMs, Math.min(nextStart, cue.startMs + minDurationMs));
+    }
+    return result.filter(cue => cue.endMs > cue.startMs);
+}
+
+function mergeSrtBlocks(
+    srtText,
+    maxGapMs = 800,
+    maxDurationMs = MAX_SUBTITLE_DURATION_MS,
+    maxChars = MAX_SUBTITLE_CHARS
+) {
+    const parsed = parseSrtCues(srtText)
+        .flatMap(cue => splitLongCue(cue, maxDurationMs, maxChars));
+    if (parsed.length === 0) return '';
+
+    const merged = [];
+    let current = null;
+
+    for (const block of parsed) {
+        if (!current) {
+            current = { ...block };
+            continue;
+        }
+
+        const gap = block.startMs - current.endMs;
+        const prospectiveDuration = block.endMs - current.startMs;
+        const w1 = current.text.match(/[a-zA-Z0-9\-\'\’]+$/)?.[0];
+        const w2 = block.text.match(/^[a-zA-Z0-9\-\'\’]+/)?.[0];
+        const mergeEnglishFragment = gap >= 0 && gap <= 120
+            && w1 && w2 && shouldMergeEnglish(w1, w2, ENGLISH_DICT_SET);
+        const joinedText = joinSubtitleText(current.text, block.text, mergeEnglishFragment);
+        const shortUtterances = canMergeShortUtterances(current, block, gap);
+        const hardBoundary = HARD_ENDERS.test(current.text) && !shortUtterances;
+        const softBoundary = SOFT_ENDERS.test(current.text)
+            && subtitleLength(current.text) >= 12
+            && current.endMs - current.startMs >= 1200;
+        const nonSpeechBoundary = current.text.includes(MUSIC_LABEL) || block.text.includes(MUSIC_LABEL);
+        const exceedsLimit = prospectiveDuration > maxDurationMs
+            || subtitleLength(joinedText) > maxChars;
+        const shouldBreak = gap < 0
+            || gap > maxGapMs
+            || nonSpeechBoundary
+            || hardBoundary
+            || softBoundary
+            || exceedsLimit;
 
         if (shouldBreak) {
-            merged.push(cur);
-            cur = { startMs: blk.startMs, endMs: blk.endMs, text: blk.text };
+            merged.push(current);
+            current = { ...block };
         } else {
-            cur.endMs = blk.endMs;
-            const needsSpace = /[a-zA-Z0-9]$/.test(cur.text) && /^[a-zA-Z0-9]/.test(blk.text);
-            cur.text = cur.text + (needsSpace && !isMiddleOfWord ? ' ' : '') + blk.text;
+            current.endMs = block.endMs;
+            current.text = joinedText;
         }
     }
-    if (cur) merged.push(cur);
+    if (current) merged.push(current);
 
-    return merged
-        .map((b, i) => `${i+1}\n${formatMsToSrtTime(b.startMs)} --> ${formatMsToSrtTime(b.endMs)}\n${b.text.trim()}`)
-        .join('\n\n');
+    const splitAgain = merged.flatMap(cue => splitLongCue(cue, maxDurationMs, maxChars));
+    return serializeSrtCues(improveShortCueTimings(splitAgain));
+}
+
+function restoreConfiguredTerms(text, promptWords = []) {
+    let result = String(text || '');
+    const terms = [...new Set(promptWords.map(term => String(term || '').trim()).filter(Boolean))]
+        .sort((a, b) => b.replace(/\s+/g, '').length - a.replace(/\s+/g, '').length);
+
+    for (const term of terms) {
+        const compact = term.replace(/\s+/g, '');
+        if (compact.length < 2) continue;
+        const pattern = Array.from(compact)
+            .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .join('[\\s._-]*');
+        if (/^[A-Za-z0-9]+$/.test(compact)) {
+            result = result.replace(
+                new RegExp(`(^|[^A-Za-z0-9])(${pattern})(?![A-Za-z0-9])`, 'gi'),
+                (_, prefix) => `${prefix}${term}`
+            );
+        } else {
+            result = result.replace(new RegExp(pattern, 'giu'), () => term);
+        }
+    }
+    return result;
+}
+
+function applyRecognitionTextRules(text, replaceRules = [], promptWords = []) {
+    let result = restoreConfiguredTerms(text, promptWords);
+    result = fixSpellingInText(result, ENGLISH_DICT_SET);
+    for (const rule of replaceRules) {
+        const escapedWrong = rule.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        result = result.replace(new RegExp(escapedWrong, 'g'), () => rule.correct);
+    }
+    return result;
+}
+
+function restoreChinesePunctuation(srtText) {
+    const cues = parseSrtCues(srtText).map(cue => ({ ...cue }));
+    let restored = 0;
+    const questionEnding = /(?:嗎|呢|對不對|是不是|好不好|可不可以|為什麼|怎麼辦|怎麼樣|如何|哪裡|多少)$/u;
+
+    for (let index = 0; index < cues.length; index++) {
+        const cue = cues[index];
+        if (!cue.text || cue.text.includes(MUSIC_LABEL) || HARD_ENDERS.test(cue.text) || SOFT_ENDERS.test(cue.text)) {
+            continue;
+        }
+
+        const next = cues[index + 1];
+        const gap = next ? Math.max(0, next.startMs - cue.endMs) : Number.POSITIVE_INFINITY;
+        // 沒有足夠語意證據時保留無標點，避免把換行誤當句末。
+        if (questionEnding.test(cue.text) && (!next || gap >= 250)) {
+            cue.text += '？';
+            restored++;
+        }
+    }
+    return { srt: serializeSrtCues(cues), restored };
+}
+
+// ─── WAV 能量分析與片頭非語音標記 ──────────────────────────────────
+function readFourCc(view, offset) {
+    return String.fromCharCode(
+        view.getUint8(offset),
+        view.getUint8(offset + 1),
+        view.getUint8(offset + 2),
+        view.getUint8(offset + 3)
+    );
+}
+
+function analyzeWavPcm(audioBuffer, windowMs = 100) {
+    if (!(audioBuffer instanceof ArrayBuffer) || audioBuffer.byteLength < 44) return null;
+    const view = new DataView(audioBuffer);
+    if (readFourCc(view, 0) !== 'RIFF' || readFourCc(view, 8) !== 'WAVE') return null;
+
+    let format = null;
+    let dataOffset = -1;
+    let dataSize = 0;
+    let offset = 12;
+    while (offset + 8 <= view.byteLength) {
+        const chunkId = readFourCc(view, offset);
+        const chunkSize = view.getUint32(offset + 4, true);
+        const payloadOffset = offset + 8;
+        if (payloadOffset + chunkSize > view.byteLength) break;
+
+        if (chunkId === 'fmt ' && chunkSize >= 16) {
+            format = {
+                audioFormat: view.getUint16(payloadOffset, true),
+                channels: view.getUint16(payloadOffset + 2, true),
+                sampleRate: view.getUint32(payloadOffset + 4, true),
+                blockAlign: view.getUint16(payloadOffset + 12, true),
+                bitsPerSample: view.getUint16(payloadOffset + 14, true),
+            };
+        } else if (chunkId === 'data') {
+            dataOffset = payloadOffset;
+            dataSize = chunkSize;
+        }
+        offset = payloadOffset + chunkSize + (chunkSize % 2);
+    }
+
+    if (!format || dataOffset < 0 || format.audioFormat !== 1 || format.bitsPerSample !== 16
+        || format.channels < 1 || format.sampleRate < 1 || format.blockAlign < 2) {
+        return null;
+    }
+
+    const frameCount = Math.floor(dataSize / format.blockAlign);
+    const windowFrames = Math.max(1, Math.round(format.sampleRate * windowMs / 1000));
+    const rmsDb = [];
+    let sumSquares = 0;
+    let framesInWindow = 0;
+
+    for (let frame = 0; frame < frameCount; frame++) {
+        const frameOffset = dataOffset + frame * format.blockAlign;
+        let mono = 0;
+        for (let channel = 0; channel < format.channels; channel++) {
+            mono += view.getInt16(frameOffset + channel * 2, true) / 32768;
+        }
+        mono /= format.channels;
+        sumSquares += mono * mono;
+        framesInWindow++;
+
+        if (framesInWindow === windowFrames || frame === frameCount - 1) {
+            const rms = Math.sqrt(sumSquares / framesInWindow);
+            rmsDb.push(20 * Math.log10(Math.max(rms, 1e-10)));
+            sumSquares = 0;
+            framesInWindow = 0;
+        }
+    }
+
+    const sorted = [...rmsDb].sort((a, b) => a - b);
+    const p90 = sorted[Math.floor(Math.max(0, sorted.length - 1) * 0.9)] ?? -50;
+    return {
+        durationMs: Math.round(frameCount / format.sampleRate * 1000),
+        windowMs: windowFrames / format.sampleRate * 1000,
+        rmsDb,
+        audibleThresholdDb: Math.max(-55, p90 - 35),
+    };
+}
+
+function detectLeadingMusicRange(audioAnalysis, firstSpeechMs = null) {
+    if (!audioAnalysis?.rmsDb?.length) return null;
+    const endMs = Math.min(
+        audioAnalysis.durationMs,
+        Number.isFinite(firstSpeechMs) ? Math.max(0, firstSpeechMs) : audioAnalysis.durationMs
+    );
+    if (endMs < 2000) return null;
+
+    const windowCount = Math.min(
+        audioAnalysis.rmsDb.length,
+        Math.ceil(endMs / audioAnalysis.windowMs)
+    );
+    const audible = [];
+    for (let i = 0; i < windowCount; i++) {
+        if (audioAnalysis.rmsDb[i] > audioAnalysis.audibleThresholdDb) audible.push(i);
+    }
+    if (audible.length === 0) return null;
+
+    const first = audible[0];
+    const last = audible[audible.length - 1];
+    const spanWindows = last - first + 1;
+    const audibleRatio = audible.length / spanWindows;
+    const minimumRatio = Number.isFinite(firstSpeechMs) ? 0.45 : 0.8;
+    const spanMs = spanWindows * audioAnalysis.windowMs;
+    if (spanMs < 1500 || audibleRatio < minimumRatio) return null;
+
+    return {
+        startMs: Math.round(first * audioAnalysis.windowMs),
+        endMs: Math.round(Math.min(endMs, (last + 1) * audioAnalysis.windowMs)),
+    };
+}
+
+function srtToVtt(srtText) {
+    if (!srtText) return '';
+    const cues = parseSrtCues(srtText);
+    if (cues.length === 0) return 'WEBVTT\n';
+    const blocks = cues.map(cue => {
+        const start = formatMsToSrtTime(cue.startMs).replace(',', '.');
+        const end = formatMsToSrtTime(cue.endMs).replace(',', '.');
+        return `${start} --> ${end}\n${cue.text}`;
+    });
+    return `WEBVTT\n\n${blocks.join('\n\n')}`;
+}
+
+function decorateFirstChunkSrt(srtText, audioAnalysis, isFirstChunk) {
+    const cues = parseSrtCues(srtText);
+    if (!isFirstChunk) return serializeSrtCues(cues);
+
+    const firstSpeechCue = cues.find(cue => cue.text !== MUSIC_LABEL);
+    const musicRange = detectLeadingMusicRange(audioAnalysis, firstSpeechCue?.startMs ?? null);
+    const alreadyHasLeadingMusic = cues.some(cue => cue.text === MUSIC_LABEL && cue.startMs < 2000);
+    if (musicRange && musicRange.endMs > musicRange.startMs && !alreadyHasLeadingMusic) {
+        cues.push({ ...musicRange, text: MUSIC_LABEL });
+        cues.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    }
+
+    if (cues.length === 0 && audioAnalysis?.durationMs > 0) {
+        cues.push({
+            startMs: 0,
+            endMs: Math.min(2000, audioAnalysis.durationMs),
+            text: AI_TRANSCRIPT_LABEL,
+        });
+    } else if (cues.length > 0 && !cues[0].text.startsWith(AI_TRANSCRIPT_LABEL)) {
+        cues[0].text = `${AI_TRANSCRIPT_LABEL} ${cues[0].text}`.trim();
+    }
+    return serializeSrtCues(cues);
+}
+
+// ─── 辨識品質閘門 ──────────────────────────────────────────────────
+function findLongestActiveUncaptionedMs(audioAnalysis, cues, ignoredRanges = []) {
+    if (!audioAnalysis?.rmsDb?.length || !audioAnalysis.windowMs) return 0;
+    const windowMs = audioAnalysis.windowMs;
+    const covered = new Array(audioAnalysis.rmsDb.length).fill(false);
+    const markCovered = ({ startMs, endMs }) => {
+        const start = Math.max(0, Math.floor(startMs / windowMs));
+        const end = Math.min(covered.length, Math.ceil(endMs / windowMs));
+        for (let i = start; i < end; i++) covered[i] = true;
+    };
+    cues.forEach(markCovered);
+    ignoredRanges.filter(Boolean).forEach(markCovered);
+
+    const missing = audioAnalysis.rmsDb.map(
+        (db, index) => db > audioAnalysis.audibleThresholdDb && !covered[index]
+    );
+    const bridgeWindows = Math.max(1, Math.round(400 / windowMs));
+    for (let i = 0; i < missing.length;) {
+        if (missing[i] || covered[i]) {
+            i++;
+            continue;
+        }
+        const start = i;
+        while (i < missing.length && !missing[i] && !covered[i]) i++;
+        if (i - start <= bridgeWindows && start > 0 && i < missing.length
+            && missing[start - 1] && missing[i]) {
+            for (let j = start; j < i; j++) missing[j] = true;
+        }
+    }
+
+    let longestWindows = 0;
+    let currentWindows = 0;
+    for (const isMissing of missing) {
+        currentWindows = isMissing ? currentWindows + 1 : 0;
+        longestWindows = Math.max(longestWindows, currentWindows);
+    }
+    return Math.round(longestWindows * windowMs);
+}
+
+function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, language, isFirstChunk = false }) {
+    const cues = parseSrtCues(srt);
+    const combinedText = normalizeSubtitleText(text || cues.map(cue => cue.text).join(' '));
+    const reasons = [];
+    let score = 100;
+
+    const embeddedTimeline = /(?:\d{2}:)?\d{2}:\d{2}[.,]\d{2,3}\s*-->\s*(?:\d{2}:)?\d{2}:\d{2}[.,]\d{2,3}/u;
+    if (embeddedTimeline.test(combinedText) || cues.some(cue => embeddedTimeline.test(cue.text))) {
+        reasons.push('timestamp_leak');
+        score -= 70;
+    }
+
+    const promptLeak = /請(?:使用|用)繁體(?:中文)?字幕|繁體中文字幕|請不吝.{0,20}(?:訂閱|轉發)|(?:點贊|按讚).{0,20}(?:訂閱|轉發)/u;
+    if (promptLeak.test(combinedText)) {
+        reasons.push('prompt_leak');
+        score -= 55;
+    }
+
+    if (language === 'zh') {
+        const foreignChars = combinedText.match(/[\p{Script=Greek}\p{Script=Hebrew}\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || [];
+        const totalChars = Math.max(1, subtitleLength(combinedText));
+        if (foreignChars.length >= 3 && foreignChars.length / totalChars > 0.06) {
+            reasons.push('unexpected_scripts');
+            score -= 40;
+        }
+    }
+
+    if (/(.)\1{7,}/u.test(combinedText) || /(.{2,8})(?:[、，, ]*\1){3,}/u.test(combinedText)) {
+        reasons.push('repetition');
+        score -= 40;
+    }
+
+    const rawCueBlocks = String(rawSrt || '').split(/\n\s*\n/).filter(Boolean);
+    let invalidRawTimings = 0;
+    let implausibleRawCues = 0;
+    for (const block of rawCueBlocks) {
+        const lines = block.trim().split('\n');
+        const timeline = lines.find(line => line.includes('-->'));
+        if (!timeline) continue;
+        const timeParts = timeline.split('-->');
+        if (timeParts.length !== 2) {
+            invalidRawTimings++;
+            continue;
+        }
+        const start = parseTimestampToMs(timeParts[0]);
+        const end = parseTimestampToMs(timeParts[1]);
+        const cueText = lines.slice(lines.indexOf(timeline) + 1).join(' ').trim();
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) invalidRawTimings++;
+        if (end - start > MAX_SUBTITLE_DURATION_MS && subtitleLength(cueText) <= 2) {
+            implausibleRawCues++;
+        }
+    }
+    if (invalidRawTimings > 0) {
+        reasons.push('invalid_timestamps');
+        score -= 15;
+    }
+    if (implausibleRawCues > 0) {
+        reasons.push('implausible_cue');
+        score -= 40;
+    }
+
+    const extremeCues = cues.filter(cue => {
+        const durationSeconds = (cue.endMs - cue.startMs) / 1000;
+        return durationSeconds <= 0 || subtitleLength(cue.text) / durationSeconds > 22;
+    });
+    if (extremeCues.length > Math.max(1, Math.floor(cues.length * 0.2))) {
+        reasons.push('unreadable_timing');
+        score -= 25;
+    }
+
+    const firstSpeechCue = cues.find(cue => cue.text !== MUSIC_LABEL);
+    const musicRange = isFirstChunk
+        ? detectLeadingMusicRange(audioAnalysis, firstSpeechCue?.startMs ?? null)
+        : null;
+    const audibleWindows = audioAnalysis?.rmsDb?.filter(db => db > audioAnalysis.audibleThresholdDb).length || 0;
+    const audibleRatio = audioAnalysis?.rmsDb?.length
+        ? audibleWindows / audioAnalysis.rmsDb.length
+        : 0;
+    const cueCoverageMs = cues.reduce((sum, cue) => sum + Math.max(0, cue.endMs - cue.startMs), 0);
+    // 只有已辨識到後續語音時，才把前導有聲區段視為片頭音樂並排除。
+    // 若整段完全沒有字幕，保留為缺漏，避免把漏辨人聲誤標成音樂。
+    const ignoredMusicRanges = firstSpeechCue ? [musicRange] : [];
+    const longestActiveGapMs = findLongestActiveUncaptionedMs(audioAnalysis, cues, ignoredMusicRanges);
+    if (longestActiveGapMs >= 3000) {
+        reasons.push('active_audio_gap');
+        score -= 50;
+    }
+    const transcriptChars = subtitleLength(combinedText);
+    const audioDurationSeconds = (audioAnalysis?.durationMs || 0) / 1000;
+    const charactersPerSecond = audioDurationSeconds > 0
+        ? transcriptChars / audioDurationSeconds
+        : null;
+    const sparseCoverage = audioAnalysis?.durationMs > 8000
+        && audibleRatio > 0.55
+        && (transcriptChars < 4
+            || charactersPerSecond < 0.75
+            || (transcriptChars < 8 && cueCoverageMs / audioAnalysis.durationMs < 0.4));
+    if (sparseCoverage && !(musicRange && firstSpeechCue)) {
+        reasons.push('sparse_transcript');
+        score -= 50;
+    }
+
+    const severeTimingFailure = reasons.includes('unreadable_timing');
+    return {
+        score: Math.max(0, score),
+        suspect: score <= 60 || severeTimingFailure,
+        reasons,
+        longestActiveGapMs,
+        charactersPerSecond,
+    };
+}
+
+function cleanPromptContext(value, maxLength) {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(-maxLength);
+}
+
+function isInvalidAiInputError(error) {
+    return /(?:8001|invalid input|badinput)/i.test(String(error?.message || error || ''));
+}
+
+function buildWhisperInput(
+    audioBase64,
+    language,
+    promptWords = [],
+    retry = false,
+    previousContext = '',
+    mediaTitle = '',
+    minimal = false
+) {
+    const input = {
+        audio: audioBase64,
+        task: 'transcribe',
+    };
+    if (language && language !== 'auto') {
+        input.language = normalizeLanguageCode(language);
+    }
+    if (minimal) return input;
+
+    Object.assign(input, {
+        vad_filter: true,
+        beam_size: 5,
+        condition_on_previous_text: !retry,
+        no_speech_threshold: 0.6,
+        compression_ratio_threshold: 2.4,
+        log_prob_threshold: -1,
+        hallucination_silence_threshold: 1.0,
+    });
+    const promptParts = [];
+    if (input.language === 'zh') promptParts.push('繁體中文口語。');
+    if (input.language === 'en') promptParts.push('English conversation.');
+    if (input.language === 'ja') promptParts.push('日本語の会話。');
+    const titleContext = cleanPromptContext(mediaTitle, 80);
+    if (titleContext) promptParts.push(titleContext);
+    if (promptWords.length > 0) {
+        const terminologyContext = promptWords.slice(0, 80).join('、').slice(0, 200);
+        if (terminologyContext) promptParts.push(terminologyContext);
+    }
+    const transcriptContext = retry ? '' : cleanPromptContext(previousContext, 160);
+    if (transcriptContext) promptParts.push(transcriptContext);
+    if (promptParts.length > 0) input.initial_prompt = promptParts.join(' ');
+    return input;
 }
 
 
@@ -376,7 +973,7 @@ function corsHeaders() {
     return {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Language, X-Custom-Dict',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Language, X-Custom-Dict, X-Chunk-Index, X-Chunk-Offset, X-First-Chunk, X-Previous-Context, X-Media-Title, X-Recovery-Depth, X-Request-Attempt',
         'Access-Control-Max-Age': '86400',
     };
 }
@@ -391,6 +988,15 @@ function jsonResponse(data, status = 200) {
 
 function errorResponse(message, status = 400) {
     return jsonResponse({ error: message }, status);
+}
+
+function decodeHeaderValue(value) {
+    if (!value) return '';
+    try {
+        return decodeURIComponent(value);
+    } catch (_) {
+        return value;
+    }
 }
 
 function checkAuth(request, env) {
@@ -445,6 +1051,13 @@ async function handleTranscribe(request, env) {
         // 一律走 Binary 模式（分段 WAV，主要路徑）
         const audioBuffer = await request.arrayBuffer();
         const language = request.headers.get('X-Language') || null;
+        const previousContext = decodeHeaderValue(request.headers.get('X-Previous-Context'));
+        const mediaTitle = decodeHeaderValue(request.headers.get('X-Media-Title'));
+        const chunkIndex = request.headers.get('X-Chunk-Index');
+        const firstChunkHeader = request.headers.get('X-First-Chunk');
+        const isFirstChunk = firstChunkHeader !== null
+            ? firstChunkHeader === '1' || firstChunkHeader === 'true'
+            : chunkIndex === null || chunkIndex === '0';
 
         if (!audioBuffer || audioBuffer.byteLength < 12) {
             return errorResponse('音訊資料為空或過短，請確認上傳的檔案');
@@ -508,16 +1121,12 @@ async function handleTranscribe(request, env) {
             binary += String.fromCharCode.apply(null, chunk);
         }
         const audioBase64 = btoa(binary);
-
-        const input = {
-            audio: audioBase64,
-        };
+        const audioAnalysis = analyzeWavPcm(audioBuffer);
         
         // 🚨 關鍵修復：之前的代理對陣列大小有限制，會導致 string 化報錯
         // 我們測試過 Base64 字串是可以成功通過驗證的，所以直接採用原本成功的 Base64 寫法
         
-        const customDictHeader = request.headers.get('X-Custom-Dict') || '';
-        const customDict = customDictHeader ? decodeURIComponent(customDictHeader) : '';
+        const customDict = decodeHeaderValue(request.headers.get('X-Custom-Dict'));
         
         let promptWords = [];
         let replaceRules = [];
@@ -541,53 +1150,129 @@ async function handleTranscribe(request, env) {
             }
         }
         
-        // 加入 prompt 和 language
-        let basePrompt = '以下是繁體中文的對話：';
-        if (promptWords.length > 0) {
-            basePrompt += `\n包含專有名詞：${promptWords.join('、')}`;
+        async function transcribeAttempt(retry = false) {
+            let usedMinimalInput = false;
+            let result;
+            try {
+                result = await env.AI.run(
+                    MODEL,
+                    buildWhisperInput(
+                        audioBase64,
+                        language,
+                        promptWords,
+                        retry,
+                        previousContext,
+                        mediaTitle
+                    )
+                );
+            } catch (error) {
+                if (!isInvalidAiInputError(error)) throw error;
+                usedMinimalInput = true;
+                result = await env.AI.run(
+                    MODEL,
+                    buildWhisperInput(audioBase64, language, [], true, '', '', true)
+                );
+            }
+            if (!result) return null;
+
+            const detectedLanguage = result.transcription_info?.language
+                || result.language
+                || null;
+            const qualityLanguage = language && language !== 'auto'
+                ? normalizeLanguageCode(language)
+                : /^(?:zh|chinese|mandarin)/i.test(String(detectedLanguage || '')) ? 'zh' : null;
+
+            const rawText = applyRecognitionTextRules(
+                String(result.text || '').trim(),
+                replaceRules,
+                promptWords
+            );
+            const structuredSrt = segmentsToSrt(result.segments);
+            const parsedSrt = structuredSrt || vttToSrt(String(result.vtt || ''));
+            const rawSrt = serializeSrtCues(parseSrtCues(parsedSrt).map(cue => ({
+                ...cue,
+                text: applyRecognitionTextRules(cue.text, replaceRules, promptWords),
+            })));
+            let srt = mergeSrtBlocks(rawSrt);
+            srt = serializeSrtCues(parseSrtCues(srt).map(cue => ({
+                ...cue,
+                text: applyRecognitionTextRules(cue.text, replaceRules, promptWords),
+            })));
+            let punctuationRestored = 0;
+            if (qualityLanguage === 'zh') {
+                const punctuated = restoreChinesePunctuation(srt);
+                srt = punctuated.srt;
+                punctuationRestored = punctuated.restored;
+            }
+            const quality = evaluateTranscriptionQuality({
+                text: rawText,
+                srt,
+                rawSrt,
+                audioAnalysis,
+                language: qualityLanguage,
+                isFirstChunk,
+            });
+            quality.punctuationRestored = punctuationRestored;
+            quality.usedMinimalInput = usedMinimalInput;
+            quality.dictionaryTermCount = promptWords.length;
+            quality.replacementRuleCount = replaceRules.length;
+            return {
+                rawText,
+                srt,
+                quality,
+                wordCount: result.word_count || 0,
+                detectedLanguage,
+            };
         }
-        input.initial_prompt = basePrompt;
-        
-        const lang = language && language !== 'auto' ? normalizeLanguageCode(language) : 'zh';
-        input.language = lang;
 
-        const whisperResult = await env.AI.run(MODEL, input);
-
-        if (!whisperResult || !whisperResult.text) {
+        const primary = await transcribeAttempt(false);
+        if (!primary) {
             return errorResponse('Whisper 辨識失敗，請確認音訊格式正確（建議 WAV/MP3）', 500);
         }
-
-        let rawText = whisperResult.text.trim();
-        let vtt = whisperResult.vtt || '';
-        
-        // 執行智慧英文單字合併，修復 rawText 與 vtt 中的英文空格問題
-        rawText = fixSpellingInText(rawText, ENGLISH_DICT_SET);
-        vtt = fixSpellingInText(vtt, ENGLISH_DICT_SET);
-        
-        // 執行字典事後校正替換
-        if (replaceRules.length > 0) {
-            for (const rule of replaceRules) {
-                const escapedWrong = rule.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const regex = new RegExp(escapedWrong, 'g');
-                rawText = rawText.replace(regex, rule.correct);
-                vtt = vtt.replace(regex, rule.correct);
+        let selected = primary;
+        let retried = false;
+        if (primary.quality.suspect) {
+            const retryResult = await transcribeAttempt(true);
+            retried = true;
+            if (retryResult && retryResult.quality.score > selected.quality.score) {
+                selected = retryResult;
             }
         }
 
-        const rawSrt = vtt ? vttToSrt(vtt) : '';
-        // 合併字元級段落為自然句子（解決 Whisper 中文每字一段問題）
-        const srt = mergeSrtBlocks(rawSrt);
-
+        const srt = decorateFirstChunkSrt(selected.srt, audioAnalysis, isFirstChunk);
         return jsonResponse({
-            text: rawText,
-            vtt: vtt,
+            text: selected.rawText,
+            vtt: srtToVtt(srt),
             srt,
-            wordCount: whisperResult.word_count || 0,
+            wordCount: selected.wordCount,
+            detectedLanguage: selected.detectedLanguage,
+            quality: {
+                ...selected.quality,
+                retried,
+            },
         });
 
     } catch (err) {
         console.error('[Whisper Worker Error]', err?.message || err);
-        return errorResponse(`處理失敗：${err?.message || '未知錯誤'}`, 500);
+        const requestDetails = {
+            chunkIndex: request.headers.get('X-Chunk-Index'),
+            recoveryDepth: Number(request.headers.get('X-Recovery-Depth') || 0),
+            requestAttempt: Number(request.headers.get('X-Request-Attempt') || 1),
+        };
+        if (isInvalidAiInputError(err)) {
+            return jsonResponse({
+                error: 'Workers AI 拒絕此音訊片段；請改用較短片段重試。',
+                code: 'AI_INVALID_INPUT',
+                retryable: true,
+                ...requestDetails,
+            }, 422);
+        }
+        return jsonResponse({
+            error: `處理失敗：${err?.message || '未知錯誤'}`,
+            code: 'AI_REQUEST_FAILED',
+            retryable: true,
+            ...requestDetails,
+        }, 500);
     }
 }
 
@@ -643,3 +1328,20 @@ async function handleGenerateText(request, env) {
         return errorResponse(`文字生成失敗：${err?.message || '未知錯誤'}`, 500);
     }
 }
+
+export {
+    analyzeWavPcm,
+    buildWhisperInput,
+    decorateFirstChunkSrt,
+    detectLeadingMusicRange,
+    evaluateTranscriptionQuality,
+    fixSpellingInText,
+    mergeSrtBlocks,
+    parseSrtCues,
+    restoreChinesePunctuation,
+    segmentsToSrt,
+    serializeSrtCues,
+    shouldMergeEnglish,
+    srtToVtt,
+    vttToSrt,
+};

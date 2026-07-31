@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@cloudflare/ai": "^1.2.2",
-    "@google/generative-ai": "^0.24.1"
+    "@google/generative-ai": "^0.24.1",
+    "opencc-js": "^1.4.1"
   }
 }

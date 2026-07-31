@@ -4,7 +4,7 @@ import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
 import { applyReplacementRules } from './srt-processor.js';
 import { shouldConfirmSourceReplacement } from './content-source.js';
-import { offsetSrtTimestamps, splitPcmChunk } from './transcription-timeline.js';
+import { normalizeSrtTimeline, offsetSrtTimestamps, splitPcmByLowEnergy, splitPcmChunk } from './transcription-timeline.js';
 import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
 /**
@@ -542,7 +542,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     onProgress({ type: 'status', message: `正在轉換格式（16kHz mono，共 ${durationMin} 分鐘）...` });
 
     const TARGET_SR = 16000;
-    const targetLen = Math.ceil(rawBuffer.length * TARGET_SR / rawBuffer.sampleRate) + TARGET_SR;
+    const targetLen = Math.ceil(rawBuffer.length * TARGET_SR / rawBuffer.sampleRate);
     const offlineCtx = new OfflineAudioContext(1, targetLen, TARGET_SR);
     const srcNode = offlineCtx.createBufferSource();
     srcNode.buffer = rawBuffer;
@@ -551,7 +551,13 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     const resampled = await offlineCtx.startRendering();
 
     // 3. 切段
-    const chunks = splitAudioBuffer(resampled, CHUNK_DURATION);
+    const chunks = splitPcmByLowEnergy(
+        resampled.getChannelData(0),
+        resampled.sampleRate,
+        CHUNK_DURATION,
+        2,
+        8
+    );
     const totalChunks = chunks.length;
 
     onProgress({
@@ -566,6 +572,129 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     const allText = [];
     let globalSeq = 1;
     const chunkStartTimes = [];
+    const failedRanges = [];
+
+    async function requestWhisperChunk(chunk, displayIndex, previousContext = '', recoveryDepth = 0) {
+        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
+        const chunkHeaders = {
+            ...authHeaders,
+            'Content-Type': 'audio/wav',
+            'X-Chunk-Index': String(displayIndex),
+            'X-Chunk-Offset': String(chunk.offsetSeconds),
+            'X-First-Chunk': chunk.offsetSeconds < 0.001 ? '1' : '0',
+            'X-Media-Title': encodeURIComponent(file.name.replace(/\.[^.]+$/, '').slice(0, 160)),
+        };
+        if (language && language !== 'auto') chunkHeaders['X-Language'] = language;
+        if (customDict) chunkHeaders['X-Custom-Dict'] = encodeURIComponent(customDict);
+        if (previousContext) {
+            chunkHeaders['X-Previous-Context'] = encodeURIComponent(previousContext.slice(-240));
+        }
+
+        let response;
+        let retries = 2;
+        while (retries >= 0) {
+            try {
+                response = await fetch(`${baseUrl}/api/transcribe`, {
+                    method: 'POST',
+                    headers: {
+                        ...chunkHeaders,
+                        'X-Recovery-Depth': String(recoveryDepth),
+                        'X-Request-Attempt': String(3 - retries),
+                    },
+                    body: wavBlob,
+                    signal: state.currentAbortController ? state.currentAbortController.signal : undefined
+                });
+                if (response.ok || response.status === 401 || response.status === 403) break;
+                if (response.status < 500 && response.status !== 429) break;
+                if (retries > 0) {
+                    onProgress({
+                        type: 'status',
+                        message: `第 ${displayIndex + 1} 段伺服器忙碌，重試中... (${3 - retries}/2)`
+                    });
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            } catch (error) {
+                if (error?.name === 'AbortError' || retries === 0) throw error;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            retries--;
+        }
+
+        if (!response?.ok) {
+            let errorMessage = response ? response.statusText : '網路連線失敗';
+            let errorBody = null;
+            try {
+                errorBody = await response.json();
+                errorMessage = errorBody.error || errorMessage;
+            } catch (_) {}
+            if (response && (response.status === 401 || response.status === 403)) {
+                throw new Error('Worker Token 驗證失敗，請檢查設定。');
+            }
+            const requestError = new Error(
+                `第 ${displayIndex + 1} 段辨識失敗 (${response ? response.status : 'Network'}): ${errorMessage}`
+            );
+            requestError.status = response?.status || 0;
+            requestError.code = errorBody?.code || '';
+            requestError.retryable = Boolean(errorBody?.retryable);
+            throw requestError;
+        }
+        const payload = await response.json();
+        const { normalizeTranscriptionPayload } = await import('./transcription-text.js');
+        return normalizeTranscriptionPayload(payload, language);
+    }
+
+    async function transcribeChunkWithRecovery(
+        chunk,
+        displayIndex,
+        recoveryDepth = 0,
+        previousContext = ''
+    ) {
+        const recoverAsShorterChunks = async (message) => {
+            onProgress({
+                type: 'status',
+                message,
+            });
+            const childDuration = Math.max(3, chunk.durationSeconds / 2);
+            const children = splitPcmChunk(chunk, childDuration);
+            if (children.length <= 1) return null;
+
+            const recovered = [];
+            let childContext = previousContext;
+            for (const child of children) {
+                const childResults = await transcribeChunkWithRecovery(
+                    child,
+                    displayIndex,
+                    recoveryDepth + 1,
+                    childContext
+                );
+                recovered.push(...childResults);
+                const childText = childResults.map(result => result.data.text || '').join(' ').trim();
+                if (childText) childContext = `${childContext} ${childText}`.trim().slice(-240);
+            }
+            return recovered;
+        };
+
+        let data;
+        try {
+            data = await requestWhisperChunk(chunk, displayIndex, previousContext, recoveryDepth);
+        } catch (error) {
+            if (error?.code === 'AI_INVALID_INPUT' && recoveryDepth < 2 && chunk.durationSeconds > 6) {
+                const recovered = await recoverAsShorterChunks(
+                    `第 ${displayIndex + 1} 段被模型拒絕，正在改用較短片段...`
+                );
+                if (recovered) return recovered;
+            }
+            throw error;
+        }
+
+        if (data.quality?.suspect && recoveryDepth < 2 && chunk.durationSeconds > 6) {
+            const recovered = await recoverAsShorterChunks(
+                `第 ${displayIndex + 1} 段品質偏低，正在拆成較短片段重新辨識...`
+            );
+            if (recovered) return recovered;
+        }
+        return [{ chunk, data }];
+    }
 
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -590,67 +719,58 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         });
 
         chunkStartTimes.push(Date.now());
-
-        const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
-        const chunkHeaders = { ...authHeaders, 'Content-Type': 'audio/wav' };
-        if (language && language !== 'auto') {
-            chunkHeaders['X-Language'] = language;
+        const previousContext = allText.slice(-3).join(' ').slice(-240);
+        let results;
+        try {
+            results = await transcribeChunkWithRecovery(chunk, i, 0, previousContext);
+        } catch (error) {
+            failedRanges.push({
+                start: chunk.offsetSeconds,
+                end: chunk.offsetSeconds + chunk.durationSeconds,
+                reasons: [error?.code || 'request_failed'],
+                message: error?.message || '辨識請求失敗',
+            });
+            onProgress({
+                type: 'status',
+                message: `第 ${i + 1} 段重試後仍失敗，已保留其他辨識結果。`,
+            });
+            continue;
         }
-        if (customDict) {
-            chunkHeaders['X-Custom-Dict'] = encodeURIComponent(customDict);
-        }
+        for (const result of results) {
+            const { chunk: resultChunk, data } = result;
+            const chunkSrt = data.srt || (data.vtt ? convertVttToSrt(data.vtt) : '');
 
-        let resp;
-        let retries = 2;
-        while (retries >= 0) {
-            try {
-                resp = await fetch(`${baseUrl}/api/transcribe`, {
-                    method: 'POST',
-                    headers: chunkHeaders,
-                    body: wavBlob,
-                    signal: state.currentAbortController ? state.currentAbortController.signal : undefined
-                });
-                if (resp.ok || resp.status === 401 || resp.status === 403) break;
-                
-                // 若伺服器錯誤 (例如 503 Service Unavailable)，等待後重試
-                if (retries > 0) {
-                    onProgress({ type: 'status', message: `第 ${i + 1} 段伺服器忙碌，重試中... (${3 - retries}/2)` });
-                    await new Promise(r => setTimeout(r, 2000));
-                }
-            } catch (err) {
-                if (retries === 0) throw err;
-                await new Promise(r => setTimeout(r, 2000));
+            if (chunkSrt.trim()) {
+                const offsetted = offsetSrtTimestamps(chunkSrt, resultChunk.offsetSeconds, globalSeq - 1);
+                const blocks = offsetted.split(/\n\n/).filter(block => block.trim());
+                allSrtBlocks.push(...blocks);
+                globalSeq += blocks.length;
+                onChunkComplete(blocks.join('\n\n'));
             }
-            retries--;
+            if (data.text) allText.push(data.text.trim());
+            if (data.quality?.suspect) {
+                failedRanges.push({
+                    start: resultChunk.offsetSeconds,
+                    end: resultChunk.offsetSeconds + resultChunk.durationSeconds,
+                    reasons: data.quality.reasons || [],
+                });
+            }
         }
-
-        if (!resp || !resp.ok) {
-            let errMsg = resp ? resp.statusText : '網路連線失敗';
-            try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (_) {}
-            if (resp && (resp.status === 401 || resp.status === 403))
-                throw new Error('Worker Token 驗證失敗，請檢查設定。');
-            throw new Error(`第 ${i + 1} 段辨識失敗 (${resp ? resp.status : 'Network'}): ${errMsg}`);
-        }
-
-        const data = await resp.json();
-        const chunkSrt = data.srt || (data.vtt ? convertVttToSrt(data.vtt) : '');
-
-        if (chunkSrt.trim()) {
-            const offsetted = offsetSrtTimestamps(chunkSrt, chunk.offsetSeconds, globalSeq - 1);
-            const blocks = offsetted.split(/\n\n/).filter(b => b.trim());
-            allSrtBlocks.push(...blocks);
-            globalSeq += blocks.length;
-            onChunkComplete(blocks.join('\n\n'));
-        }
-        if (data.text) allText.push(data.text.trim());
     }
 
-    let finalSrt = allSrtBlocks.join('\n\n');
+    let finalSrt = normalizeSrtTimeline(allSrtBlocks.join('\n\n'));
     // 第一階段：對辨識結果套用錯別字替換（後處理）
     finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
     const protectedTerms = state.aiTerminologyRules.filter(rule => rule.type === 'positive').map(rule => rule.term);
     const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    const finalBlockCount = finalSrt ? finalSrt.split(/\n\s*\n/).filter(Boolean).length : 0;
+    const requestFailures = failedRanges.filter(range => range.reasons?.some(
+        reason => reason === 'request_failed' || String(reason).startsWith('AI_')
+    ));
+    const requestFailureLabels = requestFailures
+        .map(range => `${formatAudioTime(range.start)}–${formatAudioTime(range.end)}`)
+        .join('、');
     
     onProgress({ type: 'done', message: '全部辨識完成！' });
 
@@ -659,10 +779,16 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         vtt: finalVtt,
         srt: finalSrt,
         engine: 'whisper',
-        blockCount: allSrtBlocks.length,
-        warning: totalChunks > 1
-            ? `長音訊分段辨識：共 ${totalChunks} 段（每段 ${CHUNK_DURATION} 秒），SRT 時間戳已自動對齊合併。`
-            : null,
+        blockCount: finalBlockCount,
+        incomplete: failedRanges.length > 0,
+        failedRanges,
+        warning: failedRanges.length > 0
+            ? requestFailures.length > 0
+                ? `有 ${requestFailures.length} 個片段重試後仍無法辨識（${requestFailureLabels}），其他內容已保留。`
+                : `有 ${failedRanges.length} 個片段經重試後品質仍偏低，請優先人工複核。`
+            : totalChunks > 1
+                ? `長音訊分段辨識：共 ${totalChunks} 段（約 ${CHUNK_DURATION} 秒並優先在低音量處切分），SRT 時間戳已自動對齊合併。`
+                : null,
     };
 }
 
@@ -691,7 +817,7 @@ export function initializeTab0() {
 
     // --- 載入已儲存的設定 ---
     const savedEngine = localStorage.getItem(TAB0_STORAGE_KEYS.engine) || 'gemini';
-    const savedLanguage = localStorage.getItem(TAB0_STORAGE_KEYS.language) || 'auto';
+    const savedLanguage = localStorage.getItem(TAB0_STORAGE_KEYS.language) || 'zh';
 
     if (languageSelect) languageSelect.value = savedLanguage;
 
@@ -1076,8 +1202,12 @@ export function initializeTab0() {
                             tab0Badge.textContent = '模型：whisper-large-v3-turbo';
                         }
                         
-                        // 專有名詞只作為辨識提示；錯字替換在辨識完成後確定性執行一次。
-                        let whisperPrompt = '這是一段繁體中文字幕。' + (terminologyDict ? terminologyDict : '');
+                        // 專有名詞作為提示；錯字替換同時交給 Worker 與前端最終輸出確定性執行。
+                        const { buildWhisperDictionary } = await import('./transcription-text.js');
+                        const whisperPrompt = buildWhisperDictionary(
+                            state.aiTerminologyRules,
+                            state.batchReplaceRules
+                        );
 
                         result = await transcribeWithWhisper(
                             selectedFile,
@@ -1115,9 +1245,13 @@ export function initializeTab0() {
                 }
             };
 
+            const positiveTermCount = state.aiTerminologyRules
+                .filter(rule => rule.type === 'positive' && rule.term?.trim()).length;
+            const replacementRuleCount = state.batchReplaceRules
+                .filter(rule => rule.original?.trim()).length;
             showModal({
                 title: '確認開始辨識',
-                message: '是否需要設定「專有名詞」或「錯字替換」？\n(這些設定能大幅提升辨識準確度)\n如果您已經設定過或不需要，請點擊「直接開始」。',
+                message: `本次已載入：專有名詞 ${positiveTermCount} 條、錯字替換 ${replacementRuleCount} 條。\n是否需要先調整設定？\n如果不需要，請點擊「直接開始」。`,
                 buttons: [
                     { text: '設定錯字', class: 'btn-secondary', callback: () => {
                         hideModal();

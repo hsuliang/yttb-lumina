@@ -6,6 +6,8 @@
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
+目前 Worker 版本：**1.2.6**。此版延續保守的中文語意斷句，並新增有聲片段的最低文字密度檢查，避免約 20 秒人聲只留下數個字；「測試連線」也會顯示健康檢查回傳的 Worker 版本。
+
 ---
 
 ## 部署步驟
@@ -66,7 +68,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.0.0",
+  "version": "1.2.6",
   "maxAudioMB": 28,
   "authRequired": false
 }
@@ -94,7 +96,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.0.0",
+  "version": "1.2.6",
   "maxAudioMB": 28,
   "authRequired": true
 }
@@ -104,25 +106,25 @@ curl https://your-worker-name.workers.dev/api/health
 
 接受音訊資料，回傳辨識結果。
 
-**Headers（若有設定 Token）：**
+**Request Headers：**
 ```
 Authorization: Bearer {your-token}
+X-Custom-Dict: URL encoded 專有名詞與「錯字=正字」規則
 ```
 
 **Request Body（Binary WAV，前端分段模式）：**
 ```
 Content-Type: audio/wav
 X-Language: zh  （選填，支援：zh / en / ja / ko）
+X-Chunk-Index: 0
+X-Chunk-Offset: 0
+X-First-Chunk: 1
+X-Media-Title: URL encoded media title
+X-Previous-Context: URL encoded previous transcript tail
+X-Recovery-Depth: 0  （前端自動設定；0 為原始片段，1 以上為補救片段）
+X-Request-Attempt: 1 （前端自動設定；同片段第幾次請求）
 
 [WAV binary data]
-```
-
-**Request Body（FormData，備用）：**
-```
-Content-Type: multipart/form-data
-
-audio: [音訊檔案]
-language: zh  （選填）
 ```
 
 **回應：**
@@ -131,7 +133,15 @@ language: zh  （選填）
   "text": "純文字逐字稿...",
   "vtt": "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n字幕文字",
   "srt": "1\n00:00:01,000 --> 00:00:03,000\n字幕文字",
-  "wordCount": 123
+  "wordCount": 123,
+  "detectedLanguage": "zh",
+  "quality": {
+    "score": 100,
+    "suspect": false,
+    "reasons": [],
+    "longestActiveGapMs": 0,
+    "retried": false
+  }
 }
 ```
 
@@ -142,7 +152,7 @@ language: zh  （選填）
 | 項目 | 上限 |
 |---|---|
 | 單次請求音訊大小 | 28 MB |
-| 建議分段長度 | 10 分鐘（前端自動分割） |
+| 建議分段長度 | 約 20 秒（前端會優先在低音量處切分） |
 | 支援格式 | WAV（16000Hz mono 最佳）、MP3、M4A |
 | 最長總音訊 | 無限制（前端分段處理） |
 
@@ -151,10 +161,13 @@ language: zh  （選填）
 ## 常見問題
 
 **Q: 辨識出錯，出現 500 錯誤**
-A: 確認 AI Binding 是否已正確設定（Variable name 必須是大寫 `AI`）。
+A: 先確認 AI Binding 是否已正確設定（Variable name 必須是大寫 `AI`）。1.2.5 起，暫時性的 500 會自動重試；`8001 Invalid input` 會先改用精簡參數，再視需要縮短片段。錯誤 JSON 內的 `requestAttempt` 是同片段嘗試次數，`recoveryDepth` 大於 0 則表示縮短後的補救片段。
 
 **Q: 回傳 401 Unauthorized**
 A: 確認前端填入的 Token 與 Worker 環境變數 `API_TOKEN` 完全一致。
 
-**Q: 辨識品質不佳**
-A: 前端已自動轉換為 Whisper 最佳格式（16000Hz 單聲道），無須額外調整。
+**Q: 片頭音樂與辨識品質如何處理？**
+A: Worker 會啟用 VAD、檢查異常字元／提示詞外洩／稀疏結果及有聲無字幕區段，必要時自動重試。第一段語音前若偵測到持續的可聽非語音內容，SRT 會以 `《 字幕君：ㄚ亮笑長的內容助手》 【音樂】` 標示；純靜音不會標成音樂。
+
+**Q: 為什麼自動偵測偶爾會輸出簡體字？**
+A: 自動偵測適合語言未知或多語音檔；前端預設改為「中文（繁體）」，中文結果也會在輸出階段正規化為臺灣繁體。英文、日文與其他非中文結果不套用簡繁轉換。
