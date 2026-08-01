@@ -1,7 +1,7 @@
 /**
  * yttb-lumina Whisper Worker
  * 部署在 Cloudflare Workers，使用 @cf/openai/whisper-large-v3-turbo 模型
- * Version: 1.2.8
+ * Version: 1.3.0
  *
  * 端點：
  *   GET  /api/health     → 健康檢查
@@ -11,8 +11,8 @@
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-// 版本規則：每次發布程式變更時 patch 加 1，例如 1.2.8 → 1.2.9。
-const WORKER_VERSION = '1.2.8';
+// 版本規則：每次發布程式變更時版號前進一版，例如 1.2.9 → 1.3.0。
+const WORKER_VERSION = '1.3.0';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
 const AI_TRANSCRIPT_LABEL = '《 字幕君：ㄚ亮笑長的內容助手》';
@@ -814,6 +814,60 @@ function findLongestActiveUncaptionedMs(audioAnalysis, cues, ignoredRanges = [])
     return Math.round(longestWindows * windowMs);
 }
 
+function hasExcessivePhraseRepetition(text) {
+    const compact = String(text || '')
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[\p{P}\p{S}\s]/gu, '');
+    const phraseLength = 8;
+    if (compact.length < phraseLength * 4) return false;
+
+    const occurrences = new Map();
+    for (let index = 0; index <= compact.length - phraseLength; index++) {
+        const phrase = compact.slice(index, index + phraseLength);
+        if (/^(.)\1+$/u.test(phrase)) continue;
+        const state = occurrences.get(phrase) || { count: 0, lastEnd: -1 };
+        if (index < state.lastEnd) continue;
+        state.count++;
+        state.lastEnd = index + phraseLength;
+        if (state.count >= 4) return true;
+        occurrences.set(phrase, state);
+    }
+    return false;
+}
+
+function hasDenseShortPhraseLoop(text) {
+    const compact = String(text || '')
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[\p{P}\p{S}\s]/gu, '');
+    const minOccurrences = 6;
+    const maxWindowChars = 140;
+
+    for (let phraseLength = 4; phraseLength <= 7; phraseLength++) {
+        const occurrences = new Map();
+        for (let index = 0; index <= compact.length - phraseLength; index++) {
+            const phrase = compact.slice(index, index + phraseLength);
+            if (/^(.)\1+$/u.test(phrase)) continue;
+
+            const positions = occurrences.get(phrase) || [];
+            if (positions.length > 0 && index < positions.at(-1) + phraseLength) continue;
+            positions.push(index);
+            while (positions.length > 0
+                && index + phraseLength - positions[0] > maxWindowChars) {
+                positions.shift();
+            }
+            occurrences.set(phrase, positions);
+
+            if (positions.length < minOccurrences) continue;
+            const first = positions.at(-minOccurrences);
+            const span = index + phraseLength - first;
+            if ((minOccurrences * phraseLength) / span >= 0.18) return true;
+        }
+    }
+    return false;
+}
+
 function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, language, isFirstChunk = false }) {
     const cues = parseSrtCues(srt);
     const combinedText = normalizeSubtitleText(text || cues.map(cue => cue.text).join(' '));
@@ -832,19 +886,46 @@ function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, 
         score -= 55;
     }
 
-    if (language === 'zh') {
-        const foreignChars = combinedText.match(/[\p{Script=Greek}\p{Script=Hebrew}\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || [];
+    if (/[\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(combinedText)) {
+        reasons.push('invalid_characters');
+        score -= 70;
+    }
+
+    const hanChars = combinedText.match(/\p{Script=Han}/gu) || [];
+    const likelyChinese = language === 'zh' || hanChars.length >= 8;
+    if (likelyChinese) {
+        const rareForeignChars = combinedText.match(/[\p{Script=Greek}\p{Script=Hebrew}\p{Script=Cyrillic}\p{Script=Arabic}]/gu) || [];
+        const neighboringForeignChars = combinedText.match(/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || [];
         const totalChars = Math.max(1, subtitleLength(combinedText));
-        if (foreignChars.length >= 3 && foreignChars.length / totalChars > 0.06) {
+        const rareScriptAnomaly = rareForeignChars.length >= 2
+            && rareForeignChars.length / totalChars > 0.005;
+        const neighboringScriptAnomaly = neighboringForeignChars.length >= 3
+            && neighboringForeignChars.length / totalChars > 0.06;
+        if (rareScriptAnomaly || neighboringScriptAnomaly) {
             reasons.push('unexpected_scripts');
             score -= 40;
         }
     }
 
-    if (/(.)\1{7,}/u.test(combinedText) || /(.{2,8})(?:[、，, ]*\1){3,}/u.test(combinedText)) {
+    const repeatedCharacter = /(.)\1{7,}/u.test(combinedText);
+    const adjacentPhraseMatch = combinedText.match(/(.{2,8})(?:[、，, ]*\1){3,}/u);
+    const repeatedShortPhrase = Boolean(adjacentPhraseMatch);
+    const naturalOralEmphasis = repeatedShortPhrase
+        && subtitleLength(adjacentPhraseMatch[1]) <= 3;
+    const suspiciousAdjacentPhrase = repeatedShortPhrase && !naturalOralEmphasis;
+    const repeatedShortLoop = hasDenseShortPhraseLoop(combinedText);
+    const repeatedLongPhrase = hasExcessivePhraseRepetition(combinedText);
+    if (repeatedCharacter || repeatedShortPhrase || repeatedShortLoop || repeatedLongPhrase) {
         reasons.push('repetition');
-        score -= 40;
     }
+    if (repeatedCharacter || suspiciousAdjacentPhrase || repeatedShortLoop || repeatedLongPhrase) {
+        score -= 40;
+    } else if (naturalOralEmphasis) {
+        score -= 10;
+    }
+    if (repeatedCharacter) reasons.push('repeated_character');
+    if (repeatedShortLoop) reasons.push('repeated_short_loop');
+    if (repeatedLongPhrase) reasons.push('repeated_phrase');
 
     const rawCueBlocks = String(rawSrt || '').split(/\n\s*\n/).filter(Boolean);
     let invalidRawTimings = 0;
@@ -925,10 +1006,21 @@ function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, 
         }
     }
 
+    const severeReasons = new Set([
+        'timestamp_leak',
+        'prompt_leak',
+        'invalid_characters',
+        'repeated_character',
+        'repeated_short_loop',
+        'repeated_phrase',
+    ]);
+    const severe = reasons.some(reason => severeReasons.has(reason));
     const severeTimingFailure = reasons.includes('unreadable_timing');
+    const suspect = score <= 60 || severeTimingFailure;
     return {
         score: Math.max(0, score),
-        suspect: score <= 60 || severeTimingFailure,
+        suspect,
+        severity: severe ? 'severe' : suspect ? 'warning' : 'normal',
         reasons,
         longestActiveGapMs,
         charactersPerSecond,
@@ -942,6 +1034,11 @@ function cleanPromptContext(value, maxLength) {
 
 function isInvalidAiInputError(error) {
     return /(?:8001|invalid input|badinput)/i.test(String(error?.message || error || ''));
+}
+
+function isWorkersAiDailyLimitError(error) {
+    return /(?:4006|used up your daily free allocation|daily free allocation.+neurons)/i
+        .test(String(error?.message || error || ''));
 }
 
 function buildWhisperInput(
@@ -1279,6 +1376,14 @@ async function handleTranscribe(request, env) {
             recoveryDepth: Number(request.headers.get('X-Recovery-Depth') || 0),
             requestAttempt: Number(request.headers.get('X-Request-Attempt') || 1),
         };
+        if (isWorkersAiDailyLimitError(err)) {
+            return jsonResponse({
+                error: 'Cloudflare Workers AI 每日 10,000 neurons 的免費額度已用完；請等待額度重置或升級 Workers Paid 方案。',
+                code: 'AI_DAILY_LIMIT',
+                retryable: false,
+                ...requestDetails,
+            }, 429);
+        }
         if (isInvalidAiInputError(err)) {
             return jsonResponse({
                 error: 'Workers AI 拒絕此音訊片段；請改用較短片段重試。',

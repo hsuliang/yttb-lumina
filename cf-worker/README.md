@@ -6,7 +6,7 @@
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
-目前 Worker 版本：**1.2.8**。此版會把「高人聲比例但中文文字密度異常低」的片段列為可疑結果並啟動既有重試／短片段復原，同時把瞬間閱讀速度限制為每秒 20 字；判斷會綜合語言、片段長度與人聲比例並排除片頭音樂，另以正常慢速語音案例防止門檻誤判。
+目前 Worker 版本：**1.3.0**。此版新增局部密集短片語迴圈檢查，能攔截夾雜變形錯字的反覆內容；兩三字的自然口語強調若沒有其他異常則保留原結果，不觸發重試或切片，避免正常內容在補救過程中被改壞。
 
 ---
 
@@ -68,7 +68,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.2.8",
+  "version": "1.3.0",
   "maxAudioMB": 28,
   "authRequired": false
 }
@@ -96,7 +96,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.2.8",
+  "version": "1.3.0",
   "maxAudioMB": 28,
   "authRequired": true
 }
@@ -138,6 +138,7 @@ X-Request-Attempt: 1 （前端自動設定；同片段第幾次請求）
   "quality": {
     "score": 100,
     "suspect": false,
+    "severity": "normal",
     "reasons": [],
     "longestActiveGapMs": 0,
     "retried": false
@@ -163,11 +164,14 @@ X-Request-Attempt: 1 （前端自動設定；同片段第幾次請求）
 **Q: 辨識出錯，出現 500 錯誤**
 A: 先確認 AI Binding 是否已正確設定（Variable name 必須是大寫 `AI`）。1.2.5 起，暫時性的 500 會自動重試；`8001 Invalid input` 會先改用精簡參數，再視需要縮短片段。錯誤 JSON 內的 `requestAttempt` 是同片段嘗試次數，`recoveryDepth` 大於 0 則表示縮短後的補救片段。
 
+**Q: 出現 4006 或「daily free allocation」錯誤**
+A: 代表 Workers AI 當日 10,000 neurons 免費額度已用完。1.2.9 會回傳不可重試的 `AI_DAILY_LIMIT`，前端會立即停止後續請求、保留已完成字幕並顯示額度提醒；請等待每日額度重置，或升級 Cloudflare Workers Paid 方案。
+
 **Q: 回傳 401 Unauthorized**
 A: 確認前端填入的 Token 與 Worker 環境變數 `API_TOKEN` 完全一致。
 
 **Q: 片頭音樂與辨識品質如何處理？**
-A: Worker 會啟用 VAD、檢查異常字元／提示詞外洩／稀疏結果及有聲無字幕區段，必要時自動重試。第一段語音前若偵測到持續的可聽非語音內容，SRT 會以 `《 字幕君：ㄚ亮笑長的內容助手》 【音樂】` 標示；純靜音不會標成音樂。
+A: Worker 會啟用 VAD、檢查損壞字元／異常字系／重複片語／提示詞外洩／稀疏結果及有聲無字幕區段，必要時自動重試。第一段語音前若偵測到持續的可聽非語音內容，SRT 會以 `《 字幕君：ㄚ亮笑長的內容助手》 【音樂】` 標示；純靜音不會標成音樂。補救後仍可疑的片段會標示 `【辨識不清】` 或 `【待確認】`，並停止把該段文字帶入後續辨識提示。
 
 **Q: 為什麼自動偵測偶爾會輸出簡體字？**
 A: 自動偵測適合語言未知或多語音檔；前端預設改為「中文（繁體）」，中文結果也會在輸出階段正規化為臺灣繁體。英文、日文與其他非中文結果不套用簡繁轉換。

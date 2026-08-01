@@ -49,7 +49,7 @@ function sineWave(seconds, sampleRate = 16000, amplitude = 0.25) {
     );
 }
 
-test('health endpoint identifies Worker version 1.2.8', async () => {
+test('health endpoint identifies Worker version 1.3.0', async () => {
     const response = await worker.fetch(
         new Request('https://worker.example/api/health'),
         {},
@@ -57,7 +57,7 @@ test('health endpoint identifies Worker version 1.2.8', async () => {
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(result.version, '1.2.8');
+    assert.equal(result.version, '1.3.0');
 });
 
 test('VTT parser keeps consecutive cues separate even without blank lines', () => {
@@ -267,6 +267,40 @@ test('transcription endpoint retries a suspect result and decorates the selected
     assert.doesNotMatch(result.srt, /請使用繁體中文字幕/);
 });
 
+test('natural short oral emphasis is preserved without a retry', async () => {
+    let calls = 0;
+    const spokenText = '老師會一步一步一步一步一步帶著大家完成練習';
+    const env = {
+        AI: {
+            async run() {
+                calls++;
+                return {
+                    text: spokenText,
+                    segments: [{ start: 0, end: 5, text: spokenText }],
+                    transcription_info: { language: 'zh' },
+                };
+            },
+        },
+    };
+    const request = new Request('https://worker.example/api/transcribe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'audio/wav',
+            'X-Language': 'zh',
+        },
+        body: makeWav(sineWave(5)),
+    });
+
+    const response = await worker.fetch(request, env, {});
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(calls, 1);
+    assert.equal(result.quality.retried, false);
+    assert.equal(result.quality.suspect, false);
+    assert.match(result.text, /一步一步一步一步一步/);
+});
+
 test('transcription endpoint replaces a low-density Chinese result only with a better retry', async () => {
     const calls = [];
     const responses = [
@@ -373,6 +407,40 @@ test('persistent invalid model input returns a structured recoverable error', as
     assert.equal(result.retryable, true);
 });
 
+test('daily Workers AI allocation exhaustion returns a dedicated non-retryable error', async () => {
+    let calls = 0;
+    const env = {
+        AI: {
+            async run() {
+                calls++;
+                throw new Error(
+                    '4006: you have used up your daily free allocation of 10,000 neurons, '
+                    + 'please upgrade to Cloudflare\'s Workers Paid plan if you would like to continue usage.'
+                );
+            },
+        },
+    };
+    const request = new Request('https://worker.example/api/transcribe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'audio/wav',
+            'X-Language': 'zh',
+            'X-Chunk-Index': '7',
+        },
+        body: makeWav(sineWave(5)),
+    });
+
+    const response = await worker.fetch(request, env, {});
+    const result = await response.json();
+
+    assert.equal(calls, 1);
+    assert.equal(response.status, 429);
+    assert.equal(result.code, 'AI_DAILY_LIMIT');
+    assert.equal(result.retryable, false);
+    assert.equal(result.chunkIndex, '7');
+    assert.match(result.error, /10,000 neurons|每日免費額度/);
+});
+
 test('configured replacement rules are enforced inside the Worker output', async () => {
     const calls = [];
     const env = {
@@ -458,6 +526,63 @@ test('quality gate flags prompt leakage, unexpected scripts, and sparse active a
     assert.equal(corrupted.suspect, true);
     assert.ok(corrupted.reasons.includes('prompt_leak'));
     assert.ok(corrupted.reasons.includes('unexpected_scripts'));
+
+    const damagedCharacters = evaluateTranscriptionQuality({
+        text: '那我可以加入教室 recuper婊子 це婉嫉老家 雷仔 �',
+        srt: '1\n00:00:00,000 --> 00:00:05,000\n那我可以加入教室 recuper婊子 це婉嫉老家 雷仔 �',
+        language: null,
+    });
+    assert.equal(damagedCharacters.suspect, true);
+    assert.equal(damagedCharacters.severity, 'severe');
+    assert.ok(damagedCharacters.reasons.includes('invalid_characters'));
+    assert.ok(damagedCharacters.reasons.includes('unexpected_scripts'));
+
+    const rewrittenRepetition = evaluateTranscriptionQuality({
+        text: [
+            '那如果不方便老師沒關係你就輸入lumioclass.com',
+            '那如果不方便老師沒關係您就輸入lumioclass.com',
+            '那如果不方便老師您就輸入lumioclass.com',
+            '那如果不方便老師沒關係您就輸入lumioclass.com',
+        ].join(' '),
+        srt: '1\n00:00:00,000 --> 00:00:20,000\n請依照畫面操作',
+        language: 'zh',
+    });
+    assert.equal(rewrittenRepetition.suspect, true);
+    assert.equal(rewrittenRepetition.severity, 'severe');
+    assert.ok(rewrittenRepetition.reasons.includes('repetition'));
+    assert.ok(rewrittenRepetition.reasons.includes('repeated_phrase'));
+
+    const denseShortPhraseLoop = evaluateTranscriptionQuality({
+        text: [
+            '會給人家會給人家感受歡迎會給人家會給人家',
+            '會給給人家有很多會給人家會會給人家製',
+            '會給人家事有會給人家人家人家會有很多會給人家製',
+            '會有婚禪會有什麼資討會給人家感受',
+        ].join(' '),
+        srt: '1\n00:00:00,000 --> 00:00:12,000\n辨識結果含有局部變形反覆',
+        language: 'zh',
+    });
+    assert.equal(denseShortPhraseLoop.suspect, true);
+    assert.equal(denseShortPhraseLoop.severity, 'severe');
+    assert.ok(denseShortPhraseLoop.reasons.includes('repetition'));
+    assert.ok(denseShortPhraseLoop.reasons.includes('repeated_short_loop'));
+
+    const spokenEmphasis = evaluateTranscriptionQuality({
+        text: '老師會一步一步一步一步一步帶著大家完成練習',
+        srt: '1\n00:00:00,000 --> 00:00:05,000\n老師會一步一步一步一步一步帶著大家完成練習',
+        language: 'zh',
+    });
+    assert.ok(spokenEmphasis.reasons.includes('repetition'));
+    assert.equal(spokenEmphasis.suspect, false);
+    assert.equal(spokenEmphasis.severity, 'normal');
+
+    const normalTechnicalTerms = evaluateTranscriptionQuality({
+        text: '請先開啟Lumio，再把PowerPoint貼進去，最後到YouTube確認。lumioclass.com我只再說兩次，lumioclass.com。',
+        srt: '1\n00:00:00,000 --> 00:00:12,000\n請先開啟Lumio，再把PowerPoint貼進去，最後到YouTube確認。',
+        language: 'zh',
+    });
+    assert.ok(!normalTechnicalTerms.reasons.includes('repetition'));
+    assert.ok(!normalTechnicalTerms.reasons.includes('unexpected_scripts'));
 
     const sparse = evaluateTranscriptionQuality({
         text: '呃',

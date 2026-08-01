@@ -4,7 +4,27 @@ import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
 import { applyReplacementRules } from './srt-processor.js';
 import { shouldConfirmSourceReplacement } from './content-source.js';
-import { normalizeSrtTimeline, offsetSrtTimestamps, splitPcmByLowEnergy, splitPcmChunk } from './transcription-timeline.js';
+import {
+    formatAudioTime,
+    normalizeSrtTimeline,
+    offsetSrtTimestamps,
+    splitPcmByLowEnergy,
+    splitPcmChunk,
+} from './transcription-timeline.js';
+import {
+    collectReliableTranscriptionText,
+    getWorkersAiUsageNotice,
+    isWorkersAiDailyLimitError,
+    markUncertainTranscription,
+    shouldSplitSuspectTranscription,
+    shouldRetryWhisperResponse,
+} from './transcription-quality.js';
+import {
+    applyProofreadingSuggestions,
+    requestProofreadingSuggestions,
+    srtToPlainText,
+    srtToVtt as proofreadingSrtToVtt,
+} from './transcription-proofreading.js';
 import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
 /**
@@ -352,14 +372,6 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
     const failedRanges = [];
     let recoveredChunkCount = 0;
 
-    const formatAudioTime = (seconds) => {
-        const totalSeconds = Math.max(0, Math.round(seconds));
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const remainingSeconds = totalSeconds % 60;
-        return [hours, minutes, remainingSeconds].map(value => String(value).padStart(2, '0')).join(':');
-    };
-
     const transcribeChunk = async (chunk) => {
         const prompt = buildTranscriptionPrompt(language, customDict, chunk.durationSeconds);
         const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
@@ -570,9 +582,11 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     // 4. 逐段辨識並合併 SRT
     const allSrtBlocks = [];
     const allText = [];
+    const contextText = [];
     let globalSeq = 1;
     const chunkStartTimes = [];
     const failedRanges = [];
+    let usageLimit = null;
 
     async function requestWhisperChunk(chunk, displayIndex, previousContext = '', recoveryDepth = 0) {
         const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
@@ -605,7 +619,11 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                     signal: state.currentAbortController ? state.currentAbortController.signal : undefined
                 });
                 if (response.ok || response.status === 401 || response.status === 403) break;
-                if (response.status < 500 && response.status !== 429) break;
+                let retryErrorBody = null;
+                try {
+                    retryErrorBody = await response.clone().json();
+                } catch (_) {}
+                if (!shouldRetryWhisperResponse(response.status, retryErrorBody)) break;
                 if (retries > 0) {
                     onProgress({
                         type: 'status',
@@ -634,8 +652,9 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                 `第 ${displayIndex + 1} 段辨識失敗 (${response ? response.status : 'Network'}): ${errorMessage}`
             );
             requestError.status = response?.status || 0;
-            requestError.code = errorBody?.code || '';
-            requestError.retryable = Boolean(errorBody?.retryable);
+            const dailyLimit = isWorkersAiDailyLimitError(errorBody);
+            requestError.code = dailyLimit ? 'AI_DAILY_LIMIT' : errorBody?.code || '';
+            requestError.retryable = dailyLimit ? false : Boolean(errorBody?.retryable);
             throw requestError;
         }
         const payload = await response.json();
@@ -668,7 +687,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                     childContext
                 );
                 recovered.push(...childResults);
-                const childText = childResults.map(result => result.data.text || '').join(' ').trim();
+                const childText = collectReliableTranscriptionText(childResults).join(' ').trim();
                 if (childText) childContext = `${childContext} ${childText}`.trim().slice(-240);
             }
             return recovered;
@@ -687,12 +706,13 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
             throw error;
         }
 
-        if (data.quality?.suspect && recoveryDepth < 2 && chunk.durationSeconds > 6) {
+        if (shouldSplitSuspectTranscription(data.quality, recoveryDepth, chunk.durationSeconds)) {
             const recovered = await recoverAsShorterChunks(
                 `第 ${displayIndex + 1} 段品質偏低，正在拆成較短片段重新辨識...`
             );
             if (recovered) return recovered;
         }
+        if (data.quality?.suspect) data = markUncertainTranscription(data);
         return [{ chunk, data }];
     }
 
@@ -719,11 +739,29 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         });
 
         chunkStartTimes.push(Date.now());
-        const previousContext = allText.slice(-3).join(' ').slice(-240);
+        const previousContext = contextText.slice(-3).join(' ').slice(-240);
         let results;
         try {
             results = await transcribeChunkWithRecovery(chunk, i, 0, previousContext);
         } catch (error) {
+            if (isWorkersAiDailyLimitError(error)) {
+                usageLimit = {
+                    code: 'AI_DAILY_LIMIT',
+                    error: error.message,
+                    chunkIndex: i,
+                };
+                failedRanges.push({
+                    start: chunk.offsetSeconds,
+                    end: chunk.offsetSeconds + chunk.durationSeconds,
+                    reasons: ['AI_DAILY_LIMIT'],
+                    message: error.message,
+                });
+                onProgress({
+                    type: 'status',
+                    message: 'Workers AI 今日免費額度已用完，辨識已停止。',
+                });
+                break;
+            }
             failedRanges.push({
                 start: chunk.offsetSeconds,
                 end: chunk.offsetSeconds + chunk.durationSeconds,
@@ -748,6 +786,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                 onChunkComplete(blocks.join('\n\n'));
             }
             if (data.text) allText.push(data.text.trim());
+            contextText.push(...collectReliableTranscriptionText([result]));
             if (data.quality?.suspect) {
                 failedRanges.push({
                     start: resultChunk.offsetSeconds,
@@ -772,7 +811,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         .map(range => `${formatAudioTime(range.start)}–${formatAudioTime(range.end)}`)
         .join('、');
     
-    onProgress({ type: 'done', message: '全部辨識完成！' });
+    if (!usageLimit) onProgress({ type: 'done', message: '全部辨識完成！' });
 
     return {
         text: finalText,
@@ -782,8 +821,11 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         blockCount: finalBlockCount,
         incomplete: failedRanges.length > 0,
         failedRanges,
+        usageLimit,
         warning: failedRanges.length > 0
-            ? requestFailures.length > 0
+            ? usageLimit
+                ? 'Workers AI 今日免費額度已用完，辨識已停止；已完成的字幕仍會保留。'
+                : requestFailures.length > 0
                 ? `有 ${requestFailures.length} 個片段重試後仍無法辨識（${requestFailureLabels}），其他內容已保留。`
                 : `有 ${failedRanges.length} 個片段經重試後品質仍偏低，請優先人工複核。`
             : totalChunks > 1
@@ -806,6 +848,8 @@ export function initializeTab0() {
     const exportSrtBtn = document.getElementById('tab0-export-srt-btn');
     const exportVttBtn = document.getElementById('tab0-export-vtt-btn');
     const exportTxtBtn = document.getElementById('tab0-export-txt-btn');
+    const proofreadBtn = document.getElementById('tab0-proofread-btn');
+    const proofreadUndoBtn = document.getElementById('tab0-proofread-undo-btn');
     const sendToTab1Btn = document.getElementById('tab0-send-to-tab1-btn');
     const progressArea = document.getElementById('tab0-progress-area');
     const progressMessage = document.getElementById('tab0-progress-message');
@@ -814,6 +858,7 @@ export function initializeTab0() {
     const helpPanel = document.getElementById('tab0-help-panel');
 
     let selectedFile = null;
+    let proofreadingUndoSnapshot = null;
 
     // --- 載入已儲存的設定 ---
     const savedEngine = localStorage.getItem(TAB0_STORAGE_KEYS.engine) || 'gemini';
@@ -1026,7 +1071,8 @@ export function initializeTab0() {
     }
 
     // --- 顯示結果 ---
-    function displayResults(data) {
+    function displayResults(data, options = {}) {
+        const { preserveProofreadingUndo = false, suppressWarning = false } = options;
         const textPanel = document.getElementById('tab0-result-text');
         const vttPanel = document.getElementById('tab0-result-vtt');
         const srtPanel = document.getElementById('tab0-result-srt');
@@ -1045,6 +1091,10 @@ export function initializeTab0() {
 
         // 儲存結果到 state
         state.transcribeResult = data;
+        if (!preserveProofreadingUndo) {
+            proofreadingUndoSnapshot = null;
+            proofreadUndoBtn?.classList.add('hidden');
+        }
 
         // 啟用匯出按鈕
         if (exportSrtBtn) {
@@ -1063,6 +1113,11 @@ export function initializeTab0() {
             exportTxtBtn.classList.toggle('opacity-50', !data.text);
             exportTxtBtn.classList.toggle('cursor-not-allowed', !data.text);
         }
+        if (proofreadBtn) {
+            proofreadBtn.disabled = !data.srt;
+            proofreadBtn.classList.toggle('opacity-50', !data.srt);
+            proofreadBtn.classList.toggle('cursor-not-allowed', !data.srt);
+        }
         if (sendToTab1Btn) {
             const hasContent = !!(data.srt || data.text);
             sendToTab1Btn.disabled = !hasContent;
@@ -1071,7 +1126,7 @@ export function initializeTab0() {
         }
 
         // 顯示警告（如果有）
-        if (data.warning && !data.incomplete) {
+        if (data.warning && !data.incomplete && !suppressWarning) {
             showToast(data.warning, { type: 'warning' });
         }
 
@@ -1081,6 +1136,215 @@ export function initializeTab0() {
             const engineLabel = isWhisper ? 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)' : 'Gemini AI (gemini-1.5-flash)';
             infoEl.textContent = `引擎：${engineLabel}${data.blockCount ? ` | 字幕段數：${data.blockCount}` : ''}`;
             infoEl.classList.remove('hidden');
+        }
+    }
+
+    function showWorkersAiUsageNotice(value) {
+        const notice = getWorkersAiUsageNotice(value);
+        if (!notice) return false;
+        showModal({
+            title: notice.title,
+            message: notice.message,
+            buttons: [
+                { text: '我知道了', class: 'btn-primary', callback: hideModal },
+            ],
+        });
+        return true;
+    }
+
+    function escapeProofreadingHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function showProofreadingSuggestions(suggestions) {
+        const items = suggestions.map((suggestion, index) => {
+            const confidenceLabel = suggestion.confidence === 'high' ? '高信心' : '中信心';
+            const isConsistency = suggestion.source === 'consistency';
+            const badgeLabel = isConsistency ? '一致性補查' : confidenceLabel;
+            const badgeClass = isConsistency
+                ? 'bg-tertiary-container text-on-tertiary-container'
+                : suggestion.confidence === 'high'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-secondary-container text-on-secondary-container';
+            const detail = `理由：${suggestion.reason} ｜ ${suggestion.context}`;
+            return `
+                <label class="grid grid-cols-[auto_6rem_minmax(0,1fr)] items-center gap-x-2 gap-y-0.5 px-3 py-2 cursor-pointer hover:bg-primary/5 transition-colors">
+                    <input type="checkbox" data-proofreading-index="${index}" class="row-span-2 h-4 w-4 accent-primary">
+                    <span class="font-mono text-[11px] leading-5 text-on-surface-variant">${escapeProofreadingHtml(suggestion.time)}</span>
+                    <span class="flex min-w-0 items-center gap-1.5 text-sm leading-5 text-on-surface">
+                        <span class="min-w-0 truncate line-through text-error" title="${escapeProofreadingHtml(suggestion.original)}">${escapeProofreadingHtml(suggestion.original)}</span>
+                        <span class="shrink-0 text-on-surface-variant">→</span>
+                        <span class="min-w-0 truncate font-bold text-primary" title="${escapeProofreadingHtml(suggestion.suggested)}">${escapeProofreadingHtml(suggestion.suggested)}</span>
+                        <span class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] leading-4 ${badgeClass}">${badgeLabel}</span>
+                    </span>
+                    <span class="col-start-2 col-span-2 truncate text-[11px] leading-4 text-on-surface-variant" title="${escapeProofreadingHtml(detail)}">${escapeProofreadingHtml(detail)}</span>
+                </label>`;
+        }).join('');
+
+        showModal({
+            title: `AI 校對建議（${suggestions.length} 項）`,
+            message: `
+                <span class="block whitespace-normal">
+                    <span class="mb-2 flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
+                        <span id="proofreading-selected-count" class="rounded-full bg-primary/15 px-2 py-1 font-bold text-primary">已選 0／${suggestions.length}</span>
+                        <span class="mr-auto">預設不勾選；只套用確認項目，時間軸不變。</span>
+                        <button type="button" data-proofreading-action="select-all" class="rounded-lg border border-outline-variant/30 px-2.5 py-1 font-bold text-on-surface hover:border-primary/50">全選</button>
+                        <button type="button" data-proofreading-action="clear" class="rounded-lg border border-outline-variant/30 px-2.5 py-1 font-bold text-on-surface hover:border-primary/50">清除</button>
+                    </span>
+                    <span id="proofreading-suggestion-list" class="block max-h-[48vh] overflow-y-auto rounded-xl border border-outline-variant/25 bg-surface-container/50 divide-y divide-outline-variant/15">
+                        ${items}
+                    </span>
+                </span>
+            `,
+            isHtml: true,
+            large: true,
+            buttons: [
+                { text: '取消', class: 'btn-secondary', callback: hideModal },
+                { text: '套用已勾選', class: 'btn-primary', callback: () => {
+                    const checkedIndexes = [...document.querySelectorAll(
+                        '#modal-message input[data-proofreading-index]:checked'
+                    )].map(input => Number(input.dataset.proofreadingIndex));
+                    if (checkedIndexes.length === 0) {
+                        showToast('請先勾選要套用的校對建議。', { type: 'warning' });
+                        return;
+                    }
+
+                    const current = state.transcribeResult;
+                    if (!current?.srt) {
+                        hideModal();
+                        showToast('目前沒有可校對的 SRT 字幕。', { type: 'error' });
+                        return;
+                    }
+                    const selectedIds = checkedIndexes
+                        .map(index => suggestions[index]?.id)
+                        .filter(Boolean);
+                    const result = applyProofreadingSuggestions(current.srt, suggestions, selectedIds);
+                    if (result.applied.length === 0) {
+                        hideModal();
+                        showToast('字幕內容已變更，所選建議未套用。請重新執行校對。', { type: 'warning' });
+                        return;
+                    }
+
+                    proofreadingUndoSnapshot = { ...current };
+                    const corrected = {
+                        ...current,
+                        srt: result.srt,
+                        text: srtToPlainText(result.srt),
+                        vtt: current.vtt ? proofreadingSrtToVtt(result.srt) : current.vtt,
+                    };
+                    displayResults(corrected, {
+                        preserveProofreadingUndo: true,
+                        suppressWarning: true,
+                    });
+                    proofreadUndoBtn?.classList.remove('hidden');
+                    hideModal();
+                    const skippedText = result.skipped.length > 0
+                        ? `；另有 ${result.skipped.length} 項因原文已變更而跳過`
+                        : '';
+                    showToast(`已套用 ${result.applied.length} 項校對${skippedText}，時間軸保持不變。`);
+                }},
+            ],
+        });
+
+        const checkboxSelector = '#proofreading-suggestion-list input[data-proofreading-index]';
+        const checkboxes = [...document.querySelectorAll(checkboxSelector)];
+        const selectedCount = document.getElementById('proofreading-selected-count');
+        const updateSelectedCount = () => {
+            const count = checkboxes.filter(input => input.checked).length;
+            if (selectedCount) selectedCount.textContent = `已選 ${count}／${suggestions.length}`;
+        };
+        checkboxes.forEach(input => input.addEventListener('change', updateSelectedCount));
+        document.querySelector('[data-proofreading-action="select-all"]')?.addEventListener('click', () => {
+            checkboxes.forEach(input => { input.checked = true; });
+            updateSelectedCount();
+        });
+        document.querySelector('[data-proofreading-action="clear"]')?.addEventListener('click', () => {
+            checkboxes.forEach(input => { input.checked = false; });
+            updateSelectedCount();
+        });
+    }
+
+    async function startProofreading() {
+        const srt = state.transcribeResult?.srt;
+        if (!srt) {
+            showToast('請先完成字幕辨識。', { type: 'warning' });
+            return;
+        }
+        const apiKey = getBalancedApiKey();
+        if (!apiKey) {
+            showModal({
+                title: '需要 Gemini API Key',
+                message: 'AI 校對建議使用 Gemini 文字模型，請先在全域設定中加入可用的 Gemini API Key。',
+                buttons: [
+                    { text: '取消', class: 'btn-secondary', callback: hideModal },
+                    { text: '前往設定', class: 'btn-primary', callback: () => {
+                        hideModal();
+                        showGlobalSettingsModal('settings-tab-gemini');
+                    }},
+                ],
+            });
+            return;
+        }
+
+        const controller = new AbortController();
+        proofreadBtn.disabled = true;
+        showModal({
+            title: 'AI 正在產生校對建議',
+            message: '正在檢查字幕文字，AI 不會直接修改任何內容。',
+            showProgressBar: true,
+            buttons: [{
+                text: '取消',
+                class: 'btn-secondary',
+                callback: () => {
+                    controller.abort();
+                    hideModal();
+                },
+            }],
+        });
+        state.currentAbortController = controller;
+
+        try {
+            const terminology = state.aiTerminologyRules
+                .filter(rule => rule.type === 'positive' && rule.term?.trim())
+                .map(rule => rule.term.trim());
+            const suggestions = await requestProofreadingSuggestions({
+                apiKey,
+                srt,
+                terminology,
+                abortSignal: controller.signal,
+                onProgress: (current, total) => {
+                    const message = document.getElementById('modal-message');
+                    if (message) {
+                        message.textContent = `正在檢查第 ${current}／${total} 批字幕，AI 不會直接修改任何內容。`;
+                    }
+                },
+            });
+            if (controller.signal.aborted) return;
+            if (suggestions.length === 0) {
+                showModal({
+                    title: 'AI 校對完成',
+                    message: '沒有發現具備足夠上下文依據的校對建議。原始字幕未做任何修改。',
+                    buttons: [{ text: '我知道了', class: 'btn-primary', callback: hideModal }],
+                });
+                return;
+            }
+            showProofreadingSuggestions(suggestions);
+        } catch (error) {
+            if (error?.name === 'AbortError' || controller.signal.aborted) return;
+            console.error('[Tab0] AI proofreading failed:', error);
+            showModal({
+                title: 'AI 校對失敗',
+                message: `${error.message || '無法取得校對建議。'}\n原始字幕未做任何修改。`,
+                buttons: [{ text: '關閉', class: 'btn-primary', callback: hideModal }],
+            });
+        } finally {
+            if (state.currentAbortController === controller) state.currentAbortController = null;
+            proofreadBtn.disabled = !state.transcribeResult?.srt;
         }
     }
 
@@ -1230,7 +1494,9 @@ export function initializeTab0() {
                     }
 
                     displayResults(result);
-                    if (result.incomplete) {
+                    if (showWorkersAiUsageNotice(result.usageLimit)) {
+                        // 額度彈窗已提供完整說明，不再疊加一般錯誤提示。
+                    } else if (result.incomplete) {
                         showToast(result.warning || '辨識未完整，請檢查結果。', { type: 'error' });
                     } else {
                         showToast('🎉 語音辨識完成！', { type: 'success' });
@@ -1238,7 +1504,9 @@ export function initializeTab0() {
 
                 } catch (error) {
                     console.error('[Tab0] Transcription failed:', error);
-                    showToast(`辨識失敗：${error.message}`, { type: 'error' });
+                    if (!showWorkersAiUsageNotice(error)) {
+                        showToast(`辨識失敗：${error.message}`, { type: 'error' });
+                    }
                 } finally {
                     stopProgressMessages();
                     updateTab0StartButton();
@@ -1294,6 +1562,24 @@ export function initializeTab0() {
             if (!state.transcribeResult?.text) return;
             saveFile(state.transcribeResult.text, (state.originalFileName || 'subtitle') + '.txt');
             showToast('文字檔案已下載！');
+        });
+    }
+
+    if (proofreadBtn) {
+        proofreadBtn.addEventListener('click', startProofreading);
+    }
+
+    if (proofreadUndoBtn) {
+        proofreadUndoBtn.addEventListener('click', () => {
+            if (!proofreadingUndoSnapshot) return;
+            const previous = proofreadingUndoSnapshot;
+            displayResults(previous, {
+                preserveProofreadingUndo: true,
+                suppressWarning: true,
+            });
+            proofreadingUndoSnapshot = null;
+            proofreadUndoBtn.classList.add('hidden');
+            showToast('已復原最近一次 AI 校對，時間軸保持不變。');
         });
     }
 

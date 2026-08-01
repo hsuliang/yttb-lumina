@@ -175,7 +175,7 @@
                     </span>
                     <h3 class="text-lg font-bold text-white">匯入並一鍵整理字幕檔</h3>
                     <p class="text-gray-400 text-sm mt-1 leading-relaxed">
-                        您可以至 DownSub 等網站下載您的 YouTube 影片 SRT 字幕檔。在「智慧字幕整理」分頁將字幕內容直接貼入或拖曳上傳至虛線匯入區。調整右側控制面板的「每行字數」、「最小合併字數」、「時間平移」、「間隔修復」滑桿，最後點選「智慧重整字幕」。完成後，可在此分頁直接點擊「生成摘要」與「生成章節」取得 AI 初步精簡報告。
+                        您可以至 DownSub 等網站下載您的 YouTube 影片 SRT 字幕檔。在「智慧字幕整理」分頁將字幕內容直接貼入或拖曳上傳至虛線匯入區。調整右側控制面板的「每行字數」、「最小合併字數」、「時間平移」、「間隔修復」滑桿，最後點選「智慧重整字幕」。完成語音辨識後，也可按「AI 校對建議」分批檢查疑似錯字與相同詞的一致性；所有建議預設不勾選，只有您確認的文字才會套用，字幕時間軸不會改變。完成後，可在此分頁直接點擊「生成摘要」與「生成章節」取得 AI 初步精簡報告。
                     </p>
                 </div>
                 <!-- Step 3 -->
@@ -243,7 +243,7 @@
                             </td>
                             <td class="px-6 py-4 border-l border-white/5">
                                 <span class="text-blue-400 font-bold">優秀 (純音訊轉譯)</span><br>
-                                傳統語音辨識強者，精準度高，但標點與排版相對死板，偶有空白處幻覺。
+                                傳統語音辨識強者，精準度高；程式會重試可疑片段，仍不可靠時以「辨識不清」或「待確認」標示，避免將亂碼當成正常字幕。
                             </td>
                         </tr>
                         <tr class="hover:bg-white/5 transition-colors">
@@ -299,7 +299,7 @@
                     <ul class="list-disc list-inside space-y-2 text-gray-300 text-sm marker:text-gray-500">
                         <li><strong class="text-white">每日免費計算量：</strong>Cloudflare 每天提供 10,000 個「神經元 (Neurons)」的免費運算量。</li>
                         <li><strong class="text-white">換算實際長度：</strong>對於 Whisper 語音辨識模型而言，這大約足夠您**每天免費轉譯數小時**長度的音檔。</li>
-                        <li><strong class="text-white">超量怎麼辦？</strong>即使您某天處理了超量影片，只要您沒在 Cloudflare 綁定信用卡開啟付費方案，系統只會拒絕請求而**絕對不會擅自向您收費**；若您未來選擇綁定信用卡，超出的部分收費也極度低廉（處理數十小時往往只需不到一美金）。</li>
+                        <li><strong class="text-white">超量怎麼辦？</strong>即使您某天處理了超量影片，只要您沒在 Cloudflare 綁定信用卡開啟付費方案，系統只會拒絕請求而**絕對不會擅自向您收費**。程式會停止後續辨識、保留已完成字幕並顯示額度提醒；您可以等待每日額度重置，或自行升級 Workers Paid 方案。</li>
                     </ul>
                     <p class="text-gray-400 text-xs leading-relaxed mt-4 bg-black/20 p-3 rounded-lg border border-white/5">
                         💡 <strong>結論：</strong>對於一般創作者日常的 YouTube 影片、Podcast 逐字稿製作，Cloudflare 的免費額度幾乎等於「無限制」，加上完全掌握在自己手裡的隱私權，是一項極高性價比的隱藏神兵利器。
@@ -424,7 +424,7 @@
                 返回應用程式
             </a>
             <p>
-                Design by <a href="https://52hal.cc/al" target="_blank" rel="noopener" class="text-blue-500 hover:underline">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260801R9
+                Design by <a href="https://52hal.cc/al" target="_blank" rel="noopener" class="text-blue-500 hover:underline">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260801R10
             </p>
         </footer>
 

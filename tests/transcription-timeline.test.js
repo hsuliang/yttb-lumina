@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    formatAudioTime,
     normalizeSrtTimeline,
     offsetSrtTimestamps,
     splitPcmByLowEnergy,
     splitPcmChunk,
 } from '../public/js/transcription-timeline.js';
+
+test('audio range labels are available to both transcription engines', () => {
+    assert.equal(formatAudioTime(0), '00:00:00');
+    assert.equal(formatAudioTime(123.6), '00:02:04');
+    assert.equal(formatAudioTime(3661), '01:01:01');
+});
 
 test('failed 180-second chunks split into exact non-overlapping 90-second ranges', () => {
     const parent = {
