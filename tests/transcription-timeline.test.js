@@ -117,3 +117,62 @@ test('final SRT normalization removes impossible dense hallucination bursts', ()
     assert.match(normalized, /後一段正常內容/);
     assert.doesNotMatch(normalized, /八十毫秒|密集出現|第三段同樣/);
 });
+
+test('final SRT normalization merges a short orphaned tail', () => {
+    const input = [
+        '1\n00:00:13,774 --> 00:00:18,719\n就是還能上線的老師們真的是太值得值得鼓勵了齁實在是很',
+        '2\n00:00:18,719 --> 00:00:19,419\n強這樣',
+    ].join('\n\n');
+    const normalized = normalizeSrtTimeline(input);
+
+    assert.match(normalized, /00:00:13,774 --> 00:00:19,419/);
+    assert.match(normalized, /實在是很強這樣/);
+    assert.doesNotMatch(normalized, /^2$/m);
+});
+
+test('final SRT normalization splits overlong timing without breaking a domain name', () => {
+    const normalized = normalizeSrtTimeline(
+        '1\n00:00:00,000 --> 00:00:10,789\n您就輸入lumioclass.com'
+    );
+    const timelines = [...normalized.matchAll(
+        /(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/g
+    )];
+    const toMs = values => (((Number(values[0]) * 60 + Number(values[1])) * 60
+        + Number(values[2])) * 1000) + Number(values[3]);
+
+    assert.equal(timelines.length, 2);
+    assert.ok(timelines.every(match => toMs(match.slice(5)) - toMs(match.slice(1, 5)) <= 6000));
+    assert.match(normalized, /^lumioclass\.com$/m);
+    assert.doesNotMatch(normalized, /lumioclas\n|^s\.com$/m);
+});
+
+test('final SRT normalization keeps the leading music label in one cue', () => {
+    const normalized = normalizeSrtTimeline(
+        '1\n00:00:00,000 --> 00:00:09,970\n《 字幕君：ㄚ亮笑長的內容助手》 【音樂】'
+    );
+
+    assert.equal(normalized.split(/\n\s*\n/).length, 1);
+    assert.match(normalized, /00:00:00,000 --> 00:00:09,970/);
+    assert.match(normalized, /《 字幕君：ㄚ亮笑長的內容助手》 【音樂】/);
+});
+
+test('final SRT normalization limits instantaneous reading speed to 20 characters per second', () => {
+    const text = '幫忙一下他 因為 你會發現好 沒有人 給我的';
+    const input = [
+        '1\n00:00:31,613 --> 00:00:33,620\n為什麼這些圖看起來都不是 ㄟ',
+        `2\n00:00:33,620 --> 00:00:34,439\n${text}`,
+        '3\n00:00:34,439 --> 00:00:36,590\n這很不AI 喔 有啦 觀察小卡是AI做的',
+    ].join('\n\n');
+    const normalized = normalizeSrtTimeline(input);
+    const block = normalized.split(/\n\s*\n/).find(item => item.includes(text));
+    const timeline = block.match(
+        /(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/
+    );
+    const toMs = values => (((Number(values[0]) * 60 + Number(values[1])) * 60
+        + Number(values[2])) * 1000) + Number(values[3]);
+    const durationMs = toMs(timeline.slice(5)) - toMs(timeline.slice(1, 5));
+    const characters = Array.from(text.replace(/\s/g, '')).length;
+
+    assert.ok(durationMs >= Math.ceil(characters / 20 * 1000));
+    assert.match(normalized, /幫忙一下他 因為 你會發現好 沒有人 給我的/);
+});

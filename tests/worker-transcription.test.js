@@ -49,7 +49,7 @@ function sineWave(seconds, sampleRate = 16000, amplitude = 0.25) {
     );
 }
 
-test('health endpoint identifies Worker version 1.2.6', async () => {
+test('health endpoint identifies Worker version 1.2.8', async () => {
     const response = await worker.fetch(
         new Request('https://worker.example/api/health'),
         {},
@@ -57,7 +57,7 @@ test('health endpoint identifies Worker version 1.2.6', async () => {
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(result.version, '1.2.6');
+    assert.equal(result.version, '1.2.8');
 });
 
 test('VTT parser keeps consecutive cues separate even without blank lines', () => {
@@ -158,6 +158,32 @@ test('uneven text splits still keep every subtitle within the duration limit', (
     assert.ok(cues.every(cue => cue.endMs - cue.startMs <= 6000));
 });
 
+test('a short orphaned tail is rebalanced with its preceding sentence', () => {
+    const input = [
+        '1\n00:00:13,774 --> 00:00:18,719\n就是還能上線的老師們真的是太值得值得鼓勵了齁實在是很',
+        '2\n00:00:18,719 --> 00:00:19,419\n強這樣',
+    ].join('\n\n');
+    const cues = parseSrtCues(mergeSrtBlocks(input));
+
+    assert.equal(cues.length, 2);
+    assert.equal(
+        cues.map(cue => cue.text).join(''),
+        '就是還能上線的老師們真的是太值得值得鼓勵了齁實在是很強這樣'
+    );
+    assert.ok(cues.every(cue => Array.from(cue.text.replace(/\s/g, '')).length >= 10));
+    assert.ok(cues.every(cue => cue.endMs - cue.startMs <= 6000));
+});
+
+test('duration splitting keeps a domain name intact', () => {
+    const input = '1\n00:00:00,000 --> 00:00:10,789\n您就輸入lumioclass.com';
+    const cues = parseSrtCues(mergeSrtBlocks(input));
+
+    assert.ok(cues.length >= 2);
+    assert.ok(cues.every(cue => cue.endMs - cue.startMs <= 6000));
+    assert.ok(cues.some(cue => cue.text === 'lumioclass.com'));
+    assert.equal(cues.map(cue => cue.text).join(''), '您就輸入lumioclass.com');
+});
+
 test('music markers stay separate from adjacent speech', () => {
     const input = [
         '1\n00:00:00,000 --> 00:00:03,000\n[Music]',
@@ -239,6 +265,56 @@ test('transcription endpoint retries a suspect result and decorates the selected
     assert.match(result.srt, /《 字幕君：ㄚ亮笑長的內容助手》 【音樂】/);
     assert.match(result.srt, /大家好。/);
     assert.doesNotMatch(result.srt, /請使用繁體中文字幕/);
+});
+
+test('transcription endpoint replaces a low-density Chinese result only with a better retry', async () => {
+    const calls = [];
+    const responses = [
+        {
+            text: '好對是好你先決這次衣怎麼寫製我們搜尼這麼衍獻一攝',
+            segments: [
+                { start: 0, end: 20, text: '好對是好你先決這次衣怎麼寫製我們搜尼這麼衍獻一攝' },
+            ],
+            transcription_info: { language: 'zh' },
+        },
+        {
+            text: '這是一段重新辨識後內容完整而且文字密度正常的中文語音字幕可以安全取代第一次的低品質結果',
+            segments: [
+                { start: 0, end: 10, text: '這是一段重新辨識後內容完整而且文字密度正常的中文語音字幕' },
+                { start: 10, end: 20, text: '可以安全取代第一次的低品質結果' },
+            ],
+            transcription_info: { language: 'zh' },
+        },
+    ];
+    const env = {
+        AI: {
+            async run() {
+                const result = responses[calls.length];
+                calls.push(result);
+                return result;
+            },
+        },
+    };
+    const request = new Request('https://worker.example/api/transcribe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'audio/wav',
+            'X-Language': 'zh',
+            'X-First-Chunk': '0',
+            'X-Chunk-Index': '1',
+        },
+        body: makeWav(sineWave(20)),
+    });
+
+    const response = await worker.fetch(request, env, {});
+    const result = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 2);
+    assert.match(result.text, /內容完整而且文字密度正常/);
+    assert.doesNotMatch(result.text, /搜尼|衍獻/);
+    assert.equal(result.quality.retried, true);
+    assert.equal(result.quality.suspect, false);
 });
 
 test('invalid model input is retried once with a minimal Whisper payload', async () => {
@@ -401,6 +477,46 @@ test('quality gate flags prompt leakage, unexpected scripts, and sparse active a
     assert.equal(stretchedSparse.suspect, true);
     assert.ok(stretchedSparse.reasons.includes('sparse_transcript'));
     assert.ok(stretchedSparse.charactersPerSecond < 0.75);
+
+    const lowDensityChinese = evaluateTranscriptionQuality({
+        text: '好對是好你先決這次衣怎麼寫製我們搜尼這麼衍獻一攝',
+        srt: [
+            '1\n00:00:00,000 --> 00:00:05,800\n好對是好你先決',
+            '2\n00:00:05,800 --> 00:00:08,300\n這次衣',
+            '3\n00:00:08,300 --> 00:00:13,300\n怎麼寫製我們',
+            '4\n00:00:13,300 --> 00:00:15,000\n搜尼',
+            '5\n00:00:15,000 --> 00:00:20,000\n這麼衍獻一攝',
+        ].join('\n\n'),
+        audioAnalysis: activeAudio,
+        language: 'zh',
+    });
+    assert.equal(lowDensityChinese.suspect, true);
+    assert.ok(lowDensityChinese.reasons.includes('low_speech_density'));
+
+    const validSlowChinese = evaluateTranscriptionQuality({
+        text: '老師正在慢慢說明今天要練習的內容請大家先看畫面再跟著步驟操作',
+        srt: [
+            '1\n00:00:00,000 --> 00:00:06,000\n老師正在慢慢說明今天要練習的內容',
+            '2\n00:00:06,000 --> 00:00:13,000\n請大家先看畫面',
+            '3\n00:00:13,000 --> 00:00:20,000\n再跟著步驟操作',
+        ].join('\n\n'),
+        audioAnalysis: activeAudio,
+        language: 'zh',
+    });
+    assert.equal(validSlowChinese.suspect, false);
+    assert.ok(!validSlowChinese.reasons.includes('low_speech_density'));
+
+    const introMusic = evaluateTranscriptionQuality({
+        text: '大家好今天一起來練習',
+        srt: [
+            '1\n00:00:00,000 --> 00:00:10,000\n【音樂】',
+            '2\n00:00:10,000 --> 00:00:20,000\n大家好今天一起來練習',
+        ].join('\n\n'),
+        audioAnalysis: activeAudio,
+        language: 'zh',
+        isFirstChunk: true,
+    });
+    assert.ok(!introMusic.reasons.includes('low_speech_density'));
 
     const missingMiddle = evaluateTranscriptionQuality({
         text: '前段內容，後段內容。',

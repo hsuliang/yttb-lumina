@@ -6,7 +6,7 @@
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
-目前 Worker 版本：**1.2.6**。此版延續保守的中文語意斷句，並新增有聲片段的最低文字密度檢查，避免約 20 秒人聲只留下數個字；「測試連線」也會顯示健康檢查回傳的 Worker 版本。
+目前 Worker 版本：**1.2.8**。此版會把「高人聲比例但中文文字密度異常低」的片段列為可疑結果並啟動既有重試／短片段復原，同時把瞬間閱讀速度限制為每秒 20 字；判斷會綜合語言、片段長度與人聲比例並排除片頭音樂，另以正常慢速語音案例防止門檻誤判。
 
 ---
 
@@ -68,7 +68,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.2.6",
+  "version": "1.2.8",
   "maxAudioMB": 28,
   "authRequired": false
 }
@@ -96,7 +96,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.2.6",
+  "version": "1.2.8",
   "maxAudioMB": 28,
   "authRequired": true
 }

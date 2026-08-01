@@ -165,6 +165,98 @@ function joinCueText(left, right) {
     return left + (needsSpace ? ' ' : '') + right;
 }
 
+const CUE_WORD_SEGMENTER = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+    ? new Intl.Segmenter('zh-TW', { granularity: 'word' })
+    : null;
+
+function mergeOrphanTailCues(cues, maxDurationMs = 6000, maxChars = 28) {
+    const result = [];
+    for (const cue of cues) {
+        const previous = result.at(-1);
+        const gap = previous ? cue.startMs - previous.endMs : Number.POSITIVE_INFINITY;
+        const joinedText = previous ? joinCueText(previous.text, cue.text) : '';
+        const canMerge = previous
+            && gap >= 0
+            && gap <= 120
+            && cueTextLength(previous.text) >= 12
+            && cueTextLength(cue.text) <= 4
+            && cue.endMs - previous.startMs <= maxDurationMs
+            && cueTextLength(joinedText) <= maxChars + 2
+            && !/[。！？.!?…]$/u.test(previous.text)
+            && !previous.text.includes('【音樂】')
+            && !cue.text.includes('【音樂】');
+        if (canMerge) {
+            previous.endMs = cue.endMs;
+            previous.text = joinedText;
+        } else {
+            result.push({ ...cue });
+        }
+    }
+    return result;
+}
+
+function joinCueTokens(tokens) {
+    return tokens.reduce((text, token) => joinCueText(text, token), '');
+}
+
+function splitCueTextByDuration(text, minimumPieces) {
+    const tokens = CUE_WORD_SEGMENTER
+        ? [...CUE_WORD_SEGMENTER.segment(text)].map(part => part.segment).filter(part => part.trim())
+        : Array.from(text.replace(/\s+/g, ''));
+    if (tokens.length < minimumPieces) return [text];
+
+    const pieces = [];
+    let remaining = tokens;
+    for (let slots = minimumPieces; slots > 1; slots--) {
+        const maximumIndex = remaining.length - (slots - 1);
+        if (maximumIndex < 1) return [text];
+        const targetLength = Math.ceil(cueTextLength(joinCueTokens(remaining)) / slots);
+        let bestIndex = 1;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (let index = 1; index <= maximumIndex; index++) {
+            const distance = Math.abs(cueTextLength(joinCueTokens(remaining.slice(0, index))) - targetLength);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = index;
+            }
+        }
+        pieces.push(joinCueTokens(remaining.slice(0, bestIndex)));
+        remaining = remaining.slice(bestIndex);
+    }
+    pieces.push(joinCueTokens(remaining));
+    return pieces;
+}
+
+function splitOverlongCues(cues, maxDurationMs = 6000) {
+    return cues.flatMap(cue => {
+        const duration = cue.endMs - cue.startMs;
+        const requiredPieces = Math.ceil(duration / maxDurationMs);
+        if (requiredPieces <= 1 || cue.text.includes('【音樂】')) return [cue];
+
+        const pieces = splitCueTextByDuration(cue.text, requiredPieces);
+        if (pieces.length < requiredPieces) return [cue];
+        const weights = pieces.map(piece => Math.max(1, cueTextLength(piece)));
+        const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+        let consumedWeight = 0;
+        let cursor = cue.startMs;
+
+        return pieces.map((piece, index) => {
+            consumedWeight += weights[index];
+            const remainingPieces = pieces.length - index - 1;
+            const weightedEnd = Math.round(cue.startMs + duration * consumedWeight / totalWeight);
+            const endMs = index === pieces.length - 1
+                ? cue.endMs
+                : Math.max(
+                    cue.endMs - remainingPieces * maxDurationMs,
+                    Math.min(weightedEnd, cursor + maxDurationMs)
+                );
+            const result = { startMs: cursor, endMs, text: piece };
+            cursor = endMs;
+            return result;
+        }).filter(part => part.endMs > part.startMs);
+    });
+}
+
 function removePathologicalCueBursts(cues, windowMs = 600, minimumCues = 3, minimumChars = 40) {
     const rejected = new Set();
     for (let start = 0; start < cues.length; start++) {
@@ -182,7 +274,7 @@ function removePathologicalCueBursts(cues, windowMs = 600, minimumCues = 3, mini
     return cues.filter((_, index) => !rejected.has(index));
 }
 
-function repairUnreadableCues(cues, minDurationMs = 700, maxChars = 28, maxCps = 22) {
+function repairUnreadableCues(cues, minDurationMs = 700, maxChars = 28, maxCps = 20) {
     const result = cues.map(cue => ({ ...cue }));
     for (let index = 0; index < result.length; index++) {
         const cue = result[index];
@@ -281,8 +373,9 @@ export function normalizeSrtTimeline(srt) {
         if (cue.endMs > cue.startMs) normalized.push(cue);
     }
 
-    const readable = repairUnreadableCues(removePathologicalCueBursts(normalized));
-    return readable.map((cue, index) => [
+    const readable = repairUnreadableCues(mergeOrphanTailCues(removePathologicalCueBursts(normalized)));
+    const durationBounded = splitOverlongCues(readable);
+    return durationBounded.map((cue, index) => [
         index + 1,
         `${formatSrtTime(cue.startMs)} --> ${formatSrtTime(cue.endMs)}`,
         cue.text,

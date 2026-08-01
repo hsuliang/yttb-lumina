@@ -1,7 +1,7 @@
 /**
  * yttb-lumina Whisper Worker
  * 部署在 Cloudflare Workers，使用 @cf/openai/whisper-large-v3-turbo 模型
- * Version: 1.2.6
+ * Version: 1.2.8
  *
  * 端點：
  *   GET  /api/health     → 健康檢查
@@ -11,8 +11,8 @@
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-// 版本規則：每次發布程式變更時 patch 加 1，例如 1.2.6 → 1.2.7。
-const WORKER_VERSION = '1.2.6';
+// 版本規則：每次發布程式變更時 patch 加 1，例如 1.2.8 → 1.2.9。
+const WORKER_VERSION = '1.2.8';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
 const AI_TRANSCRIPT_LABEL = '《 字幕君：ㄚ亮笑長的內容助手》';
@@ -20,6 +20,8 @@ const MUSIC_LABEL = '【音樂】';
 const MAX_SUBTITLE_DURATION_MS = 6000;
 const MAX_SUBTITLE_CHARS = 28;
 const MIN_SUBTITLE_DURATION_MS = 700;
+const MAX_READABLE_CPS = 20;
+const MIN_CONFIDENT_ZH_CPS = 1.5;
 
 const ENGLISH_DICT_SET = new Set([
     'a', 'a few', 'a little', 'a lot', 'able', 'about', 'above', 'abroad',
@@ -404,6 +406,8 @@ function splitTextNaturally(text, maxChars, minimumPieces = 1) {
     const target = Math.max(1, Math.min(maxChars, Math.ceil(remaining.length / minimumPieces)));
 
     while (remaining.length > target) {
+        // 網址、縮寫與英文專有名詞視為不可拆的單位，寧可在前一個詞界切開。
+        if (/^[A-Za-z0-9][A-Za-z0-9._'’+@:/-]*[A-Za-z0-9]$/u.test(remaining.join(''))) break;
         const splitAt = findNaturalSplit(remaining, target);
         const piece = remaining.slice(0, splitAt).join('').trim();
         if (piece) pieces.push(piece);
@@ -540,8 +544,14 @@ function mergeSrtBlocks(
             && subtitleLength(current.text) >= 12
             && current.endMs - current.startMs >= 1200;
         const nonSpeechBoundary = current.text.includes(MUSIC_LABEL) || block.text.includes(MUSIC_LABEL);
+        const orphanTail = gap >= 0
+            && gap <= 120
+            && subtitleLength(current.text) >= 12
+            && subtitleLength(block.text) <= 4
+            && prospectiveDuration <= maxDurationMs
+            && subtitleLength(joinedText) <= maxChars + 2;
         const exceedsLimit = prospectiveDuration > maxDurationMs
-            || subtitleLength(joinedText) > maxChars;
+            || (subtitleLength(joinedText) > maxChars && !orphanTail);
         const shouldBreak = gap < 0
             || gap > maxGapMs
             || nonSpeechBoundary
@@ -867,9 +877,9 @@ function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, 
 
     const extremeCues = cues.filter(cue => {
         const durationSeconds = (cue.endMs - cue.startMs) / 1000;
-        return durationSeconds <= 0 || subtitleLength(cue.text) / durationSeconds > 22;
+        return durationSeconds <= 0 || subtitleLength(cue.text) / durationSeconds > MAX_READABLE_CPS;
     });
-    if (extremeCues.length > Math.max(1, Math.floor(cues.length * 0.2))) {
+    if (extremeCues.length >= Math.max(1, Math.floor(cues.length * 0.2))) {
         reasons.push('unreadable_timing');
         score -= 25;
     }
@@ -904,6 +914,15 @@ function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, 
     if (sparseCoverage && !(musicRange && firstSpeechCue)) {
         reasons.push('sparse_transcript');
         score -= 50;
+    } else {
+        const lowSpeechDensity = language === 'zh'
+            && audioAnalysis?.durationMs >= 12000
+            && audibleRatio >= 0.75
+            && charactersPerSecond < MIN_CONFIDENT_ZH_CPS;
+        if (lowSpeechDensity && !(musicRange && firstSpeechCue)) {
+            reasons.push('low_speech_density');
+            score -= 50;
+        }
     }
 
     const severeTimingFailure = reasons.includes('unreadable_timing');
@@ -913,6 +932,7 @@ function evaluateTranscriptionQuality({ text, srt, rawSrt = srt, audioAnalysis, 
         reasons,
         longestActiveGapMs,
         charactersPerSecond,
+        audibleRatio,
     };
 }
 
