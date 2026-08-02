@@ -15,12 +15,18 @@ test('thumbnail prompt follows the guide and maps roles before the logo', () => 
         style: 'saturated-3d',
     });
 
-    assert.match(prompt, /image1（ㄚ亮笑長）/);
-    assert.match(prompt, /image2（來賓老師）/);
+    assert.match(prompt, /image1 是ㄚ亮笑長/);
+    assert.match(prompt, /image2 是來賓老師/);
     assert.match(prompt, /image3 的 Logo 圖示/);
-    assert.match(prompt, /請參考我上傳的角色圖片，並啟動嚴格臉部一致性模式/);
-    assert.match(prompt, /主體與動作/);
-    assert.match(prompt, /地點／背景/);
+    assert.match(prompt, /請參考我上傳的角色圖片（image1 是ㄚ亮笑長，image2 是來賓老師），並啟動嚴格臉部一致性模式/);
+    assert.match(prompt, /\[人物設定\]：請參考我上傳的角色圖片（image1 是ㄚ亮笑長，image2 是來賓老師）/);
+    assert.match(prompt, /\[主體與動作\]：/);
+    assert.match(prompt, /\[地點\/背景\]：/);
+    assert.match(prompt, /\[構圖\/鏡頭\]：/);
+    assert.match(prompt, /\[文字\]：/);
+    assert.match(prompt, /\[藝術風格\]：/);
+    assert.match(prompt, /\[人物設定\][\s\S]*\n\n\[主體與動作\][\s\S]*\n\n\[地點\/背景\][\s\S]*\n\n\[構圖\/鏡頭\][\s\S]*\n\n\[文字\][\s\S]*\n\n\[藝術風格\]/);
+    assert.doesNotMatch(prompt, /\*\*\[人物設定\]\*\*/);
     assert.match(prompt, /廣角仰角鏡頭/);
     assert.match(prompt, /色彩極度飽和的現代 3D 綜藝動畫/);
     assert.match(prompt, /長寬比必須設定為 16:9/);
@@ -37,6 +43,8 @@ test('thumbnail prompt forbids invented people and logos when none are configure
 
     assert.match(prompt, /不可出現主持人、來賓、路人或其他人物/);
     assert.match(prompt, /不可出現 Logo、浮水印或商標相關描述/);
+    assert.match(prompt, /\[人物設定\]：本封面不使用人物、角色圖片或臉部一致性指令/);
+    assert.doesNotMatch(prompt, /\*\*\[人物設定\]\*\*/);
     assert.match(prompt, /由 AI 從影片內容自動產生一個吸睛的繁體中文封面標題/);
     assert.match(prompt, /字數不設限/);
     assert.doesNotMatch(prompt, /最終繪圖提示詞開頭必須完整寫上/);
@@ -74,7 +82,7 @@ test('thumbnail prompt validates custom style and supports variation overrides',
         variationModifier: '改成極簡黑白剪影。',
         shouldOverride: true,
     });
-    assert.match(prompt, /藝術風格：改成極簡黑白剪影。/);
+    assert.match(prompt, /\[藝術風格\]：改成極簡黑白剪影。/);
     assert.doesNotMatch(prompt, /真實材質、戲劇性輪廓光/);
 });
 
@@ -85,6 +93,7 @@ test('YT thumbnail is wired as tab7 immediately after infographic', () => {
 
     assert.match(html, /data-tab="tab6"[\s\S]*資訊圖表提示詞[\s\S]*data-tab="tab7"[\s\S]*YT封面提示詞/);
     assert.match(html, /id="tab7"/);
+    assert.match(html, /id="thumbnail-prompt-display"/);
     assert.doesNotMatch(html, /id="thumbnail-title"[^>]*maxlength=/);
     assert.match(html, /標題字數不設限；留空時 AI 會依影片內容自動產生/);
     assert.match(html, /value="eye-level-wide"/);

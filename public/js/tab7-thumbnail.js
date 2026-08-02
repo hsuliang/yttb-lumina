@@ -6,6 +6,12 @@ import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { buildThumbnailPrompt } from './thumbnail-prompt.js';
 
+const THUMBNAIL_SECTION_PATTERN = /^\[(人物設定|主體與動作|地點\/背景|構圖\/鏡頭|文字|藝術風格)\]\s*([：:])\s*(.*)$/;
+
+function normalizeThumbnailPrompt(text) {
+    return text.replace(/^\s*\*\*\[(人物設定|主體與動作|地點\/背景|構圖\/鏡頭|文字|藝術風格)\]\*\*\s*([：:])\s*/gm, '[$1]$2 ');
+}
+
 export function initializeTab7() {
     const generateBtn = document.getElementById('generate-thumbnail-btn');
     const variationBtn = document.getElementById('generate-thumbnail-variation-btn');
@@ -17,10 +23,10 @@ export function initializeTab7() {
     const versionsContainer = document.getElementById('thumbnail-versions-tabs-container');
     const placeholder = document.getElementById('thumbnail-placeholder');
     const outputContainer = document.getElementById('thumbnail-output-container');
-    const promptTextarea = document.getElementById('thumbnail-prompt-textarea');
+    const promptDisplay = document.getElementById('thumbnail-prompt-display');
     const copyBtn = document.getElementById('copy-thumbnail-prompt-btn');
 
-    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptTextarea) return;
+    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptDisplay) return;
 
     let roles = [];
 
@@ -72,11 +78,27 @@ export function initializeTab7() {
     }
 
     function setLoadingState(isLoading) {
-        promptTextarea.classList.toggle('text-center', isLoading);
-        promptTextarea.classList.toggle('animate-pulse', isLoading);
-        promptTextarea.style.color = isLoading ? '#f97316' : '';
-        promptTextarea.style.fontSize = isLoading ? '1.1rem' : '';
-        promptTextarea.style.fontWeight = isLoading ? '600' : '';
+        promptDisplay.classList.toggle('text-center', isLoading);
+        promptDisplay.classList.toggle('animate-pulse', isLoading);
+        promptDisplay.style.color = isLoading ? '#f97316' : '';
+        promptDisplay.style.fontSize = isLoading ? '1.1rem' : '';
+        promptDisplay.style.fontWeight = isLoading ? '600' : '';
+    }
+
+    function renderPrompt(text) {
+        const normalizedText = normalizeThumbnailPrompt(text);
+        promptDisplay.replaceChildren();
+        normalizedText.split('\n').forEach((line, index, lines) => {
+            const headingMatch = line.match(THUMBNAIL_SECTION_PATTERN);
+            if (headingMatch) {
+                const heading = document.createElement('strong');
+                heading.textContent = `[${headingMatch[1]}]${headingMatch[2]}`;
+                promptDisplay.append(heading, document.createTextNode(` ${headingMatch[3]}`));
+            } else {
+                promptDisplay.append(document.createTextNode(line));
+            }
+            if (index < lines.length - 1) promptDisplay.append(document.createTextNode('\n'));
+        });
     }
 
     function renderCurrentVersion() {
@@ -91,7 +113,7 @@ export function initializeTab7() {
         outputContainer.classList.remove('hidden');
         variationBtn.disabled = false;
         setLoadingState(false);
-        promptTextarea.value = currentVersion.textContent;
+        renderPrompt(currentVersion.textContent);
     }
 
     function resetTab7() {
@@ -150,7 +172,7 @@ export function initializeTab7() {
         activeBtn.classList.add('bg-error/10', 'text-error', 'border-error/20');
         placeholder.classList.add('hidden');
         outputContainer.classList.remove('hidden');
-        promptTextarea.value = '正在設計 YT 封面提示詞…';
+        renderPrompt('正在設計 YT 封面提示詞…');
         setLoadingState(true);
 
         try {
@@ -161,12 +183,12 @@ export function initializeTab7() {
                     receivedFirstChunk = true;
                     setLoadingState(false);
                 }
-                promptTextarea.value = fullText;
-                promptTextarea.scrollTop = promptTextarea.scrollHeight;
+                renderPrompt(fullText);
+                promptDisplay.scrollTop = promptDisplay.scrollHeight;
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
 
             if (!isCurrentSource(requestSourceId)) return;
-            const textContent = result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, '');
+            const textContent = normalizeThumbnailPrompt(result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, ''));
             const version = { sourceId: requestSourceId, textContent };
 
             if (isVariation) {
@@ -183,7 +205,7 @@ export function initializeTab7() {
             console.error('YT 封面提示詞生成失敗:', error);
             setLoadingState(false);
             if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-                promptTextarea.value = '生成已中斷。';
+                renderPrompt('生成已中斷。');
             } else if (error.message?.includes('overloaded')) {
                 showModal({
                     title: 'AI 正在尖峰時段，請稍候！',
