@@ -290,7 +290,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260801<span class="text-error font-bold">R10</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260803<span class="text-error font-bold">R11</span>
             </div>
         </div>
     </nav>
@@ -584,6 +584,7 @@
                                 <div id="view-toggle-header" class="flex items-center gap-1 bg-surface-container-lowest border border-outline-variant/10 p-0.5 rounded-lg hidden">
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="original">原始內容</button>
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold active" data-view="processed">整理結果</button>
+                                    <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="topic-title">爆款主題</button>
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="summary">AI 摘要</button>
                                     <button class="view-btn px-3 py-1 rounded-md text-xs font-semibold" data-view="chapters">AI 章節</button>
                                     <button id="return-to-edit-btn" class="px-2.5 py-1 rounded-md text-xs border border-outline-variant/20 text-on-surface hover:bg-surface-variant/10">返回編輯</button>
@@ -608,6 +609,7 @@
                             
                             <div id="display-original" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
                             <div id="display-processed" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
+                            <div id="display-topic-title" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none overflow-y-auto whitespace-pre-wrap leading-relaxed font-mono text-sm text-on-surface hidden empty:before:content-[attr(data-placeholder)] empty:before:text-on-surface-variant/30" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="爆款主題建議將在此顯示..."></div>
                             <textarea id="display-summary" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 摘要將在此顯示..."></textarea>
                             <textarea id="display-chapters" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 章節將在此顯示..."></textarea>
                             
@@ -627,6 +629,9 @@
                                 <span class="material-symbols-outlined text-[14px]">download</span>匯出 SRT
                             </button>
 
+                            <button id="generate-topic-title-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
+                                <span class="material-symbols-outlined text-[14px]">auto_awesome</span>爆款主題建議
+                            </button>
                             <button id="generate-summary-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
                                 <span class="material-symbols-outlined text-[14px]">summarize</span>生成摘要
                             </button>

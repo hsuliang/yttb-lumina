@@ -79,6 +79,7 @@ export const updateAiButtonStatus = function() {
         };
 
         // Tab 1 AI buttons
+        updateButtonState(document.getElementById('generate-topic-title-btn'), '爆款主題建議', isAiDisabled, null, true);
         updateButtonState(document.getElementById('generate-summary-btn'), '生成摘要', isAiDisabled, null, true);
         updateButtonState(document.getElementById('generate-chapters-btn'), '生成章節', isAiDisabled, null, true);
         

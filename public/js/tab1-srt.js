@@ -4,6 +4,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
+import { validateTopicTitleSuggestion } from './topic-title-validator.js';
 
 /**
  * tab1-srt.js
@@ -13,6 +14,7 @@ import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSe
 // --- 元素選擇 (模組級) ---
 const generateChaptersBtn = document.getElementById('generate-chapters-btn');
 const generateSummaryBtn = document.getElementById('generate-summary-btn');
+const generateTopicTitleBtn = document.getElementById('generate-topic-title-btn');
 const smartAreaContainer = document.getElementById('smart-area-container');
 const smartArea = document.getElementById('smart-area');
 const displayOriginal = document.getElementById('display-original');
@@ -61,6 +63,68 @@ function updateCharCount(text = '') {
     }
 }
 
+function renderTopicTitle(text = '') {
+    const container = document.getElementById('display-topic-title');
+    if (!container) return;
+
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const boldStart = text.indexOf('**', cursor);
+        if (boldStart === -1) {
+            fragment.appendChild(document.createTextNode(text.slice(cursor)));
+            break;
+        }
+
+        fragment.appendChild(document.createTextNode(text.slice(cursor, boldStart)));
+        const boldEnd = text.indexOf('**', boldStart + 2);
+        if (boldEnd === -1) {
+            fragment.appendChild(document.createTextNode(text.slice(boldStart + 2)));
+            break;
+        }
+
+        const strong = document.createElement('strong');
+        strong.textContent = text.slice(boldStart + 2, boldEnd);
+        fragment.appendChild(strong);
+        cursor = boldEnd + 2;
+    }
+
+    container.replaceChildren(fragment);
+}
+
+function setAiOutputText(type, text = '') {
+    const output = document.getElementById(`display-${type}`);
+    if (!output) return;
+    if (type === 'topic-title') {
+        renderTopicTitle(text);
+    } else {
+        output.value = text;
+    }
+}
+
+function getAiOutputText(type) {
+    const output = document.getElementById(`display-${type}`);
+    if (!output) return '';
+    return type === 'topic-title' ? output.textContent : output.value;
+}
+
+function buildTopicTitleRepairPrompt(basePrompt, previousResult, violations) {
+    return `${basePrompt}
+
+【修正任務】
+上一版輸出未完全符合硬性規格，請完整重寫全部內容，不要只列出修改片段，也不要提及修正過程。
+
+必須修正的問題：
+${violations.map(item => `- ${item}`).join('\n')}
+
+再次確認：方案 A、B、C 各須包含「正選、備選一、備選二」三組完整配對，共 9 組。每個主標題必須在 10 字以內，可以短於 10 字；每個副標題必須介於 15 至 20 字。不可用程式式截斷破壞語意，請重新命名並在輸出前逐字計數。
+
+【上一版輸出】
+${previousResult}
+【上一版輸出結束】`;
+}
+
 function setMode(mode) {
     const viewToggleHeader = document.getElementById('view-toggle-header');
     if (mode === 'input') {
@@ -68,8 +132,10 @@ function setMode(mode) {
         smartArea.classList.remove('hidden');
         displayOriginal.classList.add('hidden');
         displayProcessed.classList.add('hidden');
+        const displayTopicTitle = document.getElementById('display-topic-title');
         const displaySummary = document.getElementById('display-summary');
         const displayChapters = document.getElementById('display-chapters');
+        if (displayTopicTitle) displayTopicTitle.classList.add('hidden');
         if (displaySummary) displaySummary.classList.add('hidden');
         if (displayChapters) displayChapters.classList.add('hidden');
         updateCharCount(smartArea.value);
@@ -131,7 +197,11 @@ function resetTab1() {
         }
         state.currentAbortController = new AbortController();
 
-        const btn = type === 'chapters' ? generateChaptersBtn : generateSummaryBtn;
+        const btn = type === 'chapters'
+            ? generateChaptersBtn
+            : type === 'topic-title'
+                ? generateTopicTitleBtn
+                : generateSummaryBtn;
         const originalHtml = btn.innerHTML;
         btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">close</span>中斷生成';
         btn.classList.add('bg-error/10', 'text-error', 'border-error/20');
@@ -145,17 +215,82 @@ function resetTab1() {
         }
         setMode('preview');
         switchView(type);
-        const targetTextarea = document.getElementById(`display-${type}`);
-        if (targetTextarea) {
-            targetTextarea.value = '';
-            targetTextarea.classList.add('text-center', 'animate-pulse');
-            targetTextarea.style.color = '#f97316';
-            targetTextarea.style.fontSize = '1.1rem';
-            targetTextarea.style.fontWeight = '600';
+        const targetOutput = document.getElementById(`display-${type}`);
+        if (targetOutput) {
+            setAiOutputText(type, '');
+            targetOutput.classList.add('text-center', 'animate-pulse');
+            targetOutput.style.color = '#f97316';
+            targetOutput.style.fontSize = '1.1rem';
+            targetOutput.style.fontWeight = '600';
         }
 
-        let prompt = type === 'summary' 
-            ? `你是一位專業的節目內容策展人。請根據以下影片逐字稿，撰寫可直接放入 YouTube 資訊欄的 Show Notes。內容必須清晰緊湊、專業且帶有懸念，讓觀眾一眼看出本集價值，並兼顧自然的搜尋關鍵字。
+        let prompt;
+        if (type === 'topic-title') {
+            prompt = `你是一位專業的節目內容策展人與標題創意總監。請根據以下影片逐字稿，先萃取內容靈魂，再設計 3 套切入角度明確、可直接採用的爆款主副標題。每套方案必須提供 1 組正選與 2 組備選，共 9 組完整的主標題＋副標題配對。
+
+內容分析原則：
+1. 實用需求層：找出受眾的焦慮、麻煩或教學／生活痛點，以及逐字稿提供的具體解方或顛覆認知的做法。
+2. 認知衝擊層：找出刻板印象與真實行動／結果之間的反差、衝突、荒謬情節、祕辛或戲劇張力。
+3. 情感共鳴層：找出最具爭議、幽默、啟發性或直擊日常感受的真實金句與故事。
+
+主副標題設定原則：
+- 主標題負責錨定受眾與製造視覺衝擊，可以使用核心衝突、痛點提問、危機、反差情境或有力金句。
+- 【硬性字數】每個主標題最多 10 字，可以短於 10 字；必須短而鮮明、具體、有記憶點並適合視覺呈現。
+- 【硬性字數】每個副標題必須介於 15 至 20 字（含 15 與 20 字）；以一個精煉完整句為原則，只說明主標題未交代的內容、懸念與觀看價值。
+- 計算字數時，每個中文字、英文字母、數字與內容中的標點符號都算 1 字。主副標題外層不要加「」、【】或其他括號，也不要輸出字數註記。
+- 不可先寫一條很長的標題再從中間切成主副標題。主標題必須是可獨立成立的吸睛鉤子；副標題必須是可獨立閱讀、用來解釋主標題的完整補充，且不可重複主標題用詞或堆疊過多資訊。
+- 套用公式：【主標題：核心衝突／痛點提問】＋【副標題：懸念反差／終極解方】。
+- 三套方案必須真正採用不同切入點，不可只替換少數形容詞。同一方案中的正選、備選一、備選二也必須使用不同的事實鉤子或微切角，九組主標題與九組副標題皆不可重複。
+- 輸出前請在內部逐字計算全部 9 個主標題與 9 個副標題；任何一項不符合字數時，先重新命名再輸出，不要展示計算或修改過程。
+- 所有人名、機構、數字、事件、引言、遊戲名稱與觀點只能取自逐字稿；不得虛構、誇大或加入逐字稿沒有的權威身分。
+- 必須以繁體中文撰寫，不要輸出分析清單、前言、結語或 Markdown 程式碼區塊，直接依照下列格式輸出完整內容。
+
+請嚴格依照以下格式輸出：
+**爆款主題命名建議（主副標題設定）**
+依據逐字稿萃取出的內容靈魂，我為您設計了 3 種不同切入點的爆款標題：
+
+**💡 方案 A：主打「認知衝擊」（適合吸引喜歡獵奇、反差與破解祕辛的受眾）**
+**正選**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選一**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選二**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**設計概念**：用 2 至 3 句具體說明三組標題分別採用了逐字稿中的哪些衝突、反差、事件或金句，以及它們如何從不同微切角引發點擊動機。
+
+**💡 方案 B：主打「實用需求」（適合重視具體解方、希望解決痛點的受眾）**
+**正選**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選一**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選二**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**設計概念**：用 2 至 3 句具體說明三組標題分別鎖定了什麼受眾痛點、逐字稿提供什麼解方，以及它們如何從不同微切角建立觀看承諾。
+
+**💡 方案 C：主打「情感共鳴」（適合重視陪伴、成長、品格或真實人生感受的受眾）**
+**正選**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選一**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**備選二**
+**主標題**：主標題內容
+**副標題**：副標題內容
+**設計概念**：用 2 至 3 句具體說明三組標題分別採用了逐字稿中的哪些情緒、金句或人生體悟，以及它們如何從不同微切角讓目標受眾產生共鳴。
+
+逐字稿如下：
+---
+${content}
+---`;
+        } else if (type === 'summary') {
+            prompt = `你是一位專業的節目內容策展人。請根據以下影片逐字稿，撰寫可直接放入 YouTube 資訊欄的 Show Notes。內容必須清晰緊湊、專業且帶有懸念，讓觀眾一眼看出本集價值，並兼顧自然的搜尋關鍵字。
 
 請嚴格依照以下結構輸出：
 1. 標題：以「【內容代號／集數】：【核心主題／來賓】＋【懸念副標題】！」為方向；逐字稿沒有內容代號、集數或來賓時，省略缺少的項目，不得虛構。
@@ -171,50 +306,90 @@ function resetTab1() {
 逐字稿如下：
 ---
 ${content}
----`
-            : `你是一位專業的影片編輯。請根據以下的影片逐字稿，幫我抓出這支影片的 YouTube 章節時間軸 (Timestamps)。\n要求：\n1. 判斷話題轉換的時間點。\n2. 章節標題要簡短、吸引人，並以繁體中文撰寫。\n3. 格式必須為嚴格的 "MM:SS 章節標題" 或 "HH:MM:SS 章節標題"，分鐘和秒數必須補零（例如 00:14、01:05、10:24）。\n4. 絕對禁止輸出任何開場白、問候語或前導詞，請直接輸出時間軸內容。\n\n【正確格式範例】\n00:00 影片開始\n01:14 葉子生長與陽光\n10:05 重點整理\n\n逐字稿如下：\n---\n${content}\n---`;
+---`;
+        } else {
+            prompt = `你是一位專業的影片編輯。請根據以下的影片逐字稿，幫我抓出這支影片的 YouTube 章節時間軸 (Timestamps)。\n要求：\n1. 判斷話題轉換的時間點。\n2. 章節標題要簡短、吸引人，並以繁體中文撰寫。\n3. 格式必須為嚴格的 "MM:SS 章節標題" 或 "HH:MM:SS 章節標題"，分鐘和秒數必須補零（例如 00:14、01:05、10:24）。\n4. 絕對禁止輸出任何開場白、問候語或前導詞，請直接輸出時間軸內容。\n\n【正確格式範例】\n00:00 影片開始\n01:14 葉子生長與陽光\n10:05 重點整理\n\n逐字稿如下：\n---\n${content}\n---`;
+        }
 
+        let latestCompleteResult = '';
         try {
-            let isFirstChunk = true;
-            const result = await callGeminiAPI(apiKey, prompt, false, (chunkText, fullText) => {
-                if (!isCurrentSource(requestSourceId)) return;
-                if (targetTextarea) {
-                    if (isFirstChunk && chunkText !== '') {
-                        isFirstChunk = false;
-                        targetTextarea.classList.remove('text-center', 'animate-pulse');
-                        targetTextarea.style.color = '';
-                        targetTextarea.style.fontSize = '';
-                        targetTextarea.style.fontWeight = '';
+            const streamOutput = async generationPrompt => {
+                let isFirstChunk = true;
+                return callGeminiAPI(apiKey, generationPrompt, false, (chunkText, fullText) => {
+                    if (!isCurrentSource(requestSourceId)) return;
+                    if (targetOutput) {
+                        if (isFirstChunk && chunkText !== '') {
+                            isFirstChunk = false;
+                            targetOutput.classList.remove('text-center', 'animate-pulse');
+                            targetOutput.style.color = '';
+                            targetOutput.style.fontSize = '';
+                            targetOutput.style.fontWeight = '';
+                        }
+                        let displayText = fullText;
+                        if (type === 'chapters') {
+                            // 修正 Qwen 可能出現的不規範時間格式 (例如 ": 標題", ":44 標題", "1:5 標題")
+                            displayText = displayText.replace(/^:\s*(.+)$/gm, '00:00 $1');
+                            displayText = displayText.replace(/^(\d{0,2}):(\d{1,2})\s+(.+)$/gm, (match, m, s, title) => {
+                                const mins = m ? m.padStart(2, '0') : '00';
+                                const secs = s ? s.padStart(2, '0') : '00';
+                                return `${mins}:${secs} ${title}`;
+                            });
+                        }
+                        setAiOutputText(type, displayText);
+                        targetOutput.scrollTop = targetOutput.scrollHeight;
+                        updateCharCount(getAiOutputText(type));
                     }
-                    let displayText = fullText;
-                    if (type === 'chapters') {
-                        // 修正 Qwen 可能出現的不規範時間格式 (例如 ": 標題", ":44 標題", "1:5 標題")
-                        displayText = displayText.replace(/^:\s*(.+)$/gm, '00:00 $1');
-                        displayText = displayText.replace(/^(\d{0,2}):(\d{1,2})\s+(.+)$/gm, (match, m, s, title) => {
-                            const mins = m ? m.padStart(2, '0') : '00';
-                            const secs = s ? s.padStart(2, '0') : '00';
-                            return `${mins}:${secs} ${title}`;
-                        });
-                    }
-                    targetTextarea.value = displayText;
-                    targetTextarea.scrollTop = targetTextarea.scrollHeight;
-                    updateCharCount(displayText);
-                }
-            }, state.currentAbortController.signal);
+                }, state.currentAbortController.signal);
+            };
+
+            let result = await streamOutput(prompt);
             if (!isCurrentSource(requestSourceId)) return;
-            if (targetTextarea) updateCharCount(targetTextarea.value);
+            latestCompleteResult = result;
+
+            if (type === 'topic-title') {
+                const validation = validateTopicTitleSuggestion(result);
+                if (!validation.valid) {
+                    console.warn('爆款主題格式或字數不符合規格，正在自動修正一次：', validation.violations);
+                    if (targetOutput) {
+                        setAiOutputText(type, '正在調整主副標題的字數與配對...');
+                        targetOutput.classList.add('text-center', 'animate-pulse');
+                        targetOutput.style.color = '#f97316';
+                        targetOutput.style.fontSize = '1.1rem';
+                        targetOutput.style.fontWeight = '600';
+                    }
+
+                    const repairPrompt = buildTopicTitleRepairPrompt(prompt, result, validation.violations);
+                    result = await streamOutput(repairPrompt);
+                    if (!isCurrentSource(requestSourceId)) return;
+                    latestCompleteResult = result;
+
+                    const repairedValidation = validateTopicTitleSuggestion(result);
+                    if (!repairedValidation.valid) {
+                        console.warn('爆款主題自動修正後仍有格式或字數不符：', repairedValidation.violations);
+                    }
+                }
+            }
+
+            if (targetOutput) updateCharCount(getAiOutputText(type));
             // showModal({ title: successTitle, message: result, showCopyButton: true }); // Remove modal
         } catch (error) {
             if (error.name === 'AbortError') {
                 console.log('生成已中斷');
-                if (targetTextarea) {
-                    targetTextarea.classList.remove('text-center', 'animate-pulse');
-                    targetTextarea.style.color = '';
-                    targetTextarea.style.fontSize = '';
-                    targetTextarea.style.fontWeight = '';
-                    targetTextarea.value = '生成已中斷。';
+                if (targetOutput) {
+                    targetOutput.classList.remove('text-center', 'animate-pulse');
+                    targetOutput.style.color = '';
+                    targetOutput.style.fontSize = '';
+                    targetOutput.style.fontWeight = '';
+                    setAiOutputText(type, '生成已中斷。');
                 }
                 return;
+            }
+            if (type === 'topic-title' && latestCompleteResult && targetOutput) {
+                targetOutput.classList.remove('text-center', 'animate-pulse');
+                targetOutput.style.color = '';
+                targetOutput.style.fontSize = '';
+                targetOutput.style.fontWeight = '';
+                setAiOutputText(type, latestCompleteResult);
             }
             if (error.message && error.message.includes('overloaded')) {
                 showModal({ 
@@ -238,8 +413,6 @@ ${content}
         }
     }
 
-
-
     function switchView(viewToShow) {
         console.log("[switchView] Switching view to:", viewToShow);
         const buttons = document.querySelectorAll('.view-btn');
@@ -252,16 +425,17 @@ ${content}
         // Hide all views first
         const displayOriginal = document.getElementById('display-original');
         const displayProcessed = document.getElementById('display-processed');
+        const displayTopicTitle = document.getElementById('display-topic-title');
         const displaySummary = document.getElementById('display-summary');
         const displayChapters = document.getElementById('display-chapters');
         
-        [displayOriginal, displayProcessed, displaySummary, displayChapters].forEach(el => {
+        [displayOriginal, displayProcessed, displayTopicTitle, displaySummary, displayChapters].forEach(el => {
             if (el) el.classList.add('hidden');
         });
 
         const tab1AiActions = document.getElementById('tab1-ai-actions');
         if (tab1AiActions) {
-            if (viewToShow === 'summary' || viewToShow === 'chapters') {
+            if (viewToShow === 'topic-title' || viewToShow === 'summary' || viewToShow === 'chapters') {
                 tab1AiActions.classList.remove('hidden');
             } else {
                 tab1AiActions.classList.add('hidden');
@@ -272,6 +446,9 @@ ${content}
             displayOriginal.classList.remove('hidden');
             updateCharCount(state.originalContentForPreview || '');
             console.log("[switchView] Showing original content, length:", (state.originalContentForPreview || '').length);
+        } else if (viewToShow === 'topic-title') {
+            if (displayTopicTitle) displayTopicTitle.classList.remove('hidden');
+            updateCharCount(getAiOutputText('topic-title'));
         } else if (viewToShow === 'summary') {
             if (displaySummary) displaySummary.classList.remove('hidden');
             updateCharCount(displaySummary ? displaySummary.value : '');
@@ -454,6 +631,7 @@ ${content}
     // --- 事件監聽 ---
     generateChaptersBtn.addEventListener('click', () => handleAiFeature('chapters'));
     generateSummaryBtn.addEventListener('click', () => handleAiFeature('summary'));
+    generateTopicTitleBtn.addEventListener('click', () => handleAiFeature('topic-title'));
     
     // 動態查詢並綁定檢視切換按鈕
     const viewButtons = document.querySelectorAll('.view-btn');
@@ -513,9 +691,11 @@ ${content}
     });
 
     window.addEventListener('lumina:sourceChanged', () => {
+        const displayTopicTitle = document.getElementById('display-topic-title');
         const displaySummary = document.getElementById('display-summary');
         const displayChapters = document.getElementById('display-chapters');
         if (displayProcessed) displayProcessed.textContent = '';
+        if (displayTopicTitle) renderTopicTitle('');
         if (displaySummary) displaySummary.value = '';
         if (displayChapters) displayChapters.value = '';
         exportSrtBtn.disabled = true;
@@ -573,9 +753,9 @@ if (tab1CopyBtn) {
         const activeViewBtn = document.querySelector('.view-btn.active');
         if (!activeViewBtn) return;
         const view = activeViewBtn.dataset.view;
-        const textarea = document.getElementById(`display-${view}`);
-        if (textarea && textarea.value) {
-            navigator.clipboard.writeText(textarea.value).then(() => {
+        const outputText = getAiOutputText(view);
+        if (outputText) {
+            navigator.clipboard.writeText(outputText).then(() => {
                 showToast('已複製到剪貼簿！');
                 const originalHtml = tab1CopyBtn.innerHTML;
                 tab1CopyBtn.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span>已複製!';
@@ -592,11 +772,11 @@ if (tab1DownloadBtn) {
         const activeViewBtn = document.querySelector('.view-btn.active');
         if (!activeViewBtn) return;
         const view = activeViewBtn.dataset.view;
-        const textarea = document.getElementById(`display-${view}`);
-        if (textarea && textarea.value) {
-            const prefix = view === 'summary' ? 'AI摘要' : 'AI章節';
+        const outputText = getAiOutputText(view);
+        if (outputText) {
+            const prefix = view === 'topic-title' ? '爆款主題建議' : view === 'summary' ? 'AI摘要' : 'AI章節';
             let fileName = state.originalFileName ? `${state.originalFileName}_${prefix}.txt` : `AliangYTTB_${prefix}.txt`;
-            saveFile(textarea.value, fileName);
+            saveFile(outputText, fileName);
         }
     });
 }
