@@ -87,6 +87,8 @@ export let state = {
     currentInfographicVersionIndex: 0,
     thumbnailVersions: [],
     currentThumbnailVersionIndex: 0,
+    topicTitleSuggestions: [],
+    topicTitleSuggestionsSourceId: '',
     transcribeResult: null,
     transcribeLanguage: 'auto',
     transcribeEngine: 'gemini'

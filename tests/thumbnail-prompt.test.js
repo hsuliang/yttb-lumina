@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildThumbnailPrompt } from '../public/js/thumbnail-prompt.js';
+import { buildThumbnailPrompt, ensureThumbnailAspectRatio } from '../public/js/thumbnail-prompt.js';
 
 const readProjectFile = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
@@ -11,6 +11,7 @@ test('thumbnail prompt follows the guide and maps roles before the logo', () => 
         roles: ['ㄚ亮笑長', '來賓老師'],
         includeLogo: true,
         title: '備課快十倍',
+        subtitle: '一套流程讓老師每週省下三小時',
         shot: 'low-angle-wide',
         style: 'saturated-3d',
     });
@@ -32,8 +33,25 @@ test('thumbnail prompt follows the guide and maps roles before the logo', () => 
     assert.match(prompt, /長寬比必須設定為 16:9/);
     assert.match(prompt, /""爆款密碼""/);
     assert.match(prompt, /封面標題必須使用使用者指定的繁體中文：「備課快十倍」/);
+    assert.match(prompt, /封面副標題必須使用使用者指定的繁體中文：「一套流程讓老師每週省下三小時」/);
+    assert.match(prompt, /使用者指定的封面文字是整體設計核心/);
+    assert.match(prompt, /主標題為「備課快十倍」/);
+    assert.match(prompt, /副標題為「一套流程讓老師每週省下三小時」/);
+    assert.match(prompt, /6\. \[藝術風格\]：[^\n]*畫面長寬比為 16:9/);
     assert.match(prompt, /調整人物的光線與陰影以完全符合環境氛圍/);
     assert.doesNotMatch(prompt, /<p>/);
+});
+
+test('thumbnail output always includes the 16:9 note inside the art style section', () => {
+    const completed = ensureThumbnailAspectRatio(`[文字]：""爆款密碼""
+
+[藝術風格]：電影級寫實光影。調整人物的光線與陰影以完全符合環境氛圍。`);
+
+    assert.match(completed, /\[藝術風格\]：電影級寫實光影。畫面長寬比為 16:9。調整人物的光線與陰影以完全符合環境氛圍。/);
+    assert.equal((completed.match(/畫面長寬比為 16:9/g) || []).length, 1);
+
+    const alreadyIncluded = ensureThumbnailAspectRatio('[藝術風格]：明亮動畫風，畫面長寬比為 16:9。');
+    assert.equal((alreadyIncluded.match(/畫面長寬比為 16:9/g) || []).length, 1);
 });
 
 test('thumbnail prompt forbids invented people and logos when none are configured', () => {
@@ -46,6 +64,7 @@ test('thumbnail prompt forbids invented people and logos when none are configure
     assert.match(prompt, /\[人物設定\]：本封面不使用人物、角色圖片或臉部一致性指令/);
     assert.doesNotMatch(prompt, /\*\*\[人物設定\]\*\*/);
     assert.match(prompt, /由 AI 從影片內容自動產生一個吸睛的繁體中文封面標題/);
+    assert.match(prompt, /使用者未指定副標題/);
     assert.match(prompt, /字數不設限/);
     assert.doesNotMatch(prompt, /最終繪圖提示詞開頭必須完整寫上/);
 });
@@ -90,12 +109,17 @@ test('YT thumbnail is wired as tab7 immediately after infographic', () => {
     const html = readProjectFile('index.html');
     const app = readProjectFile('public/js/app.js');
     const state = readProjectFile('public/js/state.js');
+    const thumbnail = readProjectFile('public/js/tab7-thumbnail.js');
 
     assert.match(html, /data-tab="tab6"[\s\S]*資訊圖表提示詞[\s\S]*data-tab="tab7"[\s\S]*YT封面提示詞/);
     assert.match(html, /id="tab7"/);
     assert.match(html, /id="thumbnail-prompt-display"/);
+    assert.match(html, /id="thumbnail-title"/);
+    assert.match(html, /id="thumbnail-subtitle"/);
+    assert.match(html, /id="thumbnail-topic-title-selection"/);
+    assert.match(html, /id="thumbnail-topic-title-select"/);
     assert.doesNotMatch(html, /id="thumbnail-title"[^>]*maxlength=/);
-    assert.match(html, /標題字數不設限；留空時 AI 會依影片內容自動產生/);
+    assert.match(html, /主標題是封面主要視覺焦點；副標題可留空/);
     assert.match(html, /value="eye-level-wide"/);
     assert.match(html, /value="high-angle"/);
     assert.match(html, /value="symmetrical-panoramic"/);
@@ -107,4 +131,12 @@ test('YT thumbnail is wired as tab7 immediately after infographic', () => {
     assert.match(app, /state\.thumbnailVersions = \[\]/);
     assert.match(state, /thumbnailVersions: \[\]/);
     assert.match(state, /currentThumbnailVersionIndex: 0/);
+    assert.match(state, /topicTitleSuggestions: \[\]/);
+    assert.match(state, /topicTitleSuggestionsSourceId: ''/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*titleInput\.value = ''/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*subtitleInput\.value = ''/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*includeLogoInput\.checked = false/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*shotSelect\.value = 'auto'/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*styleSelect\.value = 'auto'/);
+    assert.match(thumbnail, /function resetTab7\(\)[\s\S]*customStyleTextarea\.value = ''/);
 });

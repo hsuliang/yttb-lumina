@@ -68,6 +68,30 @@ function parseSchemeSection(section) {
     return options;
 }
 
+export function extractTopicTitleSuggestions(text = '') {
+    const plainText = String(text).replace(/\*\*/g, '');
+    const schemeMatches = [...plainText.matchAll(/^💡\s*方案\s*([ABC])\s*[：:]/gm)];
+    const suggestions = [];
+
+    schemeMatches.forEach((match, index) => {
+        const end = schemeMatches[index + 1]?.index ?? plainText.length;
+        const options = parseSchemeSection(plainText.slice(match.index, end));
+        for (const optionLabel of OPTION_LABELS) {
+            const option = options.get(optionLabel);
+            if (option?.mainTitle && option?.subtitle) {
+                suggestions.push({
+                    scheme: match[1],
+                    option: optionLabel,
+                    mainTitle: option.mainTitle,
+                    subtitle: option.subtitle,
+                });
+            }
+        }
+    });
+
+    return suggestions;
+}
+
 export function validateTopicTitleSuggestion(text = '') {
     const source = String(text);
     const plainText = source.replace(/\*\*/g, '');

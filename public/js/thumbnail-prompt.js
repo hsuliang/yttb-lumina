@@ -16,6 +16,28 @@ const SHOT_DESCRIPTIONS = {
     'symmetrical-panoramic': '使用帶有強烈透視感的對稱式全景鏡頭（symmetrical panoramic shot），讓人物與背景形成秩序鮮明的對稱構圖與明顯景深；適合群像陣容、專業知識交鋒與未來科技場景。',
 };
 
+const ASPECT_RATIO_NOTE = '畫面長寬比為 16:9';
+const FINAL_LIGHTING_SENTENCE = '調整人物的光線與陰影以完全符合環境氛圍。';
+const ART_STYLE_LINE_PATTERN = /^(\[藝術風格\]\s*[：:]\s*)(.*)$/m;
+
+export function ensureThumbnailAspectRatio(text = '') {
+    const source = String(text);
+    const match = source.match(ART_STYLE_LINE_PATTERN);
+
+    if (!match) {
+        return `${source.trimEnd()}\n\n[藝術風格]：${ASPECT_RATIO_NOTE}。`;
+    }
+
+    const content = match[2];
+    if (content.includes(ASPECT_RATIO_NOTE)) return source;
+
+    const updatedContent = content.includes(FINAL_LIGHTING_SENTENCE)
+        ? content.replace(FINAL_LIGHTING_SENTENCE, `${ASPECT_RATIO_NOTE}。${FINAL_LIGHTING_SENTENCE}`)
+        : `${content.trimEnd()}${content.trimEnd() && !/[。！？!?；;，,]$/.test(content.trimEnd()) ? '。' : ''}${ASPECT_RATIO_NOTE}。`;
+
+    return source.replace(ART_STYLE_LINE_PATTERN, (_line, prefix) => `${prefix}${updatedContent}`);
+}
+
 function getStyleDescription(style, customStyle, variationModifier, shouldOverride) {
     let description = '';
     if (style === 'custom') {
@@ -40,6 +62,7 @@ export function buildThumbnailPrompt({
     roles = [],
     includeLogo = false,
     title = '',
+    subtitle = '',
     shot = 'auto',
     style = 'auto',
     customStyle = '',
@@ -66,6 +89,12 @@ export function buildThumbnailPrompt({
     const titleInstruction = title.trim()
         ? `封面標題必須使用使用者指定的繁體中文：「${title.trim()}」，不可改寫。`
         : '請由 AI 從影片內容自動產生一個吸睛的繁體中文封面標題，製造好奇、衝突或結果承諾；字數不設限，但應優先保持精煉、清楚且不可誇大或捏造內容。';
+    const subtitleInstruction = subtitle.trim()
+        ? `封面副標題必須使用使用者指定的繁體中文：「${subtitle.trim()}」，不可改寫，並作為主標題的補充說明。`
+        : '使用者未指定副標題；除非 AI 判斷確有必要，否則不要額外新增副標題。';
+    const titleFocusInstruction = title.trim() || subtitle.trim()
+        ? `使用者指定的封面文字是整體設計核心。${title.trim() ? `主標題為「${title.trim()}」。` : '主標題未指定，請自行產生。'}${subtitle.trim() ? `副標題為「${subtitle.trim()}」。` : '副標題未指定。'}主體、動作、地點、背景、構圖、鏡頭與藝術風格都必須共同強化這組文字傳達的核心衝突、情緒與觀看承諾，不得設計出與文字無關的另一個主題。`
+        : '尚未指定封面文字；請先從影片內容找出最值得點擊的核心，再讓主體、動作、地點、背景、構圖、鏡頭與藝術風格共同服務於該核心。';
     const styleDescription = getStyleDescription(style, customStyle, variationModifier, shouldOverride);
     const shotDescription = SHOT_DESCRIPTIONS[shot] || SHOT_DESCRIPTIONS.auto;
 
@@ -85,7 +114,7 @@ export function buildThumbnailPrompt({
 
 [文字]：實際封面標題、字體、大小、顏色、效果與文字排版。
 
-[藝術風格]：整體藝術風格、光影、材質與渲染方式。
+[藝術風格]：整體藝術風格、光影、材質與渲染方式，並明確寫出「畫面長寬比為 16:9」。
 
 六個段落都必須保留；不要增加其他標題或清單。
 
@@ -93,13 +122,16 @@ export function buildThumbnailPrompt({
 ${roleInstruction}
 ${logoInstruction}
 
+【封面文字設計核心】
+${titleFocusInstruction}
+
 【六段式視覺架構】
 1. [人物設定]：必須以「${personOutputInstruction}」開頭。
 2. [主體與動作]：清楚描述畫面主體、表情、動作及情緒反差，讓縮小後仍能瞬間理解故事。
 3. [地點/背景]：設計能強化影片主題的具體場景，避免無關裝飾與資訊過載。
 4. [構圖/鏡頭]：${shotDescription}
-5. [文字]：${titleInstruction} ${logoInstruction} 依主體位置在另一側或畫面上方預留乾淨負空間，將實際封面文字用兩組半形雙引號標示，例如：""爆款密碼""。明確描述字體、大小、顏色與效果；使用巨大的現代無襯線粗體、高對比配色、深色粗描邊或醒目色塊，確保手機縮圖尺寸仍清楚可讀。
-6. [藝術風格]：${styleDescription}
+5. [文字]：${titleInstruction} ${subtitleInstruction} ${logoInstruction} 依主體位置在另一側或畫面上方預留乾淨負空間，將主標題與副標題（若有）用兩組半形雙引號標示，例如：""爆款密碼""與""三個方法解決你的困擾""。主標題必須比副標題醒目；明確描述兩者的字體、大小、顏色與效果，使用巨大的現代無襯線粗體、高對比配色、深色粗描邊或醒目色塊，確保手機縮圖尺寸仍清楚可讀。
+6. [藝術風格]：${styleDescription} 本段必須完整加註：「畫面長寬比為 16:9」。
 
 【圖片與排版規格】
 - 長寬比必須設定為 16:9，符合 YouTube 影片封面比例。

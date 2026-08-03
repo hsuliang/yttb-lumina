@@ -72,3 +72,29 @@ test('Tab 1 AI status updates the blockbuster topic suggestion button', () => {
 
     assert.match(source, /getElementById\('generate-topic-title-btn'\)/);
 });
+
+test('topic title suggestions are stored with the active source for Tab 7 selection', () => {
+    const source = readProjectFile('public/js/tab1-srt.js');
+    const state = readProjectFile('public/js/state.js');
+    const thumbnail = readProjectFile('public/js/tab7-thumbnail.js');
+
+    assert.match(source, /extractTopicTitleSuggestions\(result\)/);
+    assert.match(source, /state\.topicTitleSuggestions = suggestions/);
+    assert.match(source, /state\.topicTitleSuggestionsSourceId = suggestions\.length \? requestSourceId : ''/);
+    assert.match(source, /lumina:topicTitleSuggestionsReady/);
+    assert.match(state, /topicTitleSuggestionsSourceId: ''/);
+    assert.match(thumbnail, /state\.topicTitleSuggestionsSourceId !== state\.currentSourceId/);
+    assert.match(thumbnail, /titleInput\.value = suggestion\.mainTitle/);
+    assert.match(thumbnail, /subtitleInput\.value = suggestion\.subtitle/);
+});
+
+test('Tab 7 keeps manual title fields available without Tab 1 suggestions', () => {
+    const html = readProjectFile('index.html');
+    const thumbnail = readProjectFile('public/js/tab7-thumbnail.js');
+
+    assert.match(html, /id="thumbnail-title"/);
+    assert.match(html, /id="thumbnail-subtitle"/);
+    assert.match(thumbnail, /clearTopicTitleSelection/);
+    assert.match(thumbnail, /topicTitleSelection\.classList\.add\('hidden'\)/);
+    assert.match(thumbnail, /subtitle: subtitleInput\.value/);
+});

@@ -1426,6 +1426,8 @@ state.currentAbortController = null;
             state.currentInfographicVersionIndex = 0;
             state.thumbnailVersions = [];
             state.currentThumbnailVersionIndex = 0;
+            state.topicTitleSuggestions = [];
+            state.topicTitleSuggestionsSourceId = '';
 
             if (options.notify) {
                 showToast('已自動清除舊的產出內容，準備迎接新創作！');
@@ -1495,7 +1497,8 @@ state.currentAbortController = null;
                 state.edmVersions.length ||
                 state.carouselVersions.length ||
                 state.infographicVersions.length ||
-                state.thumbnailVersions.length
+                state.thumbnailVersions.length ||
+                state.topicTitleSuggestions.length
             );
             state.processedSrtResult = '';
             state.processedSourceId = '';

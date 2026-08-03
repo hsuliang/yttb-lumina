@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { state } from '../public/js/state.js';
 import {
     activateSource,
@@ -50,4 +51,13 @@ test('replacement confirmation is required only for different non-empty transcri
     assert.equal(shouldConfirmSourceReplacement('逐字稿 A', '逐字稿 B'), true);
     assert.equal(shouldConfirmSourceReplacement('逐字稿 A', '逐字稿 A\n'), false);
     assert.equal(shouldConfirmSourceReplacement('', '逐字稿 B'), false);
+});
+
+test('importing a new file refreshes Tab 1 original content and returns to input mode', () => {
+    const source = readFileSync(new URL('../public/js/tab1-srt.js', import.meta.url), 'utf8');
+    const updateContent = source.match(/function updateContent\([\s\S]*?\n    }\n\n    async function handleFile/)?.[0] || '';
+
+    assert.match(updateContent, /smartArea\.dispatchEvent\(new Event\('input'\)\)[\s\S]*state\.originalContentForPreview = smartArea\.value\.trim\(\)/);
+    assert.match(updateContent, /displayOriginal\.textContent = formatSrtForDisplay\(state\.originalContentForPreview, ''\)/);
+    assert.match(updateContent, /setMode\('input'\)/);
 });

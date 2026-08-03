@@ -4,7 +4,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
-import { validateTopicTitleSuggestion } from './topic-title-validator.js';
+import { extractTopicTitleSuggestions, validateTopicTitleSuggestion } from './topic-title-validator.js';
 
 /**
  * tab1-srt.js
@@ -190,6 +190,12 @@ function resetTab1() {
             return;
         }
 
+        if (type === 'topic-title') {
+            state.topicTitleSuggestions = [];
+            state.topicTitleSuggestionsSourceId = '';
+            window.dispatchEvent(new CustomEvent('lumina:topicTitleSuggestionsCleared'));
+        }
+
         if (state.currentAbortController) {
             state.currentAbortController.abort();
             state.currentAbortController = null;
@@ -370,6 +376,15 @@ ${content}
                 }
             }
 
+            if (type === 'topic-title') {
+                const suggestions = extractTopicTitleSuggestions(result);
+                state.topicTitleSuggestions = suggestions;
+                state.topicTitleSuggestionsSourceId = suggestions.length ? requestSourceId : '';
+                window.dispatchEvent(new CustomEvent('lumina:topicTitleSuggestionsReady', {
+                    detail: { sourceId: requestSourceId, suggestions },
+                }));
+            }
+
             if (targetOutput) updateCharCount(getAiOutputText(type));
             // showModal({ title: successTitle, message: result, showCopyButton: true }); // Remove modal
         } catch (error) {
@@ -463,9 +478,13 @@ ${content}
     }
 
     function updateContent(content, fileName = '') {
-        smartArea.value = content;
+        smartArea.value = String(content || '');
         state.originalFileName = fileName;
         smartArea.dispatchEvent(new Event('input'));
+        state.originalContentForPreview = smartArea.value.trim();
+        displayOriginal.textContent = formatSrtForDisplay(state.originalContentForPreview, '');
+        displayProcessed.textContent = '';
+        setMode('input');
         toggleEmptyState();
     }
 
@@ -678,7 +697,8 @@ ${content}
             state.socialPostVersions.length ||
             state.edmVersions.length ||
             state.carouselVersions.length ||
-            state.infographicVersions.length
+            state.infographicVersions.length ||
+            state.topicTitleSuggestions.length
         );
         const { changed } = activateSource(smartArea.value);
         if (changed && needsInvalidation) {

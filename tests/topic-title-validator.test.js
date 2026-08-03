@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     countTopicTitleCharacters,
+    extractTopicTitleSuggestions,
     validateTopicTitleSuggestion,
 } from '../public/js/topic-title-validator.js';
 
@@ -47,6 +48,28 @@ const validSuggestion = `**爆款主題命名建議（主副標題設定）**
 test('title character counting excludes outer wrappers but counts content punctuation', () => {
     assert.equal(countTopicTitleCharacters('【背債跑偏鄉】'), 5);
     assert.equal(countTopicTitleCharacters('「追夢！前進」'), 5);
+});
+
+test('topic title suggestions are extracted as complete main and subtitle pairs', () => {
+    const suggestions = extractTopicTitleSuggestions(`
+💡 方案 A：主打認知衝擊
+**正選**
+**主標題**：AI不是萬靈丹
+**副標題**：三個真實案例揭開工具限制
+**備選一**
+**主標題**：別再迷信AI
+**副標題**：逐字稿帶你看見最常忽略的盲點
+💡 方案 B：主打實用需求
+**正選**
+**主標題**：備課快十倍
+**副標題**：一套流程讓老師每週省下三小時
+`);
+
+    assert.deepEqual(suggestions, [
+        { scheme: 'A', option: '正選', mainTitle: 'AI不是萬靈丹', subtitle: '三個真實案例揭開工具限制' },
+        { scheme: 'A', option: '備選一', mainTitle: '別再迷信AI', subtitle: '逐字稿帶你看見最常忽略的盲點' },
+        { scheme: 'B', option: '正選', mainTitle: '備課快十倍', subtitle: '一套流程讓老師每週省下三小時' },
+    ]);
 });
 
 test('validator accepts exactly three paired choices in each of the three schemes', () => {

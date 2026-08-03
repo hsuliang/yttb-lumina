@@ -1539,9 +1539,19 @@
                             <hr class="border-outline-variant/10">
 
                             <div class="space-y-1.5">
-                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-title">封面標題（選填）</label>
-                                <input id="thumbnail-title" type="text" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface focus:outline-none" placeholder="留空由 AI 產生吸睛繁中標題">
-                                <p class="font-body-sm text-[11px] text-on-surface-variant">標題字數不設限；留空時 AI 會依影片內容自動產生吸睛繁中標題。</p>
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-title">封面主標題（選填）</label>
+                                <input id="thumbnail-title" type="text" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface focus:outline-none" placeholder="可手動輸入，或從爆款主題建議選取">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block mt-3" for="thumbnail-subtitle">封面副標題（選填）</label>
+                                <input id="thumbnail-subtitle" type="text" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface focus:outline-none" placeholder="可手動輸入，補充主標題的懸念或觀看價值">
+                                <p class="font-body-sm text-[11px] text-on-surface-variant">主標題是封面主要視覺焦點；副標題可留空。未填寫時，AI 會依影片內容設計文字。</p>
+                            </div>
+
+                            <div id="thumbnail-topic-title-selection" class="hidden space-y-1.5 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-topic-title-select">從爆款主題建議選取完整配對</label>
+                                <select id="thumbnail-topic-title-select" class="w-full glass-input rounded-lg px-3 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none">
+                                    <option value="">請選擇主標題＋副標題</option>
+                                </select>
+                                <p class="font-body-sm text-[11px] text-on-surface-variant">選取後會帶入主標題與副標題，仍可再自行修改。</p>
                             </div>
 
                             <div class="space-y-1.5">

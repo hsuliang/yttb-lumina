@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
-import { buildThumbnailPrompt } from './thumbnail-prompt.js';
+import { buildThumbnailPrompt, ensureThumbnailAspectRatio } from './thumbnail-prompt.js';
 
 const THUMBNAIL_SECTION_PATTERN = /^\[(人物設定|主體與動作|地點\/背景|構圖\/鏡頭|文字|藝術風格)\]\s*([：:])\s*(.*)$/;
 
@@ -25,8 +25,14 @@ export function initializeTab7() {
     const outputContainer = document.getElementById('thumbnail-output-container');
     const promptDisplay = document.getElementById('thumbnail-prompt-display');
     const copyBtn = document.getElementById('copy-thumbnail-prompt-btn');
+    const titleInput = document.getElementById('thumbnail-title');
+    const subtitleInput = document.getElementById('thumbnail-subtitle');
+    const includeLogoInput = document.getElementById('thumbnail-include-logo');
+    const shotSelect = document.getElementById('thumbnail-shot');
+    const topicTitleSelection = document.getElementById('thumbnail-topic-title-selection');
+    const topicTitleSelect = document.getElementById('thumbnail-topic-title-select');
 
-    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptDisplay) return;
+    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptDisplay || !titleInput || !subtitleInput || !includeLogoInput || !shotSelect || !topicTitleSelection || !topicTitleSelect) return;
 
     let roles = [];
 
@@ -77,6 +83,30 @@ export function initializeTab7() {
         });
     }
 
+    function clearTopicTitleSelection() {
+        topicTitleSelect.replaceChildren(new Option('請先在逐字稿整理頁面生成爆款主題建議', ''));
+        topicTitleSelect.value = '';
+        topicTitleSelection.classList.add('hidden');
+    }
+
+    function renderTopicTitleSuggestions(suggestions = state.topicTitleSuggestions, sourceId = state.topicTitleSuggestionsSourceId) {
+        const currentSuggestions = sourceId === state.currentSourceId ? suggestions : [];
+        if (!currentSuggestions.length) {
+            clearTopicTitleSelection();
+            return;
+        }
+
+        topicTitleSelect.replaceChildren(new Option('請選擇主標題＋副標題', ''));
+        currentSuggestions.forEach((suggestion, index) => {
+            const option = new Option(
+                `方案 ${suggestion.scheme}・${suggestion.option}｜${suggestion.mainTitle}｜${suggestion.subtitle}`,
+                String(index),
+            );
+            topicTitleSelect.appendChild(option);
+        });
+        topicTitleSelection.classList.remove('hidden');
+    }
+
     function setLoadingState(isLoading) {
         promptDisplay.classList.toggle('text-center', isLoading);
         promptDisplay.classList.toggle('animate-pulse', isLoading);
@@ -120,6 +150,14 @@ export function initializeTab7() {
         state.thumbnailVersions = [];
         state.currentThumbnailVersionIndex = 0;
         roles = [];
+        titleInput.value = '';
+        subtitleInput.value = '';
+        includeLogoInput.checked = false;
+        shotSelect.value = 'auto';
+        styleSelect.value = 'auto';
+        customStyleTextarea.value = '';
+        customStyleContainer.classList.add('hidden');
+        clearTopicTitleSelection();
         renderRoles();
         renderVersionTabs();
         renderCurrentVersion();
@@ -134,9 +172,10 @@ export function initializeTab7() {
         return buildThumbnailPrompt({
             sourceContent,
             roles: roles.map(role => role.name),
-            includeLogo: document.getElementById('thumbnail-include-logo').checked,
-            title: document.getElementById('thumbnail-title').value,
-            shot: document.getElementById('thumbnail-shot').value,
+            includeLogo: includeLogoInput.checked,
+            title: titleInput.value,
+            subtitle: subtitleInput.value,
+            shot: shotSelect.value,
             style: styleSelect.value,
             customStyle: customStyleTextarea.value,
             variationModifier,
@@ -188,7 +227,9 @@ export function initializeTab7() {
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
 
             if (!isCurrentSource(requestSourceId)) return;
-            const textContent = normalizeThumbnailPrompt(result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, ''));
+            const textContent = ensureThumbnailAspectRatio(
+                normalizeThumbnailPrompt(result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, '')),
+            );
             const version = { sourceId: requestSourceId, textContent };
 
             if (isVariation) {
@@ -251,6 +292,14 @@ export function initializeTab7() {
         customStyleContainer.classList.toggle('hidden', styleSelect.value !== 'custom');
     });
 
+    topicTitleSelect.addEventListener('change', () => {
+        if (topicTitleSelect.value === '') return;
+        const suggestion = state.topicTitleSuggestions[Number(topicTitleSelect.value)];
+        if (!suggestion || state.topicTitleSuggestionsSourceId !== state.currentSourceId) return;
+        titleInput.value = suggestion.mainTitle;
+        subtitleInput.value = suggestion.subtitle;
+    });
+
     generateBtn.addEventListener('click', () => handleGenerate());
     variationBtn.addEventListener('click', () => {
         VariationHub.open('thumbnail', (variationModifier, shouldOverride) => {
@@ -269,8 +318,13 @@ export function initializeTab7() {
         }
     });
 
+    window.addEventListener('lumina:topicTitleSuggestionsReady', event => {
+        renderTopicTitleSuggestions(event.detail?.suggestions, event.detail?.sourceId);
+    });
+    window.addEventListener('lumina:topicTitleSuggestionsCleared', clearTopicTitleSelection);
     window.addEventListener('lumina:clearDownstreamTabs', resetTab7);
     renderRoles();
     renderVersionTabs();
+    renderTopicTitleSuggestions();
     renderCurrentVersion();
 }
