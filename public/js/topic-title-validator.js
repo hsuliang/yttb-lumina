@@ -134,8 +134,8 @@ export function validateTopicTitleSuggestion(text = '') {
             if (mainTitleLength > 10) {
                 violations.push(`方案 ${schemeLabel} ${optionLabel}的主標題「${option.mainTitle}」為 ${mainTitleLength} 字，必須在 10 字以內。`);
             }
-            if (subtitleLength < 15 || subtitleLength > 20) {
-                violations.push(`方案 ${schemeLabel} ${optionLabel}的副標題「${option.subtitle}」為 ${subtitleLength} 字，必須介於 15 至 20 字。`);
+            if (subtitleLength < 10 || subtitleLength > 20) {
+                violations.push(`方案 ${schemeLabel} ${optionLabel}的副標題「${option.subtitle}」為 ${subtitleLength} 字，必須介於 10 至 20 字。`);
             }
             if (mainTitles.has(option.mainTitle)) {
                 violations.push(`主標題「${option.mainTitle}」重複，九組主標題必須各不相同。`);

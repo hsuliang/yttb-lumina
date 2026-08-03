@@ -11,38 +11,38 @@ const validSuggestion = `**爆款主題命名建議（主副標題設定）**
 
 **💡 方案 A：主打「認知衝擊」**
 **正選**
-**主標題**：背債跑偏鄉
-**副標題**：退休教師背債兩千多萬打造偏鄉教室
+**主標題**：退休豪賭兩千萬
+**副標題**：七年無薪改裝貨車，只為把課送進偏鄉
 **備選一**
-**主標題**：野戰教室上路
-**副標題**：四百萬貨車如何變身偏鄉行動教室
+**主標題**：這台車差點翻桌
+**副標題**：未先商量便下訂，妻子得知後當場傻眼
 **備選二**
-**主標題**：追夢撞爛賓士
-**副標題**：無薪退休跑偏鄉竟付出四十萬代價
+**主標題**：一撞燒掉四十萬
+**副標題**：倒車壓壞隔壁賓士，偏鄉行程先停擺
 **設計概念**：認知衝擊設計概念。
 
 **💡 方案 B：主打「實用需求」**
 **正選**
-**主標題**：五分鐘開課
-**副標題**：拆解行動教室快速部署完整實戰方法
+**主標題**：三小時地獄翻盤
+**副標題**：五噸貨車一展開，五分鐘就能直接上課
 **備選一**
-**主標題**：偏鄉教學攻略
-**副標題**：從設備驗車募款掌握巡迴教學關鍵
+**主標題**：三百萬怎麼撐
+**副標題**：靠提案募集資源，讓巡迴服務繼續上路
 **備選二**
-**主標題**：百校營運術
-**副標題**：一年跑遍百校的設備募款效率指南
+**主標題**：車宿也能洗熱水澡
+**副標題**：脫水機加熱水袋，破解洗衣沐浴難題
 **設計概念**：實用需求設計概念。
 
 **💡 方案 C：主打「情感共鳴」**
 **正選**
-**主標題**：熱誠不能退
-**副標題**：退休教師用七年陪伴偏鄉孩子成長
+**主標題**：退休反而累到爆
+**副標題**：每天睡不到五小時，每週還上三十五堂
 **備選一**
-**主標題**：笑容就值得
-**副標題**：走過百所學校只為點亮偏鄉孩子視野
+**主標題**：沒熱誠就退場
+**副標題**：七年無薪跑遍偏鄉，他勸同業別耗盡人生
 **備選二**
-**主標題**：夢想走鐘也前進
-**副標題**：再苦也堅持只為守住偏鄉教育初心
+**主標題**：孩子一笑全都值
+**副標題**：忙到只能啃飯糰，學生還主動要求加課
 **設計概念**：情感共鳴設計概念。`;
 
 test('title character counting excludes outer wrappers but counts content punctuation', () => {
@@ -80,26 +80,44 @@ test('validator accepts exactly three paired choices in each of the three scheme
     assert.deepEqual(result.violations, []);
 });
 
-test('validator rejects overlong main titles and subtitles outside 15 to 20 characters', () => {
+test('validator rejects overlong main titles and subtitles outside 10 to 20 characters', () => {
     const invalidSuggestion = validSuggestion
-        .replace('背債跑偏鄉', '背債兩千多萬退休後仍堅持跑遍偏鄉')
-        .replace('退休教師背債兩千多萬打造偏鄉教室', '副標太短');
+        .replace('退休豪賭兩千萬', '背債兩千多萬退休後仍堅持跑遍偏鄉')
+        .replace('七年無薪改裝貨車，只為把課送進偏鄉', '副標太短');
     const result = validateTopicTitleSuggestion(invalidSuggestion);
 
     assert.equal(result.valid, false);
     assert.match(result.violations.join('\n'), /主標題.*必須在 10 字以內/);
-    assert.match(result.violations.join('\n'), /副標題.*必須介於 15 至 20 字/);
+    assert.match(result.violations.join('\n'), /副標題.*必須介於 10 至 20 字/);
+});
+
+test('validator accepts a concise suspense subtitle', () => {
+    const concisePromise = validSuggestion.replace(
+        '七年無薪改裝貨車，只為把課送進偏鄉',
+        '三年後，夢想還活著嗎？',
+    );
+
+    assert.equal(validateTopicTitleSuggestion(concisePromise).valid, true);
 });
 
 test('validator rejects missing choices and duplicate title pairs', () => {
     const missingChoice = validSuggestion.replace(
-        /\*\*備選二\*\*\n\*\*主標題\*\*：夢想走鐘也前進\n\*\*副標題\*\*：再苦也堅持只為守住偏鄉教育初心\n/,
+        /\*\*備選二\*\*\n\*\*主標題\*\*：孩子一笑全都值\n\*\*副標題\*\*：忙到只能啃飯糰，學生還主動要求加課\n/,
         '',
     );
-    const duplicatedTitle = validSuggestion.replace('野戰教室上路', '背債跑偏鄉');
+    const duplicatedTitle = validSuggestion.replace('這台車差點翻桌', '退休豪賭兩千萬');
 
     assert.equal(validateTopicTitleSuggestion(missingChoice).valid, false);
     assert.match(validateTopicTitleSuggestion(missingChoice).violations.join('\n'), /備選二|9 組/);
     assert.equal(validateTopicTitleSuggestion(duplicatedTitle).valid, false);
     assert.match(validateTopicTitleSuggestion(duplicatedTitle).violations.join('\n'), /主標題.*重複/);
+});
+
+test('validator allows natural key-term overlap within a title pair', () => {
+    const naturalOverlap = validSuggestion.replace(
+        '倒車壓壞隔壁賓士，偏鄉行程先停擺',
+        '倒車失誤撞上賓士，當場燒掉四十萬',
+    );
+
+    assert.equal(validateTopicTitleSuggestion(naturalOverlap).valid, true);
 });
