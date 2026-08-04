@@ -1,31 +1,36 @@
 # ㄚ亮笑長的內容助手
 
-這是一個強大且靈活的內容生產與轉換系統。主要用於將語音與影音內容（如 YouTube 直播、Podcasts、演講錄音）快速轉換為精確的文字，並透過強大的 AI 引擎自動延伸為豐富的多平台行銷素材。
+這是一個強大且靈活的內容生產與轉換系統。主要用於將語音與影音內容（如 YouTube 直播、Podcasts、演講錄音）快速轉換為文字，並透過 AI 延伸為部落格、Google Blogger、社群、電子報與視覺提示詞素材。
+
+目前版本：`20260804R12`
 
 ## 🌟 核心功能
 
-本專案提供七大核心分頁功能，形成一套完整的「數位內容煉金術」工作流：
+本專案提供八大核心分頁功能，形成一套完整的「數位內容煉金術」工作流：
 
 ### 1. 🎙️ 語音轉文字辨識
-支援上傳多種格式的影音檔案，透過 Gemini AI 或是免費部署您的專屬 Cloudflare Whisper Worker，快速且高精準地將語音內容轉換為純文本與 SRT 字幕。
+支援 .mp3、.wav、.ogg、.m4a、.flac、.webm、.mp4；可選擇 Gemini 或自建 Cloudflare Whisper Worker，輸出 SRT、純文字與 VTT，並可匯出或送往逐字稿整理。
 
 ### 2. 📝 智慧字幕整理
-可點擊或拖曳匯入 SRT 字幕檔。具備自動句末標點補全、錯別字智慧修正、長句自動分拆等功能。提供四個精準控制滑桿，並可一鍵取得 AI 影片摘要與精緻章節報告。
+可貼上或拖曳匯入字幕與逐字稿，進行標點補全、長句分拆、時間軸平移、短句合併與間隔修復；支援 AI 校對建議、爆款主題配對、摘要、章節、複製與 SRT 匯出。
 
 ### 3. ✍️ 部落格文章生成
-將整理後的逐字稿重構為結構完整、排版優良的部落格草稿。內建「寫作客製化風格精靈」設定語氣、字數與視角。支援進階 SEO 關鍵字分析、SEO 標題推薦與內部連結建議，並搭載 Quill 富文本編輯器。
+將整理後的內容重構為文章，可設定人稱、字數、語氣與 CTA；支援多版本、Quill 編輯器、HTML／Markdown、SEO 建議、關鍵字分析、內部連結、複製與下載。
 
 ### 4. 📱 多平台社群貼文
-針對 Facebook、Instagram、Threads、LinkedIn、LINE 等平台量身打造吸引點擊的文案。提供多種寫作風格（如懸疑提問、直白痛點、金句破題），自動生成熱門 Hashtags 與行動呼籲 (CTA)。
+一次生成 Facebook、Instagram、LINE 三種平台文案，可設定目標、長度、語氣、Hashtags 與 CTA，並支援社群風格精靈、多版本與複製。
 
 ### 5. ✉️ 行銷電子報
-將長文精煉為具備高度點擊開信率的 HTML 電子報。系統將自動為您生成 3 組具誘因的郵件主旨、簡短預覽文字，以及精心排版的行銷郵件 HTML 原始碼。
+依目標受眾與風格生成包含主旨、重點與 CTA 按鈕的 HTML 電子報，支援多版本與 HTML 複製。
 
 ### 6. 🎨 社群輪播圖規劃
-專為 IG / FB 多圖滑動輪播打造。自動規劃每一頁輪播圖的視覺畫面構圖與文字標題，並針對 Stable Diffusion 或 Midjourney 等 AI 繪圖工具提供最合適的中英文繪圖提示詞 (Prompts)。
+專為 IG／FB 多圖輪播打造，可設定素材／角色、Logo、版型與視覺風格，輸出每一頁的中英文繪圖提示詞，支援多版本與全部複製。
 
 ### 7. 📊 資訊圖表規劃
-分析文稿或文章，規劃出適合製作成單張大圖資訊圖表 (Infographic) 的結構報告。自動提供圖表推薦指示、排版結構分析，以及視覺設計的中英文提示詞 (Prompts)。
+分析內容並推薦圖表型態，可設定視覺風格、配色、比例、文字量與素材／角色，輸出中英文提示詞，支援多版本與複製。
+
+### 8. 🎬 YouTube 封面提示詞
+從內容或爆款主題配對產生繁中主標題、副標題與固定六段結構的 16:9 繪圖提示詞；支援角色／素材、Logo、鏡頭、藝術風格、多版本與複製。
 
 ## 🚀 部署與執行
 
@@ -50,25 +55,26 @@
 
 ### Google Blogger 發佈整合（選用）
 
-Tab 2 的文章可透過 Google Blogger API 建立草稿或直接發佈。此功能不會影響其他 AI 生成與下載功能；未設定 OAuth Client ID 時，Blogger 視窗會提示完成設定。
+「部落格文章」分頁可透過 Google Blogger API 建立草稿或直接發佈。每位使用者以自己的 Google 帳號授權並選擇可使用的網誌；未設定 OAuth Client ID 時，Blogger 視窗會提示完成設定。
 
 1. 在 Google Cloud 建立專案並啟用 Blogger API v3。
 2. 設定 OAuth consent screen，建立 Web application OAuth Client ID。
-3. 將 `http://localhost:5179` 與正式網站網域加入 Authorized JavaScript origins。
+3. 將 `http://localhost:5179` 與正式網站 HTTPS 網域加入 Authorized JavaScript origins。
 4. 複製 `.env.example` 為 `.env.local`，填入：
 
    ```text
    VITE_GOOGLE_BLOGGER_CLIENT_ID=你的 OAuth Client ID
    ```
 
-5. 重新啟動 Vite 或重新建置，第一次發佈時依畫面連結 Google Blogger。
+5. 本機重新啟動 Vite 或重新建置；Cloudflare Pages 則分別在 Preview／Production 環境設定同名變數，再重新部署。
 
-程式只在瀏覽器記憶體中保存短期 access token，不會把 Google Token 寫入 `localStorage`。目前預設先建立 Blogger 草稿；若選擇直接發佈，系統會先建立草稿，再呼叫 Blogger 的公開操作。
+程式只在瀏覽器記憶體中保存短期 access token，不會把 Google Token 寫入 `localStorage`。文章標題、HTML 內容與標籤會自動送出；永久網址與搜尋說明請到 Blogger 後台設定。同一文章版本再次發佈時會更新原文章，預設先建立草稿；若選擇直接發佈，系統會建立草稿後立即公開。
 
 ## 🔐 隱私與安全性
 
-- **100% 本機端儲存**：所有的 API 金鑰（Gemini API Key, Cloudflare Worker Token 等）皆經過高強度加密並儲存於瀏覽器本機端（IndexedDB / localStorage），絕對不會上傳到任何第三方伺服器。
-- **邊緣運算保證**：使用自建的 Cloudflare Worker 處理語音，資料流轉於您個人的 Cloudflare 帳戶，隱私安全具備最高保障。
+- **瀏覽器端設定**：Gemini API Key 與 Cloudflare Worker 設定依保存期限存於 localStorage 或 Session Storage；請勿在共用電腦選擇永久保存。
+- **Blogger 授權安全**：Blogger access token 只存在目前頁面的記憶體，不會寫入 localStorage，也不會上傳到本專案伺服器。
+- **邊緣運算選項**：使用自建 Cloudflare Worker 處理語音時，資料會送至您設定的 Cloudflare 帳戶；請依自己的隱私需求選擇 Gemini 或 Whisper。
 
 ## 📜 關於
 
