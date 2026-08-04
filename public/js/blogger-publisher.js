@@ -1,6 +1,4 @@
-import { BLOGGER_SETTINGS_KEYS } from './blogger-config.js';
 import {
-    BloggerAuthError,
     clearBloggerAccessToken,
     hasBloggerClientId,
     requestBloggerAccessToken
@@ -8,55 +6,21 @@ import {
 import {
     BloggerApiError,
     insertBloggerPost,
-    listBloggerBlogs,
     publishBloggerPost,
     updateBloggerPost
 } from './blogger-api.js';
 import { buildBloggerPost } from './blogger-content.js';
+import {
+    getBloggerErrorMessage,
+    getBloggerSession,
+    notifyBloggerSessionChanged,
+    refreshBloggerBlogs,
+    setSelectedBloggerBlog
+} from './blogger-session.js';
 import { showModal, showToast } from './ui-components.js';
-
-function readSavedBlog() {
-    try {
-        return {
-            id: localStorage.getItem(BLOGGER_SETTINGS_KEYS.BLOG_ID) || '',
-            name: localStorage.getItem(BLOGGER_SETTINGS_KEYS.BLOG_NAME) || ''
-        };
-    } catch (_) {
-        return { id: '', name: '' };
-    }
-}
-
-function saveSelectedBlog(blog) {
-    try {
-        localStorage.setItem(BLOGGER_SETTINGS_KEYS.BLOG_ID, blog.id);
-        localStorage.setItem(BLOGGER_SETTINGS_KEYS.BLOG_NAME, blog.name || '');
-    } catch (error) {
-        console.warn('無法儲存 Blogger 網誌選擇:', error);
-    }
-}
 
 function getPublishMode(elements) {
     return elements.modeInputs.find(input => input.checked)?.value || 'draft';
-}
-
-function getUserFacingError(error) {
-    if (error instanceof BloggerAuthError) {
-        if (error.code === 'MISSING_CLIENT_ID') return error.message;
-        if (error.code === 'access_denied' || error.code === 'popup_closed') {
-            return '您已取消 Google Blogger 授權。';
-        }
-        return error.message;
-    }
-
-    if (error instanceof BloggerApiError) {
-        if (error.status === 401) return 'Google Blogger 授權已過期，請重新連結 Google 帳戶。';
-        if (error.status === 403) return '目前 Google 帳戶沒有此 Blogger 網誌的發佈權限，或 Blogger API 尚未啟用。';
-        if (error.status === 404) return '找不到指定的 Blogger 網誌或文章，請重新選擇網誌。';
-        if (error.status === 429) return 'Blogger API 暫時忙碌，請稍後再試。';
-        return error.message;
-    }
-
-    return error?.message || 'Blogger 發佈失敗，請稍後再試。';
 }
 
 export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
@@ -83,11 +47,12 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
     if (elements.publishButton.dataset.bloggerPublisherBound === 'true') return;
     elements.publishButton.dataset.bloggerPublisherBound = 'true';
 
+    const initialSession = getBloggerSession();
     const viewState = {
-        blogs: [],
+        blogs: initialSession.blogs,
         pendingSnapshot: null,
         busy: false,
-        selectedBlogId: readSavedBlog().id
+        selectedBlogId: initialSession.selectedBlog.id
     };
 
     const setOuterStatus = (message, type = 'muted', url = '') => {
@@ -146,7 +111,8 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
         const publication = viewState.pendingSnapshot?.version?.blogger;
         const hasSelectedBlog = Boolean(elements.blogSelect?.value);
         const sameBlog = !publication?.blogId || publication.blogId === elements.blogSelect?.value;
-        const ready = hasBloggerClientId() && hasSelectedBlog && sameBlog && !viewState.busy;
+        const session = getBloggerSession();
+        const ready = session.clientIdConfigured && session.connected && hasSelectedBlog && sameBlog && !viewState.busy;
 
         if (elements.confirmButton) {
             elements.confirmButton.disabled = !ready;
@@ -166,12 +132,15 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
 
     const renderBlogs = () => {
         if (!elements.blogSelect) return;
-        const savedBlog = readSavedBlog();
+        const session = getBloggerSession();
+        const savedBlog = session.selectedBlog;
         elements.blogSelect.replaceChildren();
 
         const placeholder = document.createElement('option');
         placeholder.value = '';
-        placeholder.textContent = viewState.blogs.length > 0 ? '請選擇要使用的 Blogger 網誌' : '請先連結 Google Blogger';
+        placeholder.textContent = session.connected && viewState.blogs.length > 0
+            ? '請選擇要使用的 Blogger 網誌'
+            : '請先連結 Google Blogger';
         elements.blogSelect.appendChild(placeholder);
 
         viewState.blogs.forEach(blog => {
@@ -192,43 +161,77 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
         }
 
         viewState.selectedBlogId = elements.blogSelect.value;
+        elements.blogSelect.disabled = viewState.busy || !session.connected || viewState.blogs.length === 0;
         updateConfirmState();
+    };
+
+    const renderSessionState = () => {
+        const session = getBloggerSession();
+        viewState.blogs = session.blogs;
+        viewState.selectedBlogId = session.selectedBlog.id;
+
+        if (elements.clientIdWarning) {
+            elements.clientIdWarning.classList.toggle('hidden', session.clientIdConfigured);
+        }
+        if (elements.authStatus) {
+            elements.authStatus.textContent = !session.clientIdConfigured
+                ? '尚未設定 OAuth Client ID'
+                : session.connected
+                    ? 'Google Blogger 已連結'
+                    : '尚未連結 Google Blogger';
+        }
+        if (elements.connectButton) {
+            elements.connectButton.disabled = viewState.busy || !session.clientIdConfigured;
+            elements.connectButton.textContent = session.connected
+                ? '前往全域設定管理'
+                : '前往全域設定連結';
+        }
+        if (elements.refreshBlogsButton) {
+            elements.refreshBlogsButton.disabled = viewState.busy || !session.connected;
+        }
+        renderBlogs();
+    };
+
+    const openBloggerSettings = () => {
+        if (viewState.busy) return;
+        elements.modal.classList.add('hidden');
+        window.dispatchEvent(new CustomEvent('lumina:open-global-settings', {
+            detail: { tabId: 'settings-tab-blogger' }
+        }));
     };
 
     const setBusy = busy => {
         viewState.busy = busy;
-        elements.connectButton && (elements.connectButton.disabled = busy);
-        elements.refreshBlogsButton && (elements.refreshBlogsButton.disabled = busy);
-        elements.blogSelect && (elements.blogSelect.disabled = busy || viewState.blogs.length === 0);
+        const session = getBloggerSession();
+        elements.connectButton && (elements.connectButton.disabled = busy || !session.clientIdConfigured);
+        elements.refreshBlogsButton && (elements.refreshBlogsButton.disabled = busy || !session.connected);
+        elements.blogSelect && (elements.blogSelect.disabled = busy || !session.connected || viewState.blogs.length === 0);
         elements.modeInputs.forEach(input => { input.disabled = busy; });
         updateConfirmState();
     };
 
-    const loadBlogs = async ({ forceConsent = false } = {}) => {
+    const refreshBlogs = async () => {
         if (!hasBloggerClientId()) {
             setModalStatus('尚未設定 Google Blogger OAuth Client ID。', 'warning');
             return;
         }
-
         setBusy(true);
-        setModalStatus('正在連結 Google Blogger…');
+        setModalStatus('正在重新取得 Blogger 網誌…');
         try {
-            const accessToken = await requestBloggerAccessToken({ forceConsent });
-            viewState.blogs = await listBloggerBlogs(accessToken);
-            renderBlogs();
-            if (viewState.blogs.length === 0) {
+            const session = await refreshBloggerBlogs();
+            viewState.blogs = session.blogs;
+            renderSessionState();
+            if (session.blogs.length === 0) {
                 setModalStatus('此 Google 帳戶找不到可管理的 Blogger 網誌。', 'warning');
             } else {
-                setModalStatus(`已取得 ${viewState.blogs.length} 個 Blogger 網誌。`, 'success');
+                setModalStatus(`已取得 ${session.blogs.length} 個 Blogger 網誌。`, 'success');
             }
-            if (elements.authStatus) elements.authStatus.textContent = 'Google Blogger 已連結';
         } catch (error) {
-            if (error instanceof BloggerApiError && error.status === 401) clearBloggerAccessToken();
-            if (error instanceof BloggerAuthError && ['access_denied', 'popup_closed'].includes(error.code)) {
-                setModalStatus('已取消 Google Blogger 授權。', 'warning');
-            } else {
-                setModalStatus(getUserFacingError(error), 'error');
+            if (error instanceof BloggerApiError && error.status === 401) {
+                clearBloggerAccessToken();
+                notifyBloggerSessionChanged();
             }
+            setModalStatus(getBloggerErrorMessage(error), 'error');
         } finally {
             setBusy(false);
         }
@@ -252,17 +255,17 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
         elements.previewLabels.textContent = snapshot.post.labels?.join('、') || '沒有設定標籤';
         elements.modal.classList.remove('hidden');
 
-        if (elements.clientIdWarning) {
-            elements.clientIdWarning.classList.toggle('hidden', hasBloggerClientId());
-        }
-        if (elements.connectButton) elements.connectButton.disabled = !hasBloggerClientId();
-        if (elements.authStatus) {
-            elements.authStatus.textContent = hasBloggerClientId()
-                ? '尚未連結 Google Blogger'
-                : '尚未設定 OAuth Client ID';
-        }
-        setModalStatus(hasBloggerClientId() ? '請先連結 Google Blogger 並選擇網誌。' : '請先完成 OAuth Client ID 設定。');
-        renderBlogs();
+        const session = getBloggerSession();
+        renderSessionState();
+        setModalStatus(
+            !session.clientIdConfigured
+                ? '請先完成目前部署環境的 OAuth Client ID 設定。'
+                : !session.connected
+                    ? '請點擊「前往全域設定連結」，完成 Google Blogger 授權。'
+                    : session.blogs.length === 0
+                        ? '此 Google 帳戶目前沒有可管理的 Blogger 網誌。'
+                        : '請選擇 Blogger 網誌後建立草稿或直接發佈。'
+        );
         renderExistingState(snapshot);
 
         const existingStatus = snapshot.version.blogger?.status;
@@ -376,15 +379,18 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
             viewState.pendingSnapshot = null;
             showToast(remoteInfo.status === 'published' ? '✅ Blogger 文章已發佈！' : '✅ Blogger 草稿已建立！', { type: 'success' });
         } catch (error) {
-            if (error instanceof BloggerApiError && error.status === 401) clearBloggerAccessToken();
+            if (error instanceof BloggerApiError && error.status === 401) {
+                clearBloggerAccessToken();
+                notifyBloggerSessionChanged();
+            }
             if (remoteInfo) {
                 onPublished?.({ ...remoteInfo, versionIndex: snapshot.versionIndex, sourceId: snapshot.sourceId }, snapshot);
                 renderExistingState({ version: { blogger: remoteInfo } });
             }
             setModalStatus(
                 remoteInfo?.status === 'draft' && mode === 'publish'
-                    ? `草稿已建立，但公開發佈失敗：${getUserFacingError(error)}`
-                    : getUserFacingError(error),
+                    ? `草稿已建立，但公開發佈失敗：${getBloggerErrorMessage(error)}`
+                    : getBloggerErrorMessage(error),
                 'error'
             );
         } finally {
@@ -395,14 +401,14 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
     elements.publishButton.addEventListener('click', openModal);
     elements.modalCloseButton?.addEventListener('click', closeModal);
     elements.modalCancelButton?.addEventListener('click', closeModal);
-    elements.connectButton?.addEventListener('click', () => loadBlogs());
-    elements.refreshBlogsButton?.addEventListener('click', () => loadBlogs(true));
+    elements.connectButton?.addEventListener('click', openBloggerSettings);
+    elements.refreshBlogsButton?.addEventListener('click', refreshBlogs);
     elements.blogSelect?.addEventListener('change', () => {
         const selectedOption = elements.blogSelect.selectedOptions[0];
         viewState.selectedBlogId = elements.blogSelect.value;
-        if (viewState.selectedBlogId) {
-            saveSelectedBlog({ id: viewState.selectedBlogId, name: selectedOption?.dataset.blogName || '' });
-        }
+        setSelectedBloggerBlog(viewState.selectedBlogId
+            ? { id: viewState.selectedBlogId, name: selectedOption?.dataset.blogName || '' }
+            : null);
         updateConfirmState();
     });
     elements.modeInputs.forEach(input => input.addEventListener('change', updateConfirmState));
@@ -414,6 +420,22 @@ export function initializeBloggerPublisher({ getSnapshot, onPublished } = {}) {
         } catch (_) {
             setOuterStatus('尚未生成文章');
         }
+    });
+
+    window.addEventListener('lumina:blogger-session-changed', () => {
+        renderSessionState();
+        if (elements.modal.classList.contains('hidden')) return;
+
+        const session = getBloggerSession();
+        setModalStatus(
+            !session.clientIdConfigured
+                ? '請先完成目前部署環境的 OAuth Client ID 設定。'
+                : !session.connected
+                    ? '請點擊「前往全域設定連結」，完成 Google Blogger 授權。'
+                    : session.blogs.length === 0
+                        ? '此 Google 帳戶目前沒有可管理的 Blogger 網誌。'
+                        : '請選擇 Blogger 網誌後建立草稿或直接發佈。'
+        );
     });
 
     try {

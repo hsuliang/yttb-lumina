@@ -12,6 +12,7 @@ import { resolveFlashModelsList } from './gemini-api.js';
 import { isGeminiKeyAvailable } from './gemini-routing.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
+import { initializeBloggerSettings } from './blogger-settings.js';
 
 /**
  * app.js
@@ -379,6 +380,8 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                     setTimeout(() => document.getElementById('replace-original-input')?.focus(), 50);
                 } else if (targetId === 'settings-tab-terminology') {
                     setTimeout(() => document.getElementById('terminology-term-input')?.focus(), 50);
+                } else if (targetId === 'settings-tab-blogger') {
+                    setTimeout(() => document.getElementById('blogger-settings-connect-btn')?.focus(), 50);
                 }
             } else {
                 panel.classList.add('hidden');
@@ -710,6 +713,7 @@ export const switchTab = (tabId) => {
         try { initializeTab5(); } catch(e) { console.error("Error initializing Tab 5:", e); }
         try { if (initializeTab6) { initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
         try { if (initializeTab7) { initializeTab7(); } } catch(e) { console.error("Error initializing Tab 7:", e); }
+        try { initializeBloggerSettings(); } catch(e) { console.error("Error initializing Blogger settings:", e); }
 
         try { updateApiKeyStatus(); window.addEventListener('settings-updated', updateApiKeyStatus); } catch(e) { console.error("Error updating API key status:", e); }
 
@@ -1273,6 +1277,9 @@ export const switchTab = (tabId) => {
         if (appearanceBtn) appearanceBtn.addEventListener('click', toggleAppearancePanel);
         if (globalSettingsBtn) globalSettingsBtn.addEventListener('click', () => showGlobalSettingsModal('settings-tab-gemini'));
         if (closeGlobalSettingsBtn) closeGlobalSettingsBtn.addEventListener('click', hideGlobalSettingsModal);
+        window.addEventListener('lumina:open-global-settings', event => {
+            showGlobalSettingsModal(event.detail?.tabId || 'settings-tab-gemini');
+        });
         
         document.querySelectorAll('.settings-tab-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {

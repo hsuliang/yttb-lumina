@@ -55,7 +55,7 @@
 
 ### Google Blogger 發佈整合（選用）
 
-「部落格文章」分頁可透過 Google Blogger API 建立草稿或直接發佈。每位使用者以自己的 Google 帳號授權並選擇可使用的網誌；未設定 OAuth Client ID 時，Blogger 視窗會提示完成設定。
+「部落格文章」分頁可透過 Google Blogger API 建立草稿或直接發佈。每位使用者以自己的 Google 帳號授權並選擇可使用的網誌；可先從全域設定的「Blogger 連線」完成連結與預設網誌設定，也可以在發佈時依導引完成。
 
 1. 在 Google Cloud 建立專案並啟用 Blogger API v3。
 2. 設定 OAuth consent screen，建立 Web application OAuth Client ID。

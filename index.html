@@ -1662,6 +1662,9 @@
                     <button class="settings-tab-btn w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-worker">
                         <span class="material-symbols-outlined text-[18px]">cloud</span>Worker 連線設定
                     </button>
+                    <button class="settings-tab-btn w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-blogger">
+                        <span class="material-symbols-outlined text-[18px]">rss_feed</span>Blogger 連線
+                    </button>
                     <button class="settings-tab-btn w-full text-left px-4 py-3 text-sm font-medium transition-colors border-l-2 border-transparent text-on-surface-variant hover:bg-surface-variant/20 hover:text-on-surface flex items-center gap-2 whitespace-nowrap" data-target="settings-tab-typo">
                         <span class="material-symbols-outlined text-[18px]">spellcheck</span>錯字替換管理
                     </button>
@@ -1809,7 +1812,43 @@
                         </div>
                     </div>
 
-                    <!-- Tab 3: Typo Replacement -->
+                    <!-- Tab 3: Blogger Connection -->
+                    <div id="settings-tab-blogger" class="settings-tab-panel hidden space-y-4">
+                        <h4 class="text-lg font-bold text-on-surface mb-2">Google Blogger 連線</h4>
+                        <p class="text-xs text-on-surface-variant leading-relaxed">
+                            先在這裡連結 Google 帳戶並選擇預設 Blogger 網誌。發佈文章時會使用此連線與預設網誌；每位使用者都應使用自己的 Google 帳戶。
+                        </p>
+
+                        <div id="blogger-settings-client-id-warning" class="hidden p-3 rounded-lg border border-warning/30 bg-warning/10 text-warning text-xs leading-relaxed">
+                            尚未設定 Google Blogger OAuth Client ID。請在目前部署環境設定 <code class="font-mono">VITE_GOOGLE_BLOGGER_CLIENT_ID</code> 後重新建置應用程式。
+                        </div>
+
+                        <div class="p-4 rounded-xl border border-outline-variant/15 bg-surface-container-lowest/30 space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <strong class="text-sm text-on-surface">連線狀態</strong>
+                                <span id="blogger-settings-auth-status" class="text-xs text-on-surface-variant" aria-live="polite">尚未連結 Google Blogger</span>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="blogger-settings-connect-btn" type="button" class="font-bold py-2 px-3 rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">連結 Google Blogger</button>
+                                <button id="blogger-settings-refresh-btn" type="button" class="font-bold py-2 px-3 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-white/5 text-xs">重新取得網誌</button>
+                                <button id="blogger-settings-disconnect-btn" type="button" class="font-bold py-2 px-3 rounded-lg bg-error/10 border border-error/30 text-error hover:bg-error/20 text-xs">解除連線</button>
+                            </div>
+                            <div>
+                                <label for="blogger-settings-blog-select" class="block text-xs font-semibold text-on-surface-variant mb-1.5">預設 Blogger 網誌</label>
+                                <select id="blogger-settings-blog-select" class="w-full glass-input rounded-lg px-3 py-2 text-xs text-on-surface focus:outline-none">
+                                    <option value="">請先連結 Google Blogger</option>
+                                </select>
+                                <p id="blogger-settings-selection-note" class="text-[10px] text-on-surface-variant mt-1 min-h-[1rem]"></p>
+                            </div>
+                        </div>
+
+                        <p id="blogger-settings-status" class="text-xs min-h-[1.25rem] text-on-surface-variant" aria-live="polite"></p>
+                        <p class="text-[10px] text-on-surface-variant/70 leading-relaxed border-t border-outline-variant/10 pt-3">
+                            OAuth 存取權杖只保留在目前頁面的記憶體，不會寫入 localStorage。重新整理頁面後，可能需要重新連結 Google 帳戶；預設網誌選擇仍會保留。
+                        </p>
+                    </div>
+
+                    <!-- Tab 4: Typo Replacement -->
                     <div id="settings-tab-typo" class="settings-tab-panel hidden flex flex-col h-full">
                         <h4 class="text-lg font-bold text-on-surface mb-2">錯字替換管理</h4>
                         <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
@@ -1838,7 +1877,7 @@
                         </div>
                     </div>
 
-                    <!-- Tab 4: Terminology Settings -->
+                    <!-- Tab 5: Terminology Settings -->
                     <div id="settings-tab-terminology" class="settings-tab-panel hidden flex flex-col h-full">
                         <h4 class="text-lg font-bold text-on-surface mb-2">專有名詞設定</h4>
                         <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
@@ -2055,18 +2094,19 @@
 
             <div class="flex-1 overflow-y-auto space-y-4 pr-1">
                 <div id="blogger-client-id-warning" class="hidden p-3 rounded-lg border border-warning/30 bg-warning/10 text-warning text-xs leading-relaxed">
-                    尚未設定 Google Blogger OAuth Client ID。請在專案的 <code class="font-mono">.env.local</code> 設定 <code class="font-mono">VITE_GOOGLE_BLOGGER_CLIENT_ID</code>，重新啟動或建置應用程式後再使用。
+                    尚未設定 Google Blogger OAuth Client ID。請在目前部署環境設定 <code class="font-mono">VITE_GOOGLE_BLOGGER_CLIENT_ID</code>，重新建置應用程式後再使用。
                 </div>
 
                 <div class="p-4 rounded-xl border border-outline-variant/15 bg-surface-container-lowest/30 space-y-3">
                     <div class="flex items-center justify-between gap-3">
-                        <strong class="text-sm text-on-surface">Google Blogger 連結</strong>
+                        <strong class="text-sm text-on-surface">Google Blogger 連線狀態</strong>
                         <span id="blogger-auth-status" class="text-xs text-on-surface-variant">尚未連結 Google Blogger</span>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <button id="blogger-connect-btn" type="button" class="font-bold py-2 px-3 rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">連結 Google Blogger</button>
+                        <button id="blogger-connect-btn" type="button" class="font-bold py-2 px-3 rounded-lg bg-primary text-on-primary hover:brightness-110 text-xs">前往全域設定連結</button>
                         <button id="blogger-refresh-blogs-btn" type="button" class="font-bold py-2 px-3 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-white/5 text-xs">重新取得網誌</button>
                     </div>
+                    <p class="text-[10px] text-on-surface-variant/70">尚未連線時，請點擊「前往全域設定連結」完成 Google Blogger 設定。</p>
                     <div>
                         <label for="blogger-blog-select" class="block text-xs font-semibold text-on-surface-variant mb-1.5">要使用的 Blogger 網誌</label>
                         <select id="blogger-blog-select" class="w-full glass-input rounded-lg px-3 py-2 text-xs text-on-surface focus:outline-none">
