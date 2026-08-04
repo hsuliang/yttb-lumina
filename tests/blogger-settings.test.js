@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const readProjectFile = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const html = readProjectFile('index.html');
+const readme = readProjectFile('public/readme.html');
 const appSource = readProjectFile('public/js/app.js');
 const settingsSource = readProjectFile('public/js/blogger-settings.js');
 const sessionSource = readProjectFile('public/js/blogger-session.js');
@@ -31,4 +32,11 @@ test('publish flow opens the Blogger global settings tab instead of duplicating 
     assert.match(publisherSource, /settings-tab-blogger/);
     assert.match(publisherSource, /setSelectedBloggerBlog\(/);
     assert.match(publisherSource, /lumina:blogger-session-changed/);
+});
+
+test('public readme keeps user guidance focused on available features', () => {
+    const voiceCard = readme.match(/<h3[^>]*>語音轉文字辨識<\/h3>[\s\S]*?<\/div>\s*<\/div>/)?.[0] || '';
+    assert.match(voiceCard, /語音辨識完成後[\s\S]*AI 校對建議/);
+    assert.doesNotMatch(readme, /<h3[^>]*>設定步驟<\/h3>/);
+    assert.doesNotMatch(readme, /在 Google Cloud 建立或選擇專案，啟用 Blogger API v3/);
 });

@@ -76,7 +76,7 @@
                         <h3 class="font-bold text-white text-base">語音轉文字辨識</h3>
                     </div>
                     <p class="text-gray-400 text-xs leading-relaxed flex-grow">
-                        支援 .mp3、.wav、.ogg、.m4a、.flac、.webm、.mp4。可選擇 Gemini 或自建 Cloudflare Whisper Worker，將語音轉成 SRT、純文字與 VTT；完成後可匯出檔案或送往「逐字稿整理」。
+                        支援 .mp3、.wav、.ogg、.m4a、.flac、.webm、.mp4。可選擇 Gemini 或自建 Cloudflare Whisper Worker，將語音轉成 SRT、純文字與 VTT。語音辨識完成後，可直接點擊「AI 校對建議」分批檢查疑似錯字與詞語一致性；只有確認的項目會套用，且可復原最近一次校對。完成後可匯出檔案或送往「逐字稿整理」。
                     </p>
                 </div>
                 <!-- 智慧字幕整理 -->
@@ -231,19 +231,6 @@
                     </div>
                 </div>
 
-                <div class="border-t border-white/10 pt-5">
-                    <h3 class="text-lg font-bold text-[#f97316] mb-3">設定步驟</h3>
-                    <ol class="list-decimal list-inside space-y-2 text-gray-300 text-sm leading-relaxed">
-                        <li>在 Google Cloud 建立或選擇專案，啟用 Blogger API v3。</li>
-                        <li>設定 OAuth 同意畫面，建立「Web application」OAuth Client ID，並在 Authorized JavaScript origins 加入本機網址與正式 HTTPS 網域。</li>
-                        <li>本機開發：在專案根目錄建立 <code class="text-[#f97316] font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">.env.local</code>，填入 <code class="text-[#f97316] font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">VITE_GOOGLE_BLOGGER_CLIENT_ID</code>，再重新啟動或建置。</li>
-                        <li>Cloudflare Pages：在 Settings → Variables and secrets 的 Production 環境填入正式 Client ID；Preview 環境則填入測試用 Client ID。</li>
-                        <li>將版本部署到 Production 後，從「全域設定」→「Blogger 連線」預先連結 Google Blogger；也可以在「部落格文章」分頁發佈時依導引設定，並測試建立草稿。</li>
-                    </ol>
-                    <p class="text-xs text-gray-500 leading-relaxed mt-4">
-                        OAuth Client ID 是可公開使用的識別值，不要把 Client Secret 放進前端或提交到 Git。Google OAuth 應用程式若仍在 Testing 狀態，只有已加入的測試使用者可以授權；正式開放前請完成 Google Cloud 的發布與驗證要求。
-                    </p>
-                </div>
             </div>
         </section>
 
