@@ -48,6 +48,23 @@
 ### 部署 Cloudflare Whisper Worker (進階功能)
 為了更精準地辨識超長時數的語音檔，您可以免費部署專屬的 Cloudflare Worker 來充當 Whisper API 中繼站。請參閱 `cf-worker/README.md` 的詳細教學，只要五分鐘就能建立專屬的語音伺服器。
 
+### Google Blogger 發佈整合（選用）
+
+Tab 2 的文章可透過 Google Blogger API 建立草稿或直接發佈。此功能不會影響其他 AI 生成與下載功能；未設定 OAuth Client ID 時，Blogger 視窗會提示完成設定。
+
+1. 在 Google Cloud 建立專案並啟用 Blogger API v3。
+2. 設定 OAuth consent screen，建立 Web application OAuth Client ID。
+3. 將 `http://localhost:5179` 與正式網站網域加入 Authorized JavaScript origins。
+4. 複製 `.env.example` 為 `.env.local`，填入：
+
+   ```text
+   VITE_GOOGLE_BLOGGER_CLIENT_ID=你的 OAuth Client ID
+   ```
+
+5. 重新啟動 Vite 或重新建置，第一次發佈時依畫面連結 Google Blogger。
+
+程式只在瀏覽器記憶體中保存短期 access token，不會把 Google Token 寫入 `localStorage`。目前預設先建立 Blogger 草稿；若選擇直接發佈，系統會先建立草稿，再呼叫 Blogger 的公開操作。
+
 ## 🔐 隱私與安全性
 
 - **100% 本機端儲存**：所有的 API 金鑰（Gemini API Key, Cloudflare Worker Token 等）皆經過高強度加密並儲存於瀏覽器本機端（IndexedDB / localStorage），絕對不會上傳到任何第三方伺服器。

@@ -4,6 +4,7 @@ import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
+import { initializeBloggerPublisher } from './blogger-publisher.js';
 
 /**
  * tab2-blog.js
@@ -60,6 +61,23 @@ function formatQuillVideos(html) {
 function getLatestHtmlContent() {
     if (!quillEditor) return '';
     return formatQuillVideos(quillEditor.root.innerHTML);
+}
+
+export function getCurrentBlogPostSnapshot() {
+    const version = state.blogArticleVersions[state.currentBlogVersionIndex];
+    if (!version) return null;
+
+    const htmlContent = getLatestHtmlContent();
+    if (htmlContent) version.htmlContent = htmlContent;
+
+    return {
+        version,
+        versionIndex: state.currentBlogVersionIndex,
+        sourceId: version.sourceId,
+        title: blogTitleInput.value.trim(),
+        htmlContent,
+        labels: [...state.currentBlogTags]
+    };
 }
 
 function convertHtmlToMarkdown(htmlContent) {
@@ -237,6 +255,7 @@ function switchVersionView(index) {
     state.currentBlogVersionIndex = index;
     renderVersionTabs();
     renderCurrentVersionUI();
+    window.dispatchEvent(new Event('lumina:blog-version-changed'));
 }
 
 function renderCurrentVersionUI() {
@@ -430,6 +449,7 @@ export const renderTags = function () { const tagContainer = document.getElement
         updateStepperUI();
         renderVersionTabs();
         generateBlogVariationBtn.disabled = true;
+        window.dispatchEvent(new Event('lumina:blog-version-changed'));
     }
 
     window.addEventListener('lumina:clearDownstreamTabs', resetTab2);
@@ -808,7 +828,7 @@ export const renderTags = function () { const tagContainer = document.getElement
             }
 
             if (!isCurrentSource(requestSourceId)) return;
-            const newVersion = { sourceId: requestSourceId, htmlContent: getLatestHtmlContent(), seoData: seoData, advancedSeoData: { keywords: null, internalLinks: null } };
+            const newVersion = { sourceId: requestSourceId, htmlContent: getLatestHtmlContent(), seoData: seoData, advancedSeoData: { keywords: null, internalLinks: null }, blogger: null };
 
             if (isVariation) {
                 // The old version is already saved. Just push the new one.
@@ -822,6 +842,7 @@ export const renderTags = function () { const tagContainer = document.getElement
             state.blogSourceType = 'blog';
             renderVersionTabs();
             renderCurrentVersionUI();
+            window.dispatchEvent(new Event('lumina:blog-version-changed'));
 
             analyzeKeywordsBtn.disabled = false;
             analyzeInternalLinksBtn.disabled = false;
@@ -991,4 +1012,25 @@ export const renderTags = function () { const tagContainer = document.getElement
     });
     updateStepperUI();
 
-export function initializeTab2() {}
+function handleBloggerPublished(publication, snapshot) {
+    const version = state.blogArticleVersions[publication.versionIndex];
+    if (version !== snapshot.version || version.sourceId !== snapshot.sourceId) return;
+    version.blogger = {
+        blogId: publication.blogId,
+        blogName: publication.blogName,
+        postId: publication.postId,
+        postUrl: publication.postUrl || '',
+        status: publication.status,
+        contentHash: publication.contentHash,
+        lastSyncedAt: publication.lastSyncedAt,
+        publishedAt: publication.publishedAt || ''
+    };
+    window.dispatchEvent(new Event('lumina:blog-version-changed'));
+}
+
+export function initializeTab2() {
+    initializeBloggerPublisher({
+        getSnapshot: getCurrentBlogPostSnapshot,
+        onPublished: handleBloggerPublished
+    });
+}
