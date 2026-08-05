@@ -290,6 +290,8 @@ function renderCurrentVersionUI() {
     const generateBlogVariationBtn = document.getElementById('generate-blog-variation-btn');
     const optimizeTextForBlogBtn = document.getElementById('optimize-text-for-blog-btn');
     const blogTitleInput = document.getElementById('blog-title');
+    const blogTopicTitleSelection = document.getElementById('blog-topic-title-selection');
+    const blogTopicTitleSelect = document.getElementById('blog-topic-title-select');
     const blogYtIdInput = document.getElementById('blog-yt-id');
     const blogPersonaSelect = document.getElementById('blog-persona');
     const blogWordCountSelect = document.getElementById('blog-word-count');
@@ -438,11 +440,36 @@ export const renderTags = function () { const tagContainer = document.getElement
         }
     }
 
+    function clearTopicTitleSelection() {
+        blogTopicTitleSelect.replaceChildren(new Option('請先在逐字稿整理頁面生成爆款主題建議', ''));
+        blogTopicTitleSelect.value = '';
+        blogTopicTitleSelection.classList.add('hidden');
+    }
+
+    function renderTopicTitleSuggestions(suggestions = state.topicTitleSuggestions, sourceId = state.topicTitleSuggestionsSourceId) {
+        const currentSuggestions = sourceId === state.currentSourceId ? suggestions : [];
+        if (!currentSuggestions.length) {
+            clearTopicTitleSelection();
+            return;
+        }
+
+        blogTopicTitleSelect.replaceChildren(new Option('請選擇主標題＋副標題', ''));
+        currentSuggestions.forEach((suggestion, index) => {
+            const option = new Option(
+                `方案 ${suggestion.scheme}・${suggestion.option}｜${suggestion.mainTitle}｜${suggestion.subtitle}`,
+                String(index),
+            );
+            blogTopicTitleSelect.appendChild(option);
+        });
+        blogTopicTitleSelection.classList.remove('hidden');
+    }
+
     function resetTab2() {
         state.blogSourceType = 'raw'; state.optimizedTextForBlog = ''; state.blogArticleVersions = []; state.currentBlogVersionIndex = 0;
         if (updateSourceStatusUI) updateSourceStatusUI();
         blogOutputContainer.classList.add('hidden'); blogPlaceholder.classList.remove('hidden');
         blogTitleInput.value = ''; blogYtIdInput.value = '';
+        clearTopicTitleSelection();
         ctaPresetSelect.value = 'custom'; handleCtaChange();
         state.currentBlogTags = []; renderTags();
         if (quillEditor) quillEditor.setText('');
@@ -452,6 +479,10 @@ export const renderTags = function () { const tagContainer = document.getElement
         window.dispatchEvent(new Event('lumina:blog-version-changed'));
     }
 
+    window.addEventListener('lumina:topicTitleSuggestionsReady', event => {
+        renderTopicTitleSuggestions(event.detail?.suggestions, event.detail?.sourceId);
+    });
+    window.addEventListener('lumina:topicTitleSuggestionsCleared', clearTopicTitleSelection);
     window.addEventListener('lumina:clearDownstreamTabs', resetTab2);
     function saveCustomCTA() { const content = blogCtaTextarea.value.trim(); if (!content) { showModal({ title: '錯誤', message: 'CTA 內容不能為空。' }); return; } const title = prompt('請為這個 CTA 命名（例如：我的個人 Blog 宣傳）：'); if (!title || !title.trim()) { return; } const customCtas = loadCustomCTAsFromStorage(); const newCta = { title: title.trim(), content }; customCtas.push(newCta); try { localStorage.setItem(CUSTOM_CTA_STORAGE_KEY, JSON.stringify(customCtas)); showToast('自訂 CTA 已儲存！'); const newKey = `custom_${customCtas.length - 1}`; renderCtaSelect(newKey); handleCtaChange(); } catch (error) { console.error("無法儲存自訂 CTA:", error); showModal({ title: '儲存失敗', message: '無法儲存 CTA，可能是儲存空間已滿。' }); } }
     function deleteCustomCTA() { const selectedValue = ctaPresetSelect.value; if (!selectedValue.startsWith('custom_')) return; const customCtas = loadCustomCTAsFromStorage(); const index = parseInt(selectedValue.split('_')[1], 10); const ctaToDelete = customCtas[index]; if (!ctaToDelete) return; if (confirm(`您確定要刪除「${ctaToDelete.title}」這個 CTA 嗎？`)) { customCtas.splice(index, 1); localStorage.setItem(CUSTOM_CTA_STORAGE_KEY, JSON.stringify(customCtas)); showToast('自訂 CTA 已刪除。'); renderCtaSelect('custom'); handleCtaChange(); } }
@@ -938,6 +969,12 @@ export const renderTags = function () { const tagContainer = document.getElement
     generateBlogVariationBtn.addEventListener('click', generateBlogVariation);
     downloadHtmlBtn.addEventListener('click', downloadAsHtml);
     downloadMdBtn.addEventListener('click', downloadAsMarkdown);
+    blogTopicTitleSelect.addEventListener('change', () => {
+        if (blogTopicTitleSelect.value === '') return;
+        const suggestion = state.topicTitleSuggestions[Number(blogTopicTitleSelect.value)];
+        if (!suggestion || state.topicTitleSuggestionsSourceId !== state.currentSourceId) return;
+        blogTitleInput.value = suggestion.subtitle ? `${suggestion.mainTitle}：${suggestion.subtitle}` : suggestion.mainTitle;
+    });
     ctaPresetSelect.addEventListener('change', handleCtaChange);
     saveCtaBtn.addEventListener('click', saveCustomCTA);
     deleteCtaBtn.addEventListener('click', deleteCustomCTA);
@@ -984,6 +1021,7 @@ export const renderTags = function () { const tagContainer = document.getElement
     initializeTags();
     handleCtaChange();
     loadSettings();
+    renderTopicTitleSuggestions();
 
     // 註冊 Quill 水平線 (<hr>) 嵌入元件以支援段落區塊分隔線
     const BlockEmbed = Quill.import('blots/block/embed');

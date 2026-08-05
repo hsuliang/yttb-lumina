@@ -290,7 +290,7 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．大暑．20260804<span class="text-error font-bold">R12</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．立秋．20260807<span class="text-error font-bold">R1</span>
             </div>
         </div>
     </nav>
@@ -703,7 +703,15 @@
                             <!-- Title Input -->
                             <div class="space-y-1.5">
                                 <label class="font-label-md text-label-md text-on-surface font-semibold block" for="blog-title">文章標題</label>
-                                <input class="w-full glass-input rounded-lg px-4 py-2.5 font-body-sm text-body-sm text-on-surface focus:outline-none" id="blog-title" placeholder="請輸入您的文章主標題" type="text">
+                                <input class="w-full glass-input rounded-lg px-4 py-2.5 font-body-sm text-body-sm text-on-surface focus:outline-none" id="blog-title" placeholder="可手動輸入，或從爆款主題建議選取" type="text">
+                            </div>
+
+                            <div id="blog-topic-title-selection" class="hidden space-y-1.5 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="blog-topic-title-select">從爆款主題建議選取完整配對</label>
+                                <select id="blog-topic-title-select" class="w-full glass-input rounded-lg px-3 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none">
+                                    <option value="">請選擇主標題＋副標題</option>
+                                </select>
+                                <p class="font-body-sm text-[11px] text-on-surface-variant">選取後會將主標題與副標題組合為文章標題，仍可再自行修改。</p>
                             </div>
 
                             <!-- YouTube ID Input -->

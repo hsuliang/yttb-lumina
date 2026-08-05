@@ -158,3 +158,28 @@ test('Tab 7 keeps manual title fields available without Tab 1 suggestions', () =
     assert.match(thumbnail, /topicTitleSelection\.classList\.add\('hidden'\)/);
     assert.match(thumbnail, /subtitle: subtitleInput\.value/);
 });
+
+test('Tab 2 can fill the article title from current transcript topic suggestions', () => {
+    const html = readProjectFile('index.html');
+    const blog = readProjectFile('public/js/tab2-blog.js');
+
+    assert.match(html, /id="blog-title"[\s\S]*id="blog-topic-title-selection"[\s\S]*id="blog-topic-title-select"/);
+    assert.match(html, /從爆款主題建議選取完整配對/);
+    assert.match(html, /主標題與副標題組合為文章標題/);
+    assert.match(blog, /function renderTopicTitleSuggestions/);
+    assert.match(blog, /sourceId === state\.currentSourceId/);
+    assert.match(blog, /state\.topicTitleSuggestionsSourceId !== state\.currentSourceId/);
+    assert.match(blog, /blogTitleInput\.value = suggestion\.subtitle \? `\$\{suggestion\.mainTitle\}：\$\{suggestion\.subtitle\}` : suggestion\.mainTitle/);
+    assert.match(blog, /lumina:topicTitleSuggestionsReady/);
+});
+
+test('Tab 2 keeps manual title entry and clears stale topic selections on reset', () => {
+    const html = readProjectFile('index.html');
+    const blog = readProjectFile('public/js/tab2-blog.js');
+
+    assert.match(html, /id="blog-title"[^>]*placeholder="可手動輸入，或從爆款主題建議選取"/);
+    assert.match(blog, /function clearTopicTitleSelection/);
+    assert.match(blog, /blogTopicTitleSelection\.classList\.add\('hidden'\)/);
+    assert.match(blog, /function resetTab2\(\)[\s\S]*blogTitleInput\.value = ''[\s\S]*clearTopicTitleSelection\(\)/);
+    assert.match(blog, /lumina:topicTitleSuggestionsCleared/);
+});
