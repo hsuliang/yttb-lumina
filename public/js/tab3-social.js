@@ -4,6 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
  * tab3-social.js
@@ -29,9 +30,9 @@ function resetTab3() {
     if(varBtn) varBtn.disabled = true;
     if(copyBtn) copyBtn.classList.add('hidden');
     
-    document.getElementById('facebook-post-output').textContent = '';
-    document.getElementById('instagram-post-output').textContent = '';
-    document.getElementById('line-post-output').textContent = '';
+    renderMarkdownBold(document.getElementById('facebook-post-output'), '');
+    renderMarkdownBold(document.getElementById('instagram-post-output'), '');
+    renderMarkdownBold(document.getElementById('line-post-output'), '');
     document.getElementById('social-hashtags').value = '';
     document.getElementById('social-cta').value = '';
     const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
@@ -127,9 +128,9 @@ function renderCurrentSocialVersionUI() {
     const currentVersion = state.socialPostVersions[state.currentSocialVersionIndex];
     if (!currentVersion) return;
     
-    document.getElementById('facebook-post-output').textContent = currentVersion.facebook;
-    document.getElementById('instagram-post-output').textContent = currentVersion.instagram;
-    document.getElementById('line-post-output').textContent = currentVersion.line;
+    renderMarkdownBold(document.getElementById('facebook-post-output'), currentVersion.facebook);
+    renderMarkdownBold(document.getElementById('instagram-post-output'), currentVersion.instagram);
+    renderMarkdownBold(document.getElementById('line-post-output'), currentVersion.line);
 
     switchSocialTab(state.activeSocialTab);
 }
@@ -260,7 +261,7 @@ export const switchSocialTab = function(platform) {
             socialOutputContainer.classList.remove('hidden');
             const activeOutput = socialPostOutputs[state.activeSocialTab];
             if (activeOutput) {
-                activeOutput.textContent = '';
+                renderMarkdownBold(activeOutput, '');
                 activeOutput.classList.add('text-center', 'animate-pulse');
                 activeOutput.style.color = '#f97316';
                 activeOutput.style.fontSize = '1.1rem';
@@ -282,7 +283,7 @@ export const switchSocialTab = function(platform) {
                                 activeOutput.style.fontSize = '';
                                 activeOutput.style.fontWeight = '';
                             }
-                            activeOutput.textContent = fullText;
+                            renderMarkdownBold(activeOutput, fullText);
                             activeOutput.scrollTop = activeOutput.scrollHeight;
                         }
                     }, state.currentAbortController.signal);
@@ -292,7 +293,7 @@ export const switchSocialTab = function(platform) {
                         break;
                     }
                     console.warn(`第 ${i+1} 次嘗試，社群貼文回應格式不完整，正在自動重試...`);
-                    if (activeOutput) activeOutput.textContent = '初步回應格式不完整，正在自動重試...';
+                    if (activeOutput) renderMarkdownBold(activeOutput, '初步回應格式不完整，正在自動重試...');
                 }
             if (!isValidResponse) {
                 throw new Error("AI 回應格式不完整，請稍後再試或生成另一版本。");
@@ -331,7 +332,7 @@ export const switchSocialTab = function(platform) {
                     activeOutput.style.color = '';
                     activeOutput.style.fontSize = '';
                     activeOutput.style.fontWeight = '';
-                    activeOutput.textContent = '生成已中斷。';
+                    renderMarkdownBold(activeOutput, '生成已中斷。');
                 }
             } else if (error.message && error.message.includes('overloaded')) { 
                 showModal({ 

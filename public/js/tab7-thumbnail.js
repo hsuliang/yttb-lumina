@@ -5,6 +5,7 @@ import { activateSource, getPreferredSource, isCurrentSource } from './content-s
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { buildThumbnailPrompt, ensureThumbnailAspectRatio } from './thumbnail-prompt.js';
+import { renderMarkdownBold } from './markdown-renderer.js';
 
 const THUMBNAIL_SECTION_PATTERN = /^\[(人物設定|主體與動作|地點\/背景|構圖\/鏡頭|文字|藝術風格)\]\s*([：:])\s*(.*)$/;
 
@@ -123,9 +124,13 @@ export function initializeTab7() {
             if (headingMatch) {
                 const heading = document.createElement('strong');
                 heading.textContent = `[${headingMatch[1]}]${headingMatch[2]}`;
-                promptDisplay.append(heading, document.createTextNode(` ${headingMatch[3]}`));
+                const headingContent = document.createElement('span');
+                renderMarkdownBold(headingContent, ` ${headingMatch[3]}`);
+                promptDisplay.append(heading, headingContent);
             } else {
-                promptDisplay.append(document.createTextNode(line));
+                const lineContent = document.createElement('span');
+                renderMarkdownBold(lineContent, line);
+                promptDisplay.append(lineContent);
             }
             if (index < lines.length - 1) promptDisplay.append(document.createTextNode('\n'));
         });

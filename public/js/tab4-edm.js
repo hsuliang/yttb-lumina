@@ -4,6 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
 
 /**
  * tab4-edm.js
@@ -65,7 +66,7 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 
         edmPlaceholder.classList.add('hidden');
         edmOutputContainer.classList.remove('hidden');
-        edmPreview.innerHTML = currentVersion.htmlContent;
+        edmPreview.innerHTML = normalizeMarkdownBoldHtml(currentVersion.htmlContent);
         copyEdmHtmlBtn.classList.remove('hidden');
         generateEdmVariationBtn.disabled = false;
     }

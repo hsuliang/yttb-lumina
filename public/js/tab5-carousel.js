@@ -4,6 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
  * tab5-carousel.js
@@ -167,7 +168,7 @@ import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
         copyAllCarouselPromptsBtn.classList.remove('hidden');
         
         // 將 AI 產出文字一次性填入右側的大文字框
-        carouselPromptTextarea.value = currentVersion.textContent;
+        renderMarkdownBold(carouselPromptTextarea, currentVersion.textContent);
 
         // 渲染單張提示詞複製按鈕
         const copyContainer = document.getElementById('carousel-individual-copy-container');
@@ -487,7 +488,7 @@ ${layoutInstructionsText}
         if (carouselPlaceholder) carouselPlaceholder.classList.add('hidden');
         if (carouselOutputContainer) carouselOutputContainer.classList.remove('hidden');
         if (carouselPromptTextarea) {
-            carouselPromptTextarea.value = '';
+            renderMarkdownBold(carouselPromptTextarea, '');
             carouselPromptTextarea.classList.add('text-center', 'animate-pulse');
             carouselPromptTextarea.style.color = '#f97316';
             carouselPromptTextarea.style.fontSize = '1.1rem';
@@ -510,7 +511,7 @@ ${layoutInstructionsText}
                         carouselPromptTextarea.style.fontSize = '';
                         carouselPromptTextarea.style.fontWeight = '';
                     }
-                    carouselPromptTextarea.value = displayText;
+                    renderMarkdownBold(carouselPromptTextarea, displayText);
                     carouselPromptTextarea.scrollTop = carouselPromptTextarea.scrollHeight;
                 }
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
@@ -550,7 +551,7 @@ ${layoutInstructionsText}
                     carouselPromptTextarea.style.color = '';
                     carouselPromptTextarea.style.fontSize = '';
                     carouselPromptTextarea.style.fontWeight = '';
-                    carouselPromptTextarea.value = '生成已中斷。';
+                    renderMarkdownBold(carouselPromptTextarea, '生成已中斷。');
                 }
             } else if (error.message && error.message.includes('overloaded')) {
                 showModal({

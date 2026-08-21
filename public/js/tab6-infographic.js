@@ -4,6 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
  * js/tab6-infographic.js
@@ -89,9 +90,12 @@ export const initializeTab6 = function() {
         // 複製提示詞
         if (copyPromptBtn) {
             copyPromptBtn.addEventListener('click', () => {
-                const promptTextarea = document.getElementById('infographic-prompt-textarea');
-                if (promptTextarea) {
-                    navigator.clipboard.writeText(promptTextarea.value)
+                const currentVersion = state.infographicVersions[state.currentInfographicVersionIndex];
+                const promptText = activePromptLang === 'zh'
+                    ? currentVersion?.promptTextZh || currentVersion?.promptTextEn || ''
+                    : currentVersion?.promptTextEn || '';
+                if (promptText) {
+                    navigator.clipboard.writeText(promptText)
                         .then(() => showToast('提示詞已複製到剪貼簿！', { type: 'success' }))
                         .catch(err => {
                             console.error('複製失敗:', err);
@@ -517,21 +521,21 @@ export const analyzeInfographicContent = function() {
                 if (activePromptLang === 'zh') {
                     enTab.className = 'px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface bg-transparent transition-colors';
                     zhTab.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors';
-                    if (promptTextarea) promptTextarea.value = currentVersion.promptTextZh || currentVersion.promptTextEn || '';
+                    if (promptTextarea) renderMarkdownBold(promptTextarea, currentVersion.promptTextZh || currentVersion.promptTextEn || '');
                 } else {
                     enTab.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-secondary text-[#341100] shadow-sm transition-colors';
                     zhTab.className = 'px-3 py-1 rounded-md text-xs font-semibold text-on-surface-variant hover:text-on-surface bg-transparent transition-colors';
-                    if (promptTextarea) promptTextarea.value = currentVersion.promptTextEn || '';
+                    if (promptTextarea) renderMarkdownBold(promptTextarea, currentVersion.promptTextEn || '');
                 }
             } else {
                 if (activePromptLang === 'zh') {
                     enTab.className = 'px-3 py-1 text-xs font-semibold rounded bg-[var(--gray-bg)] border border-[var(--card-border)] text-[var(--body-text)] focus:outline-none';
                     zhTab.className = 'px-3 py-1 text-xs font-semibold rounded bg-[var(--link-color)] text-white focus:outline-none';
-                    if (promptTextarea) promptTextarea.value = currentVersion.promptTextZh || currentVersion.promptTextEn || '';
+                    if (promptTextarea) renderMarkdownBold(promptTextarea, currentVersion.promptTextZh || currentVersion.promptTextEn || '');
                 } else {
                     enTab.className = 'px-3 py-1 text-xs font-semibold rounded bg-[var(--link-color)] text-white focus:outline-none';
                     zhTab.className = 'px-3 py-1 text-xs font-semibold rounded bg-[var(--gray-bg)] border border-[var(--card-border)] text-[var(--body-text)] focus:outline-none';
-                    if (promptTextarea) promptTextarea.value = currentVersion.promptTextEn || '';
+                    if (promptTextarea) renderMarkdownBold(promptTextarea, currentVersion.promptTextEn || '');
                 }
             }
         }
@@ -721,7 +725,7 @@ ${sourceContent}
             reportContent.style.fontWeight = '600';
         }
         if (promptTextarea) {
-            promptTextarea.value = '';
+            renderMarkdownBold(promptTextarea, '');
             promptTextarea.classList.add('text-center', 'animate-pulse');
             promptTextarea.style.setProperty('color', '#f97316', 'important');
             promptTextarea.style.fontSize = '1.1rem';
@@ -750,13 +754,13 @@ ${sourceContent}
                 
                 // Keep the raw output visible in textarea temporarily while streaming
                 if (promptTextarea) {
-                    promptTextarea.value = fullText;
+                    renderMarkdownBold(promptTextarea, fullText);
                     promptTextarea.scrollTop = promptTextarea.scrollHeight;
                 }
                 
                 // Also update the report content with the text during streaming so both sides show it
                 if (reportContent) {
-                    reportContent.textContent = fullText;
+                    renderMarkdownBold(reportContent, fullText);
                 }
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
             if (!isCurrentSource(requestSourceId)) return;
@@ -794,7 +798,7 @@ ${sourceContent}
                     promptTextarea.style.removeProperty('color');
                     promptTextarea.style.fontSize = '';
                     promptTextarea.style.fontWeight = '';
-                    promptTextarea.value = '生成已中斷。';
+                    renderMarkdownBold(promptTextarea, '生成已中斷。');
                 }
             } else {
                 showToast('生成失敗，請重試！');
@@ -827,7 +831,7 @@ ${sourceContent}
         if (copyPromptBtn) copyPromptBtn.classList.add('hidden');
         if (reportContainer) reportContainer.classList.add('hidden');
         if (generateVariationBtn) generateVariationBtn.disabled = true;
-        if (promptTextarea) promptTextarea.value = '';
+        if (promptTextarea) renderMarkdownBold(promptTextarea, '');
 
     }
 

@@ -5,6 +5,7 @@ import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_ST
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 import { initializeBloggerPublisher } from './blogger-publisher.js';
+import { normalizeMarkdownBoldHtml, renderMarkdownBold } from './markdown-renderer.js';
 
 /**
  * tab2-blog.js
@@ -109,7 +110,7 @@ function cleanHtml(html) {
     cleaned = cleaned.replace(/<p>(\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, '');
     cleaned = cleaned.replace(/<\/h2>\s*(<p><br><\/p>)/gi, '</h2>');
     cleaned = cleaned.replace(/>\s+</g, '><');
-    return cleaned.trim();
+    return normalizeMarkdownBoldHtml(cleaned.trim());
 }
 
 export const updateStepperUI = function () {
@@ -207,10 +208,10 @@ function renderKeywords(keywordsData) {
     coreList.innerHTML = '';
     longtailList.innerHTML = '';
     if (keywordsData && keywordsData.core_keywords && keywordsData.core_keywords.length > 0) {
-        keywordsData.core_keywords.forEach(kw => { const li = document.createElement('li'); li.textContent = kw; coreList.appendChild(li); });
+        keywordsData.core_keywords.forEach(kw => { const li = document.createElement('li'); renderMarkdownBold(li, kw); coreList.appendChild(li); });
     } else { coreList.innerHTML = '<li>無建議</li>'; }
     if (keywordsData && keywordsData.long_tail_keywords && keywordsData.long_tail_keywords.length > 0) {
-        keywordsData.long_tail_keywords.forEach(kw => { const li = document.createElement('li'); li.textContent = kw; longtailList.appendChild(li); });
+        keywordsData.long_tail_keywords.forEach(kw => { const li = document.createElement('li'); renderMarkdownBold(li, kw); longtailList.appendChild(li); });
     } else { longtailList.innerHTML = '<li>無建議</li>'; }
     resultContainer.classList.remove('hidden');
 }
@@ -225,12 +226,31 @@ function renderInternalLinks(linksData) {
     linksData.forEach(suggestion => {
         const card = document.createElement('div');
         card.className = 'internal-link-suggestion';
-        card.innerHTML = `
-            <strong>建議錨點文字：</strong><p>${suggestion.anchor_text}</p>
-            <strong class="mt-2">上下文句子：</strong><blockquote>${suggestion.context_sentence}</blockquote>
-            <div class="suggestion-target">
-                <strong>建議連結至：</strong><p><a href="${suggestion.suggested_link_url}" target="_blank" rel="noopener">${suggestion.suggested_link_title}</a></p>
-            </div>`;
+
+        const anchorLabel = document.createElement('strong');
+        anchorLabel.textContent = '建議錨點文字：';
+        const anchorText = document.createElement('p');
+        renderMarkdownBold(anchorText, suggestion.anchor_text);
+
+        const contextLabel = document.createElement('strong');
+        contextLabel.className = 'mt-2';
+        contextLabel.textContent = '上下文句子：';
+        const contextText = document.createElement('blockquote');
+        renderMarkdownBold(contextText, suggestion.context_sentence);
+
+        const target = document.createElement('div');
+        target.className = 'suggestion-target';
+        const targetLabel = document.createElement('strong');
+        targetLabel.textContent = '建議連結至：';
+        const targetText = document.createElement('p');
+        const targetLink = document.createElement('a');
+        targetLink.href = suggestion.suggested_link_url || '#';
+        targetLink.target = '_blank';
+        targetLink.rel = 'noopener';
+        renderMarkdownBold(targetLink, suggestion.suggested_link_title);
+        targetText.appendChild(targetLink);
+        target.append(targetLabel, targetText);
+        card.append(anchorLabel, anchorText, contextLabel, contextText, target);
         resultContainer.appendChild(card);
     });
 }
@@ -273,10 +293,10 @@ function renderCurrentVersionUI() {
     document.getElementById('html-source-preview').value = latestHtml;
     document.getElementById('markdown-source-preview').value = convertHtmlToMarkdown(latestHtml);
 
-    document.getElementById('seo-title-text').textContent = currentVersion.seoData.title;
-    document.getElementById('seo-description-text').textContent = currentVersion.seoData.description;
-    document.getElementById('seo-permalink-text').textContent = currentVersion.seoData.permalink;
-    document.getElementById('seo-tags-text').textContent = currentVersion.seoData.tags;
+    renderMarkdownBold(document.getElementById('seo-title-text'), currentVersion.seoData.title);
+    renderMarkdownBold(document.getElementById('seo-description-text'), currentVersion.seoData.description);
+    renderMarkdownBold(document.getElementById('seo-permalink-text'), currentVersion.seoData.permalink);
+    renderMarkdownBold(document.getElementById('seo-tags-text'), currentVersion.seoData.tags);
     if (currentVersion.advancedSeoData.keywords) {
         renderKeywords(currentVersion.advancedSeoData.keywords);
     } else { document.getElementById('keywords-result-container').classList.add('hidden'); }
