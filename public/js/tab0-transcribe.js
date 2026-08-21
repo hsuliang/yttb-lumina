@@ -880,7 +880,7 @@ export function initializeTab0() {
             
             if (geminiOption) {
                 geminiOption.disabled = !hasGemini;
-                geminiOption.textContent = hasGemini ? 'Gemini Flash 1.5 up' : 'Gemini Flash 1.5 up (未設定金鑰)';
+                geminiOption.textContent = hasGemini ? 'Gemini Flash（3.7 優先）' : 'Gemini Flash（3.7 優先，未設定金鑰）';
             }
             
             if (whisperOption) {
@@ -1133,7 +1133,7 @@ export function initializeTab0() {
         // 顯示引擎與字幕數資訊
         const infoEl = document.getElementById('tab0-result-info');
         if (infoEl) {
-            const engineLabel = isWhisper ? 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)' : 'Gemini AI (gemini-1.5-flash)';
+            const engineLabel = isWhisper ? 'Whisper 專業版 (@cf/openai/whisper-large-v3-turbo)' : 'Gemini AI（3.7 優先）';
             infoEl.textContent = `引擎：${engineLabel}${data.blockCount ? ` | 字幕段數：${data.blockCount}` : ''}`;
             infoEl.classList.remove('hidden');
         }

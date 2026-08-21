@@ -432,7 +432,6 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 
                 const generationConfig = {
                     responseMimeType: "text/plain",
-                    temperature: 0,
                     maxOutputTokens: 65536,
                 };
 
@@ -533,8 +532,13 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     throw new Error(translateError(finalErrorMsg));
 }
 
-function translateError(message) {
+export function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";
+
+    // 串流回應未完整傳回或格式異常
+    if (message.toLowerCase().includes("failed to parse stream")) {
+        return "【AI 串流回應中斷】AI 已開始回傳內容，但網路或 Gemini 服務的串流回應未完整傳回，因此無法完成電子報。\n\n可能原因：網路短暫不穩、Gemini 服務忙碌，或瀏覽器連線中途被中斷。\n\n處理方式：請先重新生成；若再次發生，確認網路連線後稍候再試。持續發生時，請改用其他 Gemini API Key，或切換至其他 AI 引擎。畫面上已出現的部分內容可能不完整，請勿直接使用。";
+    }
     
     // 503 / High Demand / Overloaded
     if (message.includes("503") || message.includes("high demand") || message.includes("overloaded") || message.includes("Service Unavailable")) {

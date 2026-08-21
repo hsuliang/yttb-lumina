@@ -6,6 +6,7 @@ export const GEMINI_MODEL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const GEMINI_TRANSIENT_MODEL_COOLDOWN_MS = 60 * 1000;
 
 export const GEMINI_TEXT_MODEL_ALLOWLIST = Object.freeze([
+    'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash',
     'gemini-3.1-flash',

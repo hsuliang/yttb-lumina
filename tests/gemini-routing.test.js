@@ -15,6 +15,7 @@ test('approved Flash text models are sorted newest first with latest alias last'
         { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.7-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.1-flash-tts-preview', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.1-flash-image', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.1-flash-live-preview', supportedGenerationMethods: ['generateContent'] },
@@ -24,6 +25,7 @@ test('approved Flash text models are sorted newest first with latest alias last'
     ];
 
     assert.deepEqual(buildApprovedFlashModelList(models), [
+        'gemini-3.7-flash',
         'gemini-3.6-flash',
         'gemini-3.5-flash',
         'gemini-2.5-flash',
