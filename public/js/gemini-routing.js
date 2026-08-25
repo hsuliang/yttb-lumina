@@ -124,8 +124,16 @@ export function classifyGeminiError(error) {
         return { action: 'abort', reason: 'aborted' };
     }
 
-    if (normalized.includes('safety') || normalized.includes('blockreason') || normalized.includes('安全政策')) {
+    if (error?.code === 'content_safety' || normalized.includes('safety') || normalized.includes('blockreason') || normalized.includes('安全政策') || normalized.includes('安全設定')) {
         return { action: 'stop', reason: 'content_safety' };
+    }
+
+    if (error?.code === 'stream_parse' || normalized.includes('failed to parse stream')) {
+        return {
+            action: 'next_model',
+            reason: 'stream_parse_error',
+            cooldownMs: GEMINI_TRANSIENT_MODEL_COOLDOWN_MS,
+        };
     }
 
     if (status === 429 || normalized.includes('resource_exhausted') || normalized.includes('quota exceeded')) {
@@ -180,6 +188,7 @@ export function classifyGeminiError(error) {
         normalized.includes('timeout') ||
         normalized.includes('network') ||
         normalized.includes('fetch failed') ||
+        normalized.includes('failed to fetch') ||
         normalized.includes('overloaded') ||
         normalized.includes('unavailable')) {
         return {

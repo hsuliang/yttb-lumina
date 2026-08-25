@@ -72,8 +72,21 @@ test('daily quota, safety, invalid requests, and transient failures take differe
         'daily_quota_exhausted',
     );
     assert.equal(classifyGeminiError({ message: 'finishReason: SAFETY' }).action, 'stop');
+    assert.equal(classifyGeminiError({ code: 'content_safety', message: '請求因安全設定而被阻擋' }).action, 'stop');
     assert.equal(classifyGeminiError({ status: 400, message: 'INVALID_ARGUMENT' }).action, 'stop');
     assert.equal(classifyGeminiError({ status: 503, message: 'UNAVAILABLE' }).action, 'next_model');
+    assert.equal(classifyGeminiError({ message: 'Failed to fetch' }).action, 'next_model');
+});
+
+test('stream parse failures move to another model instead of stopping the whole request', () => {
+    assert.deepEqual(classifyGeminiError({
+        code: 'stream_parse',
+        message: '[Gemini API] Failed to parse stream',
+    }), {
+        action: 'next_model',
+        reason: 'stream_parse_error',
+        cooldownMs: 60 * 1000,
+    });
 });
 
 test('retry delay is parsed from structured error details', () => {

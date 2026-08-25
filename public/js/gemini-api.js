@@ -1,6 +1,5 @@
 import { state } from './state.js';
 import { buildTranscriptionTerminologyInstruction, TEXT_GENERATION_SYSTEM_INSTRUCTION } from './prompt-policy.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { callCloudflareTextAPI } from './cf-api.js';
 import {
     GEMINI_FALLBACK_MODEL,
@@ -14,11 +13,11 @@ import {
 /**
  * gemini-api.js
  * 封裝所有與 Google Gemini API 互動的邏輯。
- * 使用官方 @google/generative-ai SDK。
+ * 使用官方 Gemini REST API，並由本模組統一處理串流解析。
  */
 
 /**
- * 【使用官方 SDK 版本】
+ * 【使用官方 Gemini REST API】
  * 呼叫 Gemini API 並獲取回應。
  * 重試、節流與金鑰輪替由本模組統一處理。
  *
@@ -30,6 +29,260 @@ import {
  */
 const modelCache = new Map();
 const keyNextRequestAt = new Map();
+const GEMINI_CONTENT_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_BLOCKED_FINISH_REASONS = new Set([
+    'SAFETY',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'RECITATION',
+    'LANGUAGE',
+    'SPII',
+]);
+
+function createGeminiError(message, { status = 0, code = '', response = null, errorDetails = [] } = {}) {
+    const error = new Error(message);
+    if (status) error.status = status;
+    if (code) error.code = code;
+    if (response) error.geminiResponse = response;
+    if (errorDetails && (Array.isArray(errorDetails) ? errorDetails.length > 0 : true)) {
+        error.errorDetails = errorDetails;
+    }
+    return error;
+}
+
+function createGeminiStreamParseError(cause = null) {
+    const error = createGeminiError('[Gemini API] Failed to parse stream', { code: 'stream_parse' });
+    if (cause) error.cause = cause;
+    return error;
+}
+
+function getGeminiResponseText(response) {
+    return response?.candidates?.[0]?.content?.parts
+        ?.map(part => typeof part?.text === 'string' ? part.text : '')
+        .join('') || '';
+}
+
+function validateGeminiResponse(response, responseText = '') {
+    const blockReason = response?.promptFeedback?.blockReason;
+    if (blockReason) {
+        throw createGeminiError(`請求因安全設定而被阻擋，原因：${blockReason}`, {
+            code: 'content_safety',
+            response,
+        });
+    }
+
+    if (response?.promptFeedback) {
+        throw createGeminiError('請求因 Gemini 安全設定而沒有可用內容。', {
+            code: 'content_safety',
+            response,
+        });
+    }
+
+    const candidate = response?.candidates?.[0];
+    if (!candidate) {
+        throw createGeminiError('Gemini 回應沒有候選內容。', {
+            code: 'empty_response',
+            response,
+        });
+    }
+
+    const finishReason = String(candidate.finishReason || '').toUpperCase();
+    if (GEMINI_BLOCKED_FINISH_REASONS.has(finishReason)) {
+        throw createGeminiError(`內容因 Gemini 安全政策而被阻擋，原因：${candidate.finishReason}`, {
+            code: 'content_safety',
+            response,
+        });
+    }
+
+    return responseText || getGeminiResponseText(response);
+}
+
+function findSseDelimiter(buffer) {
+    const delimiters = ['\r\n\r\n', '\n\n', '\r\r'];
+    let index = -1;
+    let length = 0;
+
+    delimiters.forEach(delimiter => {
+        const candidateIndex = buffer.indexOf(delimiter);
+        if (candidateIndex !== -1 && (index === -1 || candidateIndex < index)) {
+            index = candidateIndex;
+            length = delimiter.length;
+        }
+    });
+
+    return index === -1 ? null : { index, length };
+}
+
+/**
+ * Parse one Gemini SSE event. Gemini normally sends `data: {json}` events,
+ * but accepting a raw JSON event keeps the transport compatible with proxies
+ * that remove the SSE framing while preserving the same response payload.
+ */
+export function parseGeminiSseEvent(eventText) {
+    const lines = String(eventText || '').split(/\r\n|\n|\r/);
+    const dataLines = lines
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).replace(/^ /, ''));
+
+    if (dataLines.length === 0) {
+        const raw = lines.join('\n').trim();
+        if (!raw || raw === '[DONE]' || lines.some(line => line.startsWith('event:'))) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (error) {
+            throw createGeminiStreamParseError(error);
+        }
+    }
+
+    const payload = dataLines.join('\n').trim();
+    if (!payload || payload === '[DONE]') return null;
+
+    try {
+        return JSON.parse(payload);
+    } catch (error) {
+        throw createGeminiStreamParseError(error);
+    }
+}
+
+function mergeGeminiStreamResponse(target, response) {
+    if (response?.promptFeedback) target.promptFeedback = response.promptFeedback;
+    if (Array.isArray(response?.candidates) && response.candidates.length > 0) {
+        target.candidates = response.candidates;
+    }
+    if (response?.usageMetadata) target.usageMetadata = response.usageMetadata;
+    return target;
+}
+
+async function readGeminiStream(response, onStream) {
+    if (!response.body) throw createGeminiStreamParseError();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    const aggregateResponse = {};
+    let buffer = '';
+    let eventCount = 0;
+    let responseText = '';
+
+    const processEvent = eventText => {
+        const parsed = parseGeminiSseEvent(eventText);
+        if (!parsed) return;
+        eventCount += 1;
+        mergeGeminiStreamResponse(aggregateResponse, parsed);
+
+        const chunkText = getGeminiResponseText(parsed);
+        if (chunkText) {
+            responseText += chunkText;
+            onStream?.(chunkText, responseText);
+        }
+    };
+
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let delimiter = findSseDelimiter(buffer);
+            while (delimiter) {
+                const eventText = buffer.slice(0, delimiter.index);
+                buffer = buffer.slice(delimiter.index + delimiter.length);
+                processEvent(eventText);
+                delimiter = findSseDelimiter(buffer);
+            }
+        }
+
+        buffer += decoder.decode();
+        if (buffer.trim()) processEvent(buffer);
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        if (error?.code === 'stream_parse') throw error;
+        throw createGeminiStreamParseError(error);
+    } finally {
+        reader.releaseLock();
+    }
+
+    if (eventCount === 0) throw createGeminiStreamParseError();
+    return { response: aggregateResponse, text: responseText };
+}
+
+async function readGeminiErrorResponse(response) {
+    const rawBody = await response.text();
+    let payload = null;
+    try {
+        payload = rawBody ? JSON.parse(rawBody) : null;
+    } catch (_) {
+        // Keep the raw response text in the error when the server did not return JSON.
+    }
+
+    const message = payload?.error?.message || rawBody || `${response.status} ${response.statusText}`.trim();
+    return createGeminiError(`[Gemini API ${response.status}] ${message}`, {
+        status: response.status,
+        code: payload?.error?.status || '',
+        errorDetails: payload?.error?.details || [],
+        response: payload,
+    });
+}
+
+async function requestGeminiContent({ apiKey, modelName, body, stream, abortSignal }) {
+    const task = stream ? 'streamGenerateContent?alt=sse' : 'generateContent';
+    const url = `${GEMINI_CONTENT_API_BASE_URL}/${encodeURIComponent(modelName)}:${task}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+        },
+        body: JSON.stringify(body),
+        signal: abortSignal || undefined,
+    });
+
+    if (!response.ok) throw await readGeminiErrorResponse(response);
+    return response;
+}
+
+async function readGeminiJsonResponse(response) {
+    const rawBody = await response.text();
+    if (!rawBody.trim()) {
+        throw createGeminiError('Gemini 回應為空。', { code: 'empty_response' });
+    }
+
+    try {
+        return JSON.parse(rawBody);
+    } catch (error) {
+        throw createGeminiError('Gemini 回應 JSON 解析失敗。', { code: 'response_parse', response: rawBody });
+    }
+}
+
+async function generateGeminiContent({
+    apiKey,
+    modelName,
+    contents,
+    generationConfig,
+    systemInstruction,
+    onStream = null,
+    streamStatus = null,
+    abortSignal = null,
+}) {
+    const stream = Boolean(onStream);
+    if (stream && streamStatus) onStream('', streamStatus);
+
+    const body = { contents, generationConfig, systemInstruction };
+    const response = await requestGeminiContent({ apiKey, modelName, body, stream, abortSignal });
+
+    if (stream) {
+        const streamed = await readGeminiStream(response, onStream);
+        return {
+            text: validateGeminiResponse(streamed.response, streamed.text),
+            response: streamed.response,
+        };
+    }
+
+    const payload = await readGeminiJsonResponse(response);
+    return {
+        text: validateGeminiResponse(payload),
+        response: payload,
+    };
+}
 
 function readStoredKeyEntries() {
     let isSession = false;
@@ -235,7 +488,6 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
  * @throws {Error} 如果所有嘗試均失敗。
  */
 export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null) {
-    
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
 
     if (aiEngine === 'cloudflare' && !forceJson) {
@@ -277,62 +529,29 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
 
                 console.log(`Trying API Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
 
-                const genAI = new GoogleGenerativeAI(currentKey);
-
                 const generationConfig = {
                     responseMimeType: forceJson ? "application/json" : "text/plain",
                 };
-                
-
                 const systemInstruction = {
                     role: "system",
                     parts: [{ text: TEXT_GENERATION_SYSTEM_INSTRUCTION }]
                 };
 
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: generationConfig,
-                    systemInstruction: systemInstruction,
+                const result = await generateGeminiContent({
+                    apiKey: currentKey,
+                    modelName,
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig,
+                    systemInstruction,
+                    onStream: onStream && !forceJson ? onStream : null,
+                    streamStatus: onStream && !forceJson ? `Gemini (${modelName}) 思考中...` : null,
+                    abortSignal,
                 });
-
-                const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
-                let responseText = "";
-
-                if (onStream && !forceJson) {
-                    onStream('', `Gemini (${modelName}) 思考中...`);
-                    const result = await model.generateContentStream(prompt, requestOptions);
-                    for await (const chunk of result.stream) {
-                        const chunkText = chunk.text();
-                        responseText += chunkText;
-                        onStream(chunkText, responseText);
-                    }
-                    
-                    // 為了相容後續的安全檢查，我們模擬 response 物件
-                    const response = await result.response;
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
-                    }
-                } else {
-                    const result = await model.generateContent(prompt, requestOptions);
-                    const response = result.response;
-
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。請檢查您的原始字幕內容是否包含敏感詞彙。");
-                    }
-                    responseText = response.text();
-                }
 
                 recordKeySuccess(currentKey);
                 console.log(`[API Key Usage Updated] Key: ...${currentKey.slice(-4)}`);
 
-                return responseText;
+                return result.text;
 
             } catch (error) {
                 lastModelError = error;
@@ -389,8 +608,6 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
  * @returns {Promise<string>} AI 生成的 SRT 文字。
  */
 export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptText, onStream = null, abortSignal = null) {
-    
-
     const keyPool = buildKeyPool(apiKey);
 
     if (keyPool.length === 0) {
@@ -428,27 +645,15 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 
                 console.log(`[Audio API] Trying Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
 
-                const genAI = new GoogleGenerativeAI(currentKey);
-
                 const generationConfig = {
                     responseMimeType: "text/plain",
                     maxOutputTokens: 65536,
                 };
-
-
                 const terminologyInstruction = buildTranscriptionTerminologyInstruction(state.aiTerminologyRules);
-
                 const systemInstruction = {
                     role: "system",
                     parts: [{ text: "你是一個專業的語音轉寫員。你必須且只能使用「繁體中文（台灣）」進行回覆，絕對不可以使用簡體中文。請嚴格遵守使用者要求的輸出格式。" + terminologyInstruction }]
                 };
-
-                const model = genAI.getGenerativeModel({
-                    model: modelName,
-                    generationConfig: generationConfig,
-                    systemInstruction: systemInstruction,
-                });
-
                 const parts = [
                     { text: promptText },
                     {
@@ -459,45 +664,25 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
                     },
                 ];
 
-                const requestOptions = abortSignal ? { signal: abortSignal } : undefined;
-                let responseText = "";
+                const result = await generateGeminiContent({
+                    apiKey: currentKey,
+                    modelName,
+                    contents: [{ role: 'user', parts }],
+                    generationConfig,
+                    systemInstruction,
+                    onStream,
+                    // 保留原本音訊 API 不主動送出「思考中」狀態的回呼行為。
+                    streamStatus: null,
+                    abortSignal,
+                });
 
-                if (onStream) {
-                    const result = await model.generateContentStream({ contents: [{ role: "user", parts }] }, requestOptions);
-                    for await (const chunk of result.stream) {
-                        const chunkText = chunk.text();
-                        responseText += chunkText;
-                        onStream(chunkText, responseText);
-                    }
-                    const response = await result.response;
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                    }
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
-                    }
-                } else {
-                    const result = await model.generateContent({ contents: [{ role: "user", parts }] }, requestOptions);
-                    const response = result.response;
-
-                    if (response.promptFeedback && response.promptFeedback.blockReason) {
-                        throw new Error(`請求因安全設定而被阻擋，原因：${response.promptFeedback.blockReason}`);
-                    }
-                    if (response.candidates && response.candidates[0].finishReason === 'MAX_TOKENS') {
-                        console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
-                    }
-                    if (!response.candidates || response.candidates[0].finishReason === 'SAFETY') {
-                        throw new Error("內容因違反安全政策而被 Google AI 阻擋。");
-                    }
-                    responseText = response.text();
+                if (result.response?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+                    console.warn("[Audio API] 警告：生成的內容已達到最大 token 限制，可能會被截斷。");
                 }
 
                 recordKeySuccess(currentKey);
 
-                return responseText;
+                return result.text;
 
             } catch (error) {
                 lastModelError = error;
@@ -534,29 +719,30 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
 
 export function translateError(message) {
     if (!message) return "【系統錯誤】未知錯誤";
+    const normalizedMessage = String(message).toLowerCase();
 
     // 串流回應未完整傳回或格式異常
-    if (message.toLowerCase().includes("failed to parse stream")) {
-        return "【AI 串流回應中斷】AI 已開始回傳內容，但網路或 Gemini 服務的串流回應未完整傳回，因此無法完成電子報。\n\n可能原因：網路短暫不穩、Gemini 服務忙碌，或瀏覽器連線中途被中斷。\n\n處理方式：請先重新生成；若再次發生，確認網路連線後稍候再試。持續發生時，請改用其他 Gemini API Key，或切換至其他 AI 引擎。畫面上已出現的部分內容可能不完整，請勿直接使用。";
+    if (normalizedMessage.includes("failed to parse stream")) {
+        return "【AI 串流回應中斷】AI 已開始回傳內容，但網路或 Gemini 服務的串流回應未完整傳回，因此無法完成這次 AI 生成。\n\n可能原因：網路短暫不穩、Gemini 服務忙碌，或瀏覽器連線中途被中斷。\n\n處理方式：請先重新生成；若再次發生，確認網路連線後稍候再試。持續發生時，請改用其他 Gemini API Key，或切換至其他 AI 引擎。畫面上已出現的部分內容可能不完整，請勿直接使用。";
     }
     
     // 503 / High Demand / Overloaded
-    if (message.includes("503") || message.includes("high demand") || message.includes("overloaded") || message.includes("Service Unavailable")) {
+    if (normalizedMessage.includes("503") || normalizedMessage.includes("high demand") || normalizedMessage.includes("overloaded") || normalizedMessage.includes("service unavailable")) {
         return "【AI 伺服器繁忙 (overloaded)】Gemini API 目前負載過高或正處於全球尖峰時段。這通常是暫時的，請稍候一兩分鐘後重試。";
     }
     
     // 429 / Rate Limit / Quota Exceeded
-    if (message.includes("429") || message.includes("Quota exceeded") || message.includes("exhausted") || message.includes("rate limit")) {
+    if (normalizedMessage.includes("429") || normalizedMessage.includes("quota exceeded") || normalizedMessage.includes("exhausted") || normalizedMessage.includes("rate limit")) {
         return "【用量已達上限】您的 Gemini API 金鑰已超過每分鐘呼叫次數限制（Rate Limit）或免費額度已用盡。請稍候一分鐘再試，或更換其他金鑰。";
     }
     
     // 400 / 403 / Invalid API Key
-    if (message.includes("API key not valid") || message.includes("not valid") || message.includes("invalid") || message.includes("400") || message.includes("403")) {
+    if (normalizedMessage.includes("api key not valid") || normalizedMessage.includes("not valid") || normalizedMessage.includes("invalid") || normalizedMessage.includes("400") || normalizedMessage.includes("403")) {
         return "【無效的金鑰】您輸入的 Gemini API Key 格式不正確或已被停用，請至 Google AI Studio 重新確認並貼上正確的金鑰。";
     }
     
     // Safety
-    if (message.includes("SAFETY") || message.includes("blockReason")) {
+    if (normalizedMessage.includes("safety") || normalizedMessage.includes("blockreason") || normalizedMessage.includes("blocked") || normalizedMessage.includes("安全設定")) {
         return "【內容安全阻擋】由於輸入內容可能包含敏感詞彙，已被 Google AI 的安全過濾機制阻擋。";
     }
     
