@@ -5,6 +5,7 @@ import { activateSource, getPreferredSource, isCurrentSource } from './content-s
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
+import { assembleSocialPrompt } from './social-prompt.js';
 
 /**
  * tab3-social.js
@@ -45,63 +46,6 @@ function resetTab3() {
 }
 
 window.addEventListener('lumina:clearDownstreamTabs', resetTab3);
-
-function assembleSocialPrompt(options) {
-    const { objective, length, tone, hashtags, cta, sourceText, variationModifier, shouldOverride = false } = options;
-    const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
-
-    let globalRules = [];
-    if (variationModifier) { globalRules.push(`- 風格變化指令: ${variationModifier}`); }
-    globalRules.push(`- 貼文目標: ${objective}`);
-    globalRules.push(`- 貼文長度: ${length}`);
-    
-    if (!variationModifier || !shouldOverride) {
-        globalRules.push(`- 寫作語氣: ${tone}`);
-    }
-    
-    if (hashtags) globalRules.push(`- 指定Hashtags: ${hashtags}`);
-    if (cta) globalRules.push(`- 行動呼籲: ${cta}`);
-    if (wizardSettings.coreViewpoint) { globalRules.push(`- 核心觀點: 請務必在所有貼文中，特別強調並放大這個核心觀點：「${wizardSettings.coreViewpoint}」`); }
-    if (wizardSettings.hook && wizardSettings.hook !== 'auto') {
-        const hookMap = { question: '用一個引人深思的問題開始', painpoint: '點出一個讀者的痛點或驚人的數據來開頭', story: '描述一個小故事或情境來開頭' };
-        globalRules.push(`- 開頭鉤子: ${hookMap[wizardSettings.hook]}`);
-    }
-    if (wizardSettings.ctaStrategy && wizardSettings.ctaStrategy !== 'default') {
-        const ctaMap = { highlight: '請將行動呼籲(CTA)用分隔線「---」或特殊符號「👇」包圍，使其在文末特別醒目', natural: '請將行動呼籲(CTA)的核心意思，自然地安插在文章中段的某個地方，而不是放在文末' };
-        globalRules.push(`- CTA策略: ${ctaMap[wizardSettings.ctaStrategy]}`);
-    }
-
-    let fbRules = wizardSettings.fbListify ? ['- 規則: 將較長的段落，自動拆解成條列式(• 或 ‣)，增加易讀性。'] : [];
-    if (wizardSettings.fbQuestion) fbRules.push('- 規則: 在文末除了CTA外，再多加一句引導留言的問題。');
-    let igRules = wizardSettings.igEmoji ? ['- 規則: 請在每個段落或條列項目前，都加上最符合語意的 Emoji，讓版面更生動。'] : [];
-    if (wizardSettings.igHashtags) igRules.push('- 規則: 除了使用者指定的Hashtags，請根據內文，自動額外生成 5-10 個相關的熱門 Hashtags。');
-    let lineRules = wizardSettings.lineColloquial ? ['- 規則: 請務必使用更像朋友聊天的口語化詞彙（例如：「話說」、「～啊」、「啦」）。'] : [];
-    if (wizardSettings.lineSticker) lineRules.push('- 規則: 在適當的地方，用文字建議適合的貼圖，例如 `(熊大灑花)`、`(兔兔驚訝)`。');
-
-    return `你是一位專業的社群內容總監。請根據以下[逐字稿]和指定的[參數]，把同一份內容依照不同平台的閱讀情境，分別改寫成 Facebook、Instagram、Line 推廣貼文。優先抓出受眾痛點與具體解方、反差衝突，或逐字稿中的有力金句，避免流水帳摘要。
-
-所有人名、機構、數字、事件、引言與觀點只能取自逐字稿；未提供的事實不得自行補寫。請嚴格按照指定的格式與分隔標記輸出，不要有任何額外的文字或說明。
-
-[通用參數]:
-${globalRules.join('\n')}
-
-[FACEBOOK_POST_START]
-(撰寫一篇能引發轉發、收藏與留言分享經驗的深度貼文。以最具啟發性的真實引言或受眾痛點情境破題，依序完成「引言／痛點破題 → 情境鋪陳 → 核心解方 → 行動呼籲與互動問題 → Hashtags」。語氣感性、有故事感且具啟發性，可適量使用 Emoji；文末附上 3-5 個相關 Hashtags。${fbRules.length > 0 ? '\n' + fbRules.join('\n') : ''})
-[FACEBOOK_POST_END]
-
-[INSTAGRAM_POST_START]
-(撰寫一篇適合 Instagram 閱讀與收藏的深度貼文。以有力金句或痛點情境開場，依序完成「引言／痛點破題 → 精簡的情境鋪陳 → 核心解方 → 明確 CTA → Hashtags」。段落短、節奏鮮明並適量使用 Emoji；文末附上 5-10 個相關 Hashtags。${igRules.length > 0 ? '\n' + igRules.join('\n') : ''})
-[INSTAGRAM_POST_END]
-
-[LINE_POST_START]
-(撰寫一則能在一秒內促使讀者點擊的 Line 官方帳號／群組推播。依序完成「朋友般的親切問候或痛點提問 → 一句話揭露最強亮點並保留懸念 → 明確邀請點擊連結」。內容必須極短、親切、急迫且高轉換；若[行動呼籲]或逐字稿沒有提供網址，使用「【置入短連結】」作為可編輯位置，不得虛構網址。${lineRules.length > 0 ? '\n' + lineRules.join('\n') : ''})
-[LINE_POST_END]
-
-[逐字稿]:
----
-${sourceText}
----`;
-}
 
 function renderSocialVersionTabs() {
     const tabsContainer = document.getElementById('social-version-tabs-list') || document.getElementById('social-versions-tabs-container');
@@ -237,9 +181,11 @@ export const switchSocialTab = function(platform) {
             const isVariation = variationModifier !== '';
             // Removed the if(isVariation) random modifier block
     
+            const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
             const promptOptions = {
                 objective: socialObjectiveSelect.value, length: socialLengthSelect.value, tone: socialToneSelect.value,
-                hashtags: socialHashtagsInput.value, cta: socialCtaTextarea.value, sourceText: sourceText, variationModifier: variationModifier, shouldOverride: shouldOverride
+                hashtags: socialHashtagsInput.value, cta: socialCtaTextarea.value, sourceText: sourceText,
+                variationModifier: variationModifier, shouldOverride: shouldOverride, wizardSettings
             };
             const prompt = assembleSocialPrompt(promptOptions);
     
