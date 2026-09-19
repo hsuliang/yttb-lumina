@@ -49,7 +49,7 @@ function sineWave(seconds, sampleRate = 16000, amplitude = 0.25) {
     );
 }
 
-test('health endpoint identifies Worker version 1.3.1', async () => {
+test('health endpoint identifies Worker version 1.3.2', async () => {
     const response = await worker.fetch(
         new Request('https://worker.example/api/health'),
         {},
@@ -57,7 +57,7 @@ test('health endpoint identifies Worker version 1.3.1', async () => {
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(result.version, '1.3.1');
+    assert.equal(result.version, '1.3.2');
 });
 
 test('native Base64 encoding preserves every byte of a full 20-second audio chunk', async () => {
@@ -717,4 +717,78 @@ test('quality gate flags prompt leakage, unexpected scripts, and sparse active a
     });
     assert.equal(missingFirstChunk.suspect, true);
     assert.ok(missingFirstChunk.reasons.includes('active_audio_gap'));
+});
+
+test('client mode delegates quality retries to the browser and preserves the model response', async () => {
+    const raw = { text: '哈'.repeat(100), segments: [{ start: 0, end: 20, text: '哈'.repeat(100) }] };
+    let calls = 0;
+    const response = await worker.fetch(new Request('https://worker.example/api/transcribe?processing=client', {
+        method: 'POST', body: makeWav(sineWave(20)),
+    }), { AI: { async run() { calls++; return raw; } } }, {});
+    assert.equal(calls, 1);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.processing, 'client-v1');
+    assert.deepEqual(payload.result, raw);
+    assert.equal(payload.srt, undefined);
+    assert.equal(payload.quality, undefined);
+});
+
+test('browser processing produces the same subtitles, dictionary corrections and retry choice as legacy mode', async () => {
+    const { processWhisperChunk } = await import('../public/js/whisper-client.js');
+    const { parseWhisperDictionary } = await import('../public/js/whisper-processing.js');
+    const wav = makeWav(sineWave(20));
+    const customDict = 'PowerPoint\n錯誤詞=正確詞';
+    const text = '現在我們先來看錯誤詞的設定，請各位打開 Power Point。接下來介紹課程內容，然後一起練習設定畫面，最後確認字幕是否清楚。';
+    const good = { text, segments: [{ start: 0, end: 20, text }], transcription_info: { language: 'zh' } };
+    const bad = { text: '哈'.repeat(100), segments: [{ start: 0, end: 20, text: '哈'.repeat(100) }] };
+    const headers = { 'X-Language': 'zh', 'X-First-Chunk': '1',
+        'X-Custom-Dict': encodeURIComponent(customDict), 'X-Previous-Context': encodeURIComponent('前文內容') };
+    const run = async client => {
+        const inputs = [];
+        const env = { AI: { async run(_model, input) { inputs.push(input); return inputs.length === 1 ? bad : good; } } };
+        const request = async retry => {
+            const suffix = client ? `?processing=client${retry ? '&retry=1' : ''}` : '';
+            const response = await worker.fetch(new Request(`https://worker.example/api/transcribe${suffix}`, {
+                method: 'POST', headers, body: wav,
+            }), env, {});
+            assert.equal(response.status, 200);
+            return response.json();
+        };
+        const result = client ? await processWhisperChunk(new Blob([wav]), request, {
+            ...parseWhisperDictionary(customDict), language: 'zh', isFirstChunk: true,
+        }) : await request(false);
+        return { result, inputs };
+    };
+    const legacy = await run(false);
+    const client = await run(true);
+    assert.deepEqual(client, legacy);
+    assert.equal(client.inputs.length, 2);
+    assert.equal(client.inputs[1].condition_on_previous_text, false);
+    assert.doesNotMatch(client.inputs[1].initial_prompt, /前文內容/);
+    assert.match(client.result.text, /正確詞/);
+    assert.match(client.result.text, /PowerPoint/);
+    assert.equal(client.result.quality.retried, true);
+});
+
+test('client mode keeps authentication and invalid AI input fallback', async () => {
+    const wav = makeWav(sineWave(5));
+    let calls = 0;
+    const env = { API_TOKEN: 'test-only', AI: { async run(_model, input) {
+        calls++;
+        if (calls === 1) throw new Error('8001: Invalid input');
+        assert.equal(input.initial_prompt, undefined);
+        return { text: 'Hello', segments: [{ start: 0, end: 5, text: 'Hello' }] };
+    } } };
+    const denied = await worker.fetch(new Request('https://worker.example/api/transcribe?processing=client', {
+        method: 'POST', body: wav,
+    }), env, {});
+    assert.equal(denied.status, 401);
+    assert.equal(calls, 0);
+    const response = await worker.fetch(new Request('https://worker.example/api/transcribe?processing=client', {
+        method: 'POST', headers: { Authorization: 'Bearer test-only' }, body: wav,
+    }), env, {});
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).usedMinimalInput, true);
+    assert.equal(calls, 2);
 });

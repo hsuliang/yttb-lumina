@@ -1,3 +1,5 @@
+import { parseWhisperDictionary } from './whisper-processing.js';
+import { processWhisperChunk } from './whisper-client.js';
 import { callGeminiAudioAPI } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
@@ -533,8 +535,19 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
 
     const baseUrl = validWorkerUrl.replace(/\/+$/, '');
     const authHeaders = workerToken ? { 'Authorization': `Bearer ${workerToken}` } : {};
+    onProgress({ type: 'status', message: '正在確認 Worker 支援瀏覽器處理模式...' });
+    const healthResponse = await fetch(`${baseUrl}/api/health`, {
+        cache: 'no-store',
+        signal: state.currentAbortController?.signal,
+    });
+    if (!healthResponse.ok) throw new Error(`Worker 連線檢查失敗 (${healthResponse.status})。`);
+    const health = await healthResponse.json();
+    if (health.clientProcessing !== 'client-v1') {
+        throw new Error(`目前連線的 Worker ${health.version || ''} 尚未支援低 CPU 轉錄模式。請更新至 1.3.2 或更新版本，或改用新版測試 Worker 網址。`);
+    }
+    const dictionary = parseWhisperDictionary(customDict);
     const CHUNK_DURATION = 20;        // 分段設定：每段 20 秒
-                                      // 降低為 20 秒以減少長音檔觸發 Cloudflare 503 超時錯誤的機率
+                                      // 避免單次上傳過大；品質異常時仍可拆成更短片段
 
     // 1. 讀取並解碼音訊
     onProgress({ type: 'status', message: '正在讀取音訊檔案...' });
@@ -606,60 +619,65 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
             chunkHeaders['X-Previous-Context'] = encodeURIComponent(previousContext.slice(-240));
         }
 
-        let response;
-        let retries = 2;
-        while (retries >= 0) {
-            try {
-                response = await fetch(`${baseUrl}/api/transcribe`, {
-                    method: 'POST',
-                    headers: {
-                        ...chunkHeaders,
-                        'X-Recovery-Depth': String(recoveryDepth),
-                        'X-Request-Attempt': String(3 - retries),
-                    },
-                    body: wavBlob,
-                    signal: state.currentAbortController ? state.currentAbortController.signal : undefined
-                });
-                if (response.ok || response.status === 401 || response.status === 403) break;
-                let retryErrorBody = null;
+        const requestRaw = async (qualityRetry) => {
+            let response;
+            let retries = 2;
+            while (retries >= 0) {
                 try {
-                    retryErrorBody = await response.clone().json();
-                } catch (_) {}
-                if (!shouldRetryWhisperResponse(response.status, retryErrorBody)) break;
-                if (retries > 0) {
-                    onProgress({
-                        type: 'status',
-                        message: `第 ${displayIndex + 1} 段伺服器忙碌，重試中... (${3 - retries}/2)`
+                    response = await fetch(`${baseUrl}/api/transcribe?processing=client${qualityRetry ? '&retry=1' : ''}`, {
+                        method: 'POST',
+                        headers: {
+                            ...chunkHeaders,
+                            'X-Recovery-Depth': String(recoveryDepth),
+                            'X-Request-Attempt': String(3 - retries),
+                        },
+                        body: wavBlob,
+                        signal: state.currentAbortController ? state.currentAbortController.signal : undefined
                     });
+                    if (response.ok || response.status === 401 || response.status === 403) break;
+                    let retryErrorBody = null;
+                    try {
+                        retryErrorBody = await response.clone().json();
+                    } catch (_) {}
+                    if (!shouldRetryWhisperResponse(response.status, retryErrorBody)) break;
+                    if (retries > 0) {
+                        onProgress({
+                            type: 'status',
+                            message: `第 ${displayIndex + 1} 段伺服器忙碌，重試中... (${3 - retries}/2)`
+                        });
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError' || retries === 0) throw error;
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
-            } catch (error) {
-                if (error?.name === 'AbortError' || retries === 0) throw error;
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                retries--;
             }
-            retries--;
-        }
 
-        if (!response?.ok) {
-            let errorMessage = response ? response.statusText : '網路連線失敗';
-            let errorBody = null;
-            try {
-                errorBody = await response.json();
-                errorMessage = errorBody.error || errorMessage;
-            } catch (_) {}
-            if (response && (response.status === 401 || response.status === 403)) {
-                throw new Error('Worker Token 驗證失敗，請檢查設定。');
+            if (!response?.ok) {
+                let errorMessage = response ? response.statusText : '網路連線失敗';
+                let errorBody = null;
+                try {
+                    errorBody = await response.json();
+                    errorMessage = errorBody.error || errorMessage;
+                } catch (_) {}
+                if (response && (response.status === 401 || response.status === 403)) {
+                    throw new Error('Worker Token 驗證失敗，請檢查設定。');
+                }
+                const requestError = new Error(
+                    `第 ${displayIndex + 1} 段辨識失敗 (${response ? response.status : 'Network'}): ${errorMessage}`
+                );
+                requestError.status = response?.status || 0;
+                const dailyLimit = isWorkersAiDailyLimitError(errorBody);
+                requestError.code = dailyLimit ? 'AI_DAILY_LIMIT' : errorBody?.code || '';
+                requestError.retryable = dailyLimit ? false : Boolean(errorBody?.retryable);
+                throw requestError;
             }
-            const requestError = new Error(
-                `第 ${displayIndex + 1} 段辨識失敗 (${response ? response.status : 'Network'}): ${errorMessage}`
-            );
-            requestError.status = response?.status || 0;
-            const dailyLimit = isWorkersAiDailyLimitError(errorBody);
-            requestError.code = dailyLimit ? 'AI_DAILY_LIMIT' : errorBody?.code || '';
-            requestError.retryable = dailyLimit ? false : Boolean(errorBody?.retryable);
-            throw requestError;
-        }
-        const payload = await response.json();
+            return response.json();
+        };
+        const payload = await processWhisperChunk(wavBlob, requestRaw, {
+            ...dictionary, language, isFirstChunk: chunk.offsetSeconds < 0.001,
+        });
         const { normalizeTranscriptionPayload } = await import('./transcription-text.js');
         return normalizeTranscriptionPayload(payload, language);
     }

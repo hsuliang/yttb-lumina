@@ -6,7 +6,9 @@
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
-目前 Worker 版本：**1.3.1**。此版使用原生 Buffer 進行 Base64 編碼，並在每個請求內共用已編譯的詞庫規則，以降低 CPU 用量。前端遇到連續 3 個片段重試仍失敗時會停止，保留已完成字幕並標示未完成。
+目前 Worker 版本：**1.3.2**。新版前端使用 `POST /api/transcribe?processing=client`，Worker 只做驗證、原生 Base64 編碼及 AI 呼叫；音訊分析、詞庫校正、字幕排版、品質檢查與品質重試改由瀏覽器處理。未帶參數的舊版前端仍保留原本行為，但不會獲得本次 CPU 減量效果。
+
+新版前端上傳前會檢查 `/api/health` 的 `clientProcessing: "client-v1"`。連到 1.3.1 或更舊的後端會明確停止並提示更新，不會靜默退回舊的高 CPU 流程。連續 3 段失敗的停止與部分字幕保留機制繼續有效。
 
 **相容性要求：** 此版使用 `node:buffer`。沿用舊相容日期的 Worker 必須先在 Settings → Runtime → Compatibility flags 加入 `nodejs_compat`，或使用本目錄的 `wrangler.jsonc`。此設定不會升級付費方案。正式部署前仍須取得明確授權。
 
@@ -31,11 +33,21 @@ CPU 超限由平台直接終止請求，Worker 的 try/catch 無法保證補上 
 5. 點選 Worker name，填入你要的網址（例如：`yttb-whisper`），這是 Worker API URL，用來填寫連線設定。
 6. 填好後按下 **Deploy**
 
-### 3. 貼上程式碼
+### 3. 使用 Wrangler 打包程式碼
 
-1. 點選 **Edit code**（或 **Quick Edit**）
-2. 將 `cf-worker/worker.js` 的全部內容**取代**預設的程式碼
-3. 點選右上角 **Save and Deploy**
+此版將共用演算法放在 `public/js/whisper-processing.js`，**不可只把 `cf-worker/worker.js` 原始碼貼進 Dashboard**。從專案根目錄使用 Wrangler 打包：
+
+```bash
+npx wrangler deploy --dry-run --config cf-worker/wrangler.jsonc --outdir /tmp/whisper-build
+```
+
+取得明確正式部署授權、確認帳號與 Worker 名稱後，才執行：
+
+```bash
+npx wrangler deploy --config cf-worker/wrangler.jsonc
+```
+
+設定檔已包含 `nodejs_compat`、AI binding 與日誌。現有 API_TOKEN Secret 不會寫入原始碼。
 
 ### 4. 啟用 Workers AI Binding
 
@@ -74,7 +86,8 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.3.1",
+  "version": "1.3.2",
+  "clientProcessing": "client-v1",
   "maxAudioMB": 28,
   "authRequired": false
 }
@@ -91,6 +104,19 @@ curl https://your-worker-name.workers.dev/api/health
 
 ---
 
+## 本機完整測試（不部署 Production）
+
+```bash
+npx wrangler dev --config cf-worker/wrangler.jsonc --ip 127.0.0.1 --port 8787
+npm run dev -- --host 0.0.0.0
+```
+
+Wrangler 需有效的 Cloudflare 登入，Workers AI binding 使用真正的遠端 AI，會計入原帳號用量。本機 Worker 僅監聽 loopback，不對 LAN 開放。
+
+在本機前端的 Worker 設定填入 `http://127.0.0.1:8787`，測試連線應顯示 1.3.2；沒有本機 API_TOKEN 設定時可留空。測試結束後切回正式 Worker 網址。只開前端 localhost 不代表新版後端已啟用。
+
+本機 Worker 並不等同正式平台的 CPU 限制環境；本機及模擬測試通過後，仍須經授權部署並以實際長音檔觀察 CPU 超限是否消失。
+
 ## API 規格
 
 ### GET /api/health
@@ -102,7 +128,8 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.3.1",
+  "version": "1.3.2",
+  "clientProcessing": "client-v1",
   "maxAudioMB": 28,
   "authRequired": true
 }
@@ -181,3 +208,10 @@ A: Worker 會啟用 VAD、檢查損壞字元／異常字系／重複片語／提
 
 **Q: 為什麼自動偵測偶爾會輸出簡體字？**
 A: 自動偵測適合語言未知或多語音檔；前端預設改為「中文（繁體）」，中文結果也會在輸出階段正規化為臺灣繁體。英文、日文與其他非中文結果不套用簡繁轉換。
+
+
+### 瀏覽器處理模式
+
+`POST /api/transcribe?processing=client` 使用相同的 WAV body、Authorization 與既有 headers，回傳 `{ processing: "client-v1", result, usedMinimalInput }`。`result` 是 Whisper 原始模型輸出，尚未整理字幕。品質重試另送 `&retry=1`，移除前文提示並保留原本的品質參數；無效 AI 輸入仍由 Worker 以最小輸入補試一次。
+
+瀏覽器對同一片段只分析一次 WAV，依原本品質分數選擇初次或重試結果，再進行原有的短片段補救、繁體轉換與全檔時間軸合併。不要把模型原始輸出直接當成最終 SRT。

@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { compileFunction, constants } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import * as timeline from '../public/js/transcription-timeline.js';
+import { parseWhisperDictionary } from '../public/js/whisper-processing.js';
+import { processWhisperChunk } from '../public/js/whisper-client.js';
 import * as quality from '../public/js/transcription-quality.js';
 
 // Exercise the actual transcription loop without loading the DOM application.
@@ -12,16 +14,16 @@ const source = readFileSync(file, 'utf8');
 const functionSource = source.slice(source.indexOf('async function transcribeWithWhisper('),
     source.indexOf('// ########## TAB 0 INITIALIZATION'));
 
-async function runTranscription(fetchResponse) {
-    const chunks = Array.from({ length: 8 }, (_, index) => ({
+async function runTranscription(fetchResponse, { chunkCount = 8, health = { clientProcessing: 'client-v1' } } = {}) {
+    const chunks = Array.from({ length: chunkCount }, (_, index) => ({
         data: new Float32Array(1), sampleRate: 16000,
         offsetSeconds: index * 20, durationSeconds: 20,
     }));
-    const audio = { duration: 160, length: 1, sampleRate: 16000, getChannelData: () => new Float32Array(1) };
+    const audio = { duration: chunkCount * 20, length: 1, sampleRate: 16000, getChannelData: () => new Float32Array(1) };
     const requests = [];
     const progress = [];
     const dependencies = {
-        ...timeline, ...quality,
+        ...timeline, ...quality, parseWhisperDictionary, processWhisperChunk,
         localStorage: { getItem: key => key.endsWith('-url') ? 'https://worker.example' : null },
         sessionStorage: { getItem: () => null },
         state: { aiTerminologyRules: [], batchReplaceRules: [] },
@@ -36,6 +38,7 @@ async function runTranscription(fetchResponse) {
         applyReplacementRules: text => ({ text }),
         setTimeout: callback => { callback(); },
         fetch: async (_url, options) => {
+            if (_url.endsWith('/api/health')) return Response.json(health);
             const index = Number(options.headers['X-Chunk-Index']);
             requests.push(index);
             return fetchResponse(index, requests.length);
@@ -50,7 +53,7 @@ async function runTranscription(fetchResponse) {
     return { result, requests, progress };
 }
 
-const success = () => Response.json({ text: 'Saved speech.', srt: '1\n00:00:00,000 --> 00:00:10,000\nSaved speech.' });
+const success = () => Response.json({ processing: 'client-v1', result: { text: 'Saved speech.', segments: [{ start: 0, end: 3, text: 'Saved speech.' }] } });
 
 for (const failure of ['network', '503']) {
     test(`stops after three consecutive failed chunks (${failure}) and preserves partial subtitles`, async () => {
@@ -104,4 +107,21 @@ test('user cancellation is not retried or swallowed as a failed chunk', async ()
         throw new DOMException('Cancelled', 'AbortError');
     }), { name: 'AbortError' });
     assert.equal(calls, 1);
+});
+
+
+test('old Worker is rejected before uploading any audio', async () => {
+    let uploads = 0;
+    await assert.rejects(runTranscription(() => { uploads++; return success(); }, {
+        health: { version: '1.3.1' },
+    }), /1\.3\.1.*低 CPU/);
+    assert.equal(uploads, 0);
+});
+
+test('72-minute sequence processes all 216 chunks without a time-based cutoff', async () => {
+    const { result, requests } = await runTranscription(success, { chunkCount: 216 });
+    assert.equal(requests.length, 216);
+    assert.equal(requests.at(-1), 215);
+    assert.equal(result.incomplete, false);
+    assert.match(result.srt, /01:11:40,000/);
 });
