@@ -14,8 +14,8 @@ test('universal error modal appears above global settings', () => {
     assert.ok(modalZIndex('modal') > modalZIndex('global-settings-modal'));
 });
 
-test('displayed release version is R3', () => {
-    assert.match(html, /丙午．立秋．20260807<span[^>]*>R3<\/span>/);
+test('displayed release version is R4', () => {
+    assert.match(html, /丙午．立秋．20260807<span[^>]*>R4<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260804<span[^>]*>R12<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260803<span[^>]*>R11<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260801<span[^>]*>R10<\/span>/);
