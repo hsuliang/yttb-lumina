@@ -6,7 +6,13 @@
 
 支援自動分段處理，可辨識 **超過 1 小時**的直播錄影。
 
-目前 Worker 版本：**1.3.0**。此版新增局部密集短片語迴圈檢查，能攔截夾雜變形錯字的反覆內容；兩三字的自然口語強調若沒有其他異常則保留原結果，不觸發重試或切片，避免正常內容在補救過程中被改壞。
+目前 Worker 版本：**1.3.1**。此版使用原生 Buffer 進行 Base64 編碼，並在每個請求內共用已編譯的詞庫規則，以降低 CPU 用量。前端遇到連續 3 個片段重試仍失敗時會停止，保留已完成字幕並標示未完成。
+
+**相容性要求：** 此版使用 `node:buffer`。沿用舊相容日期的 Worker 必須先在 Settings → Runtime → Compatibility flags 加入 `nodejs_compat`，或使用本目錄的 `wrangler.jsonc`。此設定不會升級付費方案。正式部署前仍須取得明確授權。
+
+已有 Worker 的部署設定須先核對帳號、Worker 名稱與既有 bindings；本設定對應 `whisper`，保留既有 vars，API_TOKEN 使用原本 Secret，不寫入設定檔。GitHub push 不會代替部署授權。
+
+CPU 超限由平台直接終止請求，Worker 的 try/catch 無法保證補上 CORS；必須降低 CPU 工作量。若優化後仍超限，再評估調整單段長度或經使用者同意採用適合的付費額度，不能僅加上重試。
 
 ---
 
@@ -68,7 +74,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "maxAudioMB": 28,
   "authRequired": false
 }
@@ -96,7 +102,7 @@ curl https://your-worker-name.workers.dev/api/health
 {
   "status": "ok",
   "model": "@cf/openai/whisper-large-v3-turbo",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "maxAudioMB": 28,
   "authRequired": true
 }

@@ -49,7 +49,7 @@ function sineWave(seconds, sampleRate = 16000, amplitude = 0.25) {
     );
 }
 
-test('health endpoint identifies Worker version 1.3.0', async () => {
+test('health endpoint identifies Worker version 1.3.1', async () => {
     const response = await worker.fetch(
         new Request('https://worker.example/api/health'),
         {},
@@ -57,7 +57,22 @@ test('health endpoint identifies Worker version 1.3.0', async () => {
     );
     const result = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(result.version, '1.3.0');
+    assert.equal(result.version, '1.3.1');
+});
+
+test('native Base64 encoding preserves every byte of a full 20-second audio chunk', async () => {
+    const wav = makeWav(sineWave(20));
+    let calls = 0;
+    const response = await worker.fetch(new Request('https://worker.example/api/transcribe', {
+        method: 'POST', body: wav, headers: { 'X-First-Chunk': '0' },
+    }), { AI: { async run(_model, input) {
+        calls++;
+        assert.deepEqual(Buffer.from(input.audio, 'base64'), Buffer.from(wav));
+        return { text: 'Audio is intact.', segments: [{ start: 0, end: 20, text: 'Audio is intact.' }] };
+    } } }, {});
+    assert.equal(response.status, 200);
+    assert.ok(calls > 0);
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'), '*');
 });
 
 test('VTT parser keeps consecutive cues separate even without blank lines', () => {

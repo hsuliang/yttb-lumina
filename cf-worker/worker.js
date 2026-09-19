@@ -1,7 +1,7 @@
 /**
  * yttb-lumina Whisper Worker
  * 部署在 Cloudflare Workers，使用 @cf/openai/whisper-large-v3-turbo 模型
- * Version: 1.3.0
+ * Version: 1.3.1
  *
  * 端點：
  *   GET  /api/health     → 健康檢查
@@ -11,8 +11,10 @@
  *   API_TOKEN → 若設定，所有請求須帶 "Authorization: Bearer {token}"
  */
 
-// 版本規則：每次發布程式變更時版號前進一版，例如 1.2.9 → 1.3.0。
-const WORKER_VERSION = '1.3.0';
+import { Buffer } from 'node:buffer';
+
+// 版本規則：每次發布程式變更時版號前進一版，例如 1.3.0 → 1.3.1。
+const WORKER_VERSION = '1.3.1';
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_AUDIO_SIZE_MB = 28; // 略低於 Whisper 上限以保留緩衝
 const AI_TRANSCRIPT_LABEL = '《 字幕君：ㄚ亮笑長的內容助手》';
@@ -573,11 +575,10 @@ function mergeSrtBlocks(
     return serializeSrtCues(improveShortCueTimings(splitAgain));
 }
 
-function restoreConfiguredTerms(text, promptWords = []) {
-    let result = String(text || '');
+function createRecognitionTextRules(replaceRules = [], promptWords = []) {
     const terms = [...new Set(promptWords.map(term => String(term || '').trim()).filter(Boolean))]
         .sort((a, b) => b.replace(/\s+/g, '').length - a.replace(/\s+/g, '').length);
-
+    const termRules = [];
     for (const term of terms) {
         const compact = term.replace(/\s+/g, '');
         if (compact.length < 2) continue;
@@ -585,25 +586,26 @@ function restoreConfiguredTerms(text, promptWords = []) {
             .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
             .join('[\\s._-]*');
         if (/^[A-Za-z0-9]+$/.test(compact)) {
-            result = result.replace(
+            termRules.push([
                 new RegExp(`(^|[^A-Za-z0-9])(${pattern})(?![A-Za-z0-9])`, 'gi'),
                 (_, prefix) => `${prefix}${term}`
-            );
+            ]);
         } else {
-            result = result.replace(new RegExp(pattern, 'giu'), () => term);
+            termRules.push([new RegExp(pattern, 'giu'), () => term]);
         }
     }
-    return result;
-}
-
-function applyRecognitionTextRules(text, replaceRules = [], promptWords = []) {
-    let result = restoreConfiguredTerms(text, promptWords);
-    result = fixSpellingInText(result, ENGLISH_DICT_SET);
-    for (const rule of replaceRules) {
+    const replacements = replaceRules.map(rule => {
         const escapedWrong = rule.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        result = result.replace(new RegExp(escapedWrong, 'g'), () => rule.correct);
-    }
-    return result;
+        return [new RegExp(escapedWrong, 'g'), () => rule.correct];
+    });
+    // 每個請求只編譯一次，供各字幕與品質重試共用；不跨請求保留使用者詞庫。
+    return text => {
+        let result = String(text || '');
+        for (const [pattern, replacement] of termRules) result = result.replace(pattern, replacement);
+        result = fixSpellingInText(result, ENGLISH_DICT_SET);
+        for (const [pattern, replacement] of replacements) result = result.replace(pattern, replacement);
+        return result;
+    };
 }
 
 function restoreChinesePunctuation(srtText) {
@@ -1227,21 +1229,10 @@ async function handleTranscribe(request, env) {
             );
         }
 
-        // 將音訊轉為 Base64 字串 (Cloudflare AI binding 接收大檔案時，陣列會被強制轉為錯誤的字串，Base64 則可穩健通過)
-        const uint8 = new Uint8Array(audioBuffer);
-        // 使用更高效的轉換方式，避免大檔案時超過 call stack 限制
-        // 但由於 Worker 沒有 Buffer，這裡分段處理或使用 btoa
-        let binary = '';
-        const chunkSize = 8192;
-        for (let i = 0; i < uint8.length; i += chunkSize) {
-            const chunk = uint8.subarray(i, i + chunkSize);
-            binary += String.fromCharCode.apply(null, chunk);
-        }
-        const audioBase64 = btoa(binary);
+        // 使用 Workers 原生 Buffer 編碼，避免逐批展開 WAV 位元組及拼接字串。
+        // 部署須啟用 nodejs_compat，見 cf-worker/wrangler.jsonc。
+        const audioBase64 = Buffer.from(audioBuffer).toString('base64');
         const audioAnalysis = analyzeWavPcm(audioBuffer);
-        
-        // 🚨 關鍵修復：之前的代理對陣列大小有限制，會導致 string 化報錯
-        // 我們測試過 Base64 字串是可以成功通過驗證的，所以直接採用原本成功的 Base64 寫法
         
         const customDict = decodeHeaderValue(request.headers.get('X-Custom-Dict'));
         
@@ -1267,6 +1258,7 @@ async function handleTranscribe(request, env) {
             }
         }
         
+        const applyRecognitionTextRules = createRecognitionTextRules(replaceRules, promptWords);
         async function transcribeAttempt(retry = false) {
             let usedMinimalInput = false;
             let result;
@@ -1300,20 +1292,18 @@ async function handleTranscribe(request, env) {
                 : /^(?:zh|chinese|mandarin)/i.test(String(detectedLanguage || '')) ? 'zh' : null;
 
             const rawText = applyRecognitionTextRules(
-                String(result.text || '').trim(),
-                replaceRules,
-                promptWords
+                String(result.text || '').trim()
             );
             const structuredSrt = segmentsToSrt(result.segments);
             const parsedSrt = structuredSrt || vttToSrt(String(result.vtt || ''));
             const rawSrt = serializeSrtCues(parseSrtCues(parsedSrt).map(cue => ({
                 ...cue,
-                text: applyRecognitionTextRules(cue.text, replaceRules, promptWords),
+                text: applyRecognitionTextRules(cue.text),
             })));
             let srt = mergeSrtBlocks(rawSrt);
             srt = serializeSrtCues(parseSrtCues(srt).map(cue => ({
                 ...cue,
-                text: applyRecognitionTextRules(cue.text, replaceRules, promptWords),
+                text: applyRecognitionTextRules(cue.text),
             })));
             let punctuationRestored = 0;
             if (qualityLanguage === 'zh') {

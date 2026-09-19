@@ -407,7 +407,7 @@
                         <div class="space-y-2">
                             <h3 class="text-base font-bold text-white">貼上並部署程式碼</h3>
                             <p class="text-gray-400 text-sm leading-relaxed">
-                                部署完成後，點選該 Worker 的 <strong>Edit code</strong>（或 Quick Edit）。將本專案目錄下 <a href="https://github.com/hsuliang/yttb-lumina/blob/main/cf-worker/worker.js" target="_blank" class="text-blue-400 hover:underline"><code>cf-worker/worker.js</code></a> 的<strong>所有程式碼</strong>複製，並覆蓋掉編輯器內的預設程式碼。完成後，點擊右上角的 <strong>Save and Deploy</strong>。
+                                請先在 Worker 的 <strong>Settings → Runtime → Compatibility flags</strong> 加入 <code>nodejs_compat</code>，供原生音訊編碼使用。部署完成後，點選該 Worker 的 <strong>Edit code</strong>（或 Quick Edit）。將本專案目錄下 <a href="https://github.com/hsuliang/yttb-lumina/blob/main/cf-worker/worker.js" target="_blank" class="text-blue-400 hover:underline"><code>cf-worker/worker.js</code></a> 的<strong>所有程式碼</strong>複製，並覆蓋掉編輯器內的預設程式碼。完成後，點擊右上角的 <strong>Save and Deploy</strong>。
                             </p>
                         </div>
                     </div>

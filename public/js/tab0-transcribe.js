@@ -587,6 +587,8 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
     const chunkStartTimes = [];
     const failedRanges = [];
     let usageLimit = null;
+    let consecutiveFailures = 0;
+    let stoppedForFailures = false;
 
     async function requestWhisperChunk(chunk, displayIndex, previousContext = '', recoveryDepth = 0) {
         const wavBlob = float32ToWavBlob(chunk.data, chunk.sampleRate);
@@ -744,6 +746,7 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         try {
             results = await transcribeChunkWithRecovery(chunk, i, 0, previousContext);
         } catch (error) {
+            if (error?.name === 'AbortError') throw error;
             if (isWorkersAiDailyLimitError(error)) {
                 usageLimit = {
                     code: 'AI_DAILY_LIMIT',
@@ -768,12 +771,26 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
                 reasons: [error?.code || 'request_failed'],
                 message: error?.message || '辨識請求失敗',
             });
+            consecutiveFailures++;
+            if (consecutiveFailures >= 3) {
+                stoppedForFailures = true;
+                const nextChunk = chunks[i + 1];
+                if (nextChunk) failedRanges.push({
+                    start: nextChunk.offsetSeconds,
+                    end: resampled.duration,
+                    reasons: ['request_not_attempted'],
+                    message: '服務連續失敗，剩餘音訊尚未辨識。',
+                });
+                onProgress({ type: 'status', message: '轉錄服務連續失敗，已停止並保留完成的字幕。' });
+                break;
+            }
             onProgress({
                 type: 'status',
                 message: `第 ${i + 1} 段重試後仍失敗，已保留其他辨識結果。`,
             });
             continue;
         }
+        consecutiveFailures = 0;
         for (const result of results) {
             const { chunk: resultChunk, data } = result;
             const chunkSrt = data.srt || (data.vtt ? convertVttToSrt(data.vtt) : '');
@@ -811,7 +828,10 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         .map(range => `${formatAudioTime(range.start)}–${formatAudioTime(range.end)}`)
         .join('、');
     
-    if (!usageLimit) onProgress({ type: 'done', message: '全部辨識完成！' });
+    if (!usageLimit && !stoppedForFailures) onProgress({
+        type: 'done',
+        message: failedRanges.length > 0 ? '辨識未完整，已保留完成的字幕。' : '全部辨識完成！',
+    });
 
     return {
         text: finalText,
@@ -823,7 +843,9 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         failedRanges,
         usageLimit,
         warning: failedRanges.length > 0
-            ? usageLimit
+            ? stoppedForFailures
+                ? '轉錄服務連續 3 個片段重試後仍失敗，已停止；已完成的字幕仍可匯出，其餘音訊尚未完成辨識。請檢查 Worker 錯誤紀錄後再試。'
+                : usageLimit
                 ? 'Workers AI 今日免費額度已用完，辨識已停止；已完成的字幕仍會保留。'
                 : requestFailures.length > 0
                 ? `有 ${requestFailures.length} 個片段重試後仍無法辨識（${requestFailureLabels}），其他內容已保留。`
