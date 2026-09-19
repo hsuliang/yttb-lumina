@@ -405,9 +405,9 @@
                             <span class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white font-bold text-sm">3</span>
                         </div>
                         <div class="space-y-2">
-                            <h3 class="text-base font-bold text-white">打包並部署程式碼</h3>
+                            <h3 class="text-base font-bold text-white">貼上單檔 Worker 程式碼</h3>
                             <p class="text-gray-400 text-sm leading-relaxed">
-                                新版 Worker 含共用字幕處理模組，請依 <a href="https://github.com/hsuliang/yttb-lumina/blob/main/cf-worker/README.md" target="_blank" rel="noopener" class="text-blue-400 hover:underline">Worker 部署說明</a>，使用 Wrangler 打包並部署整個專案中的 Worker。請勿只貼上未打包的 <code>worker.js</code>；部署設定已包含 <code>nodejs_compat</code> 與 AI 綁定。
+                                請從 GitHub 下載最新的 <a href="https://github.com/hsuliang/yttb-lumina/blob/main/cf-worker/worker.js" target="_blank" rel="noopener" class="text-blue-400 hover:underline"><code>cf-worker/worker.js</code></a>，在 Worker 的 <strong>Edit code</strong> 中全選原始程式碼後貼上並儲存部署。這個檔案已包含所有必要模組，不需要另外貼上 <code>public/js/whisper-processing.js</code>，也不需要自行打包；若使用 Wrangler，請參閱 <a href="https://github.com/hsuliang/yttb-lumina/blob/main/cf-worker/README.md" target="_blank" rel="noopener" class="text-blue-400 hover:underline">Worker 部署說明</a>。
                             </p>
                         </div>
                     </div>

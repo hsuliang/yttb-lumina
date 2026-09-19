@@ -10,7 +10,7 @@
 
 新版前端上傳前會檢查 `/api/health` 的 `clientProcessing: "client-v1"`。連到 1.3.1 或更舊的後端會明確停止並提示更新，不會靜默退回舊的高 CPU 流程。連續 3 段失敗的停止與部分字幕保留機制繼續有效。
 
-**相容性要求：** 此版使用 `node:buffer`。沿用舊相容日期的 Worker 必須先在 Settings → Runtime → Compatibility flags 加入 `nodejs_compat`，或使用本目錄的 `wrangler.jsonc`。此設定不會升級付費方案。正式部署前仍須取得明確授權。
+**單檔部署：** `cf-worker/worker.js` 現在就是已打包完成的單一 Worker 檔案，包含所有字幕處理模組，不含相對路徑 import，也不依賴 `node:buffer`；可直接貼到 Cloudflare Dashboard 的 **Edit code**。`worker-standalone.js` 保留為相同內容的下載檔，兩者會由測試確認同步。使用 Wrangler 時仍可沿用本目錄的 `wrangler.jsonc`；其中的 `nodejs_compat` 設定不會升級付費方案。正式部署前仍須取得明確授權。
 
 已有 Worker 的部署設定須先核對帳號、Worker 名稱與既有 bindings；本設定對應 `whisper`，保留既有 vars，API_TOKEN 使用原本 Secret，不寫入設定檔。GitHub push 不會代替部署授權。
 
@@ -33,9 +33,9 @@ CPU 超限由平台直接終止請求，Worker 的 try/catch 無法保證補上 
 5. 點選 Worker name，填入你要的網址（例如：`yttb-whisper`），這是 Worker API URL，用來填寫連線設定。
 6. 填好後按下 **Deploy**
 
-### 3. 使用 Wrangler 打包程式碼
+### 3. 使用 Wrangler 部署
 
-此版將共用演算法放在 `public/js/whisper-processing.js`，**不可只把 `cf-worker/worker.js` 原始碼貼進 Dashboard**。從專案根目錄使用 Wrangler 打包：
+`cf-worker/worker.js` 已是可直接部署的單檔版本。若要保留 Wrangler 的設定、AI binding 與日誌設定，從專案根目錄執行：
 
 ```bash
 npx wrangler deploy --dry-run --config cf-worker/wrangler.jsonc --outdir /tmp/whisper-build
@@ -51,11 +51,11 @@ npx wrangler deploy --config cf-worker/wrangler.jsonc
 
 ### 3A. Dashboard 直接貼上單檔版本
 
-若另一個 Cloudflare 帳號沒有使用 Wrangler，可使用本目錄的 [`worker-standalone.js`](./worker-standalone.js)。這是由目前版本打包出的單一 Worker 檔案，沒有相對路徑 import，也不依賴 `node:buffer`；可直接在 Worker 的 **Edit code** 中全選取代後儲存部署。
+若另一個 Cloudflare 帳號沒有使用 Wrangler，可直接使用本目錄的 [`worker.js`](./worker.js)。這是已打包完成的單一 Worker 檔案，沒有相對路徑 import，也不依賴 `node:buffer`；可直接在 Worker 的 **Edit code** 中全選取代後儲存部署。`worker-standalone.js` 是相同內容的下載副本。
 
 貼上後仍須在 **Bindings** 新增 Workers AI binding，Variable name 必須是 `AI`。若設定 `API_TOKEN` Secret，前端連線時也要填入相同 Token；未設定時可直接使用健康端點與辨識端點。
 
-單檔版本的 `/api/health` 預期回傳 `version: "1.3.2"` 與 `clientProcessing: "client-v1"`。請不要把 354 行的 `worker.js` 單獨貼上，因為它需要同目錄的 `public/js/whisper-processing.js`；直接貼上時應使用 `worker-standalone.js`。
+單檔版本的 `/api/health` 預期回傳 `version: "1.3.2"` 與 `clientProcessing: "client-v1"`。請確認貼上的檔案是目前 GitHub 的 `cf-worker/worker.js`，不要使用舊版 354 行原始模組。
 
 ### 4. 啟用 Workers AI Binding
 

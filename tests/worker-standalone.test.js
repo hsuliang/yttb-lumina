@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+const worker = readFileSync(new URL('../cf-worker/worker.js', import.meta.url), 'utf8');
 const standalone = readFileSync(new URL('../cf-worker/worker-standalone.js', import.meta.url), 'utf8');
+
+test('worker.js stays synchronized with the downloadable standalone bundle', () => {
+    assert.equal(worker, standalone);
+});
 
 test('standalone Worker bundle can be pasted without source imports', () => {
     assert.doesNotMatch(standalone, /from ['"](?:node:|\.\.\/|\.\/)/);
