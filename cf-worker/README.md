@@ -49,6 +49,14 @@ npx wrangler deploy --config cf-worker/wrangler.jsonc
 
 設定檔已包含 `nodejs_compat`、AI binding 與日誌。現有 API_TOKEN Secret 不會寫入原始碼。
 
+### 3A. Dashboard 直接貼上單檔版本
+
+若另一個 Cloudflare 帳號沒有使用 Wrangler，可使用本目錄的 [`worker-standalone.js`](./worker-standalone.js)。這是由目前版本打包出的單一 Worker 檔案，沒有相對路徑 import，也不依賴 `node:buffer`；可直接在 Worker 的 **Edit code** 中全選取代後儲存部署。
+
+貼上後仍須在 **Bindings** 新增 Workers AI binding，Variable name 必須是 `AI`。若設定 `API_TOKEN` Secret，前端連線時也要填入相同 Token；未設定時可直接使用健康端點與辨識端點。
+
+單檔版本的 `/api/health` 預期回傳 `version: "1.3.2"` 與 `clientProcessing: "client-v1"`。請不要把 354 行的 `worker.js` 單獨貼上，因為它需要同目錄的 `public/js/whisper-processing.js`；直接貼上時應使用 `worker-standalone.js`。
+
 ### 4. 啟用 Workers AI Binding
 
 > ⚠️ 必須完成此步驟，否則 Whisper 模型無法運作。
