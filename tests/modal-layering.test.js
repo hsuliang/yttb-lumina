@@ -25,3 +25,15 @@ test('displayed release version is R1', () => {
 test('portal introduction uses wider balanced wrapping', () => {
     assert.match(html, /max-w-3xl text-pretty[^>]*>\s*歡迎使用全方位 AI 數位內容創作助手/);
 });
+
+test('welcome portal feature cards use four cards above five cards', () => {
+    const fourRowStart = html.indexOf('portal-card-row-four');
+    const fiveRowStart = html.indexOf('portal-card-row-five');
+    const rowsEnd = html.indexOf('<!-- 下方主要動作按鈕區 -->', fiveRowStart);
+    assert.ok(fourRowStart >= 0 && fiveRowStart > fourRowStart && rowsEnd > fiveRowStart);
+
+    const fourRow = html.slice(fourRowStart, fiveRowStart);
+    const fiveRow = html.slice(fiveRowStart, rowsEnd);
+    assert.equal((fourRow.match(/class="portal-card /g) || []).length, 4);
+    assert.equal((fiveRow.match(/class="portal-card /g) || []).length, 5);
+});

@@ -146,70 +146,74 @@
                 </button>
             </div>
 
-            <!-- 九大特色導覽網格 -->
-            <div class="flex flex-wrap justify-center gap-4 w-full mt-4">
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+            <!-- 九大特色導覽網格：桌機版上四張、下五張 -->
+            <div class="portal-card-grid w-full mt-4">
+                <div class="portal-card-row portal-card-row-four">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#06b6d4]">🎙️</span>
                         <h3 class="font-bold text-white text-base">語音轉文字辨識</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">支援上傳影音檔案，透過 Gemini 或 Whisper 模型將語音精準轉換為逐字稿與 SRT 字幕。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#f97316]">📝</span>
                         <h3 class="font-bold text-white text-base">逐字稿整理與優化</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">智慧修正錯字、補全標點符號、合併段落，並快速產生影片摘要與精緻章節。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#3b82f6]">✍️</span>
                         <h3 class="font-bold text-white text-base">部落格文章生成</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">將逐字稿一鍵轉換為符合 SEO 的結構化部落格文章，支援進階內部連結與關鍵字分析。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#22c55e]">📱</span>
                         <h3 class="font-bold text-white text-base">多平台社群貼文</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">針對 Facebook、Instagram、LINE 平台風格生成合適的社群文案與風格。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                </div>
+                <div class="portal-card-row portal-card-row-five">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#a855f7]">✉️</span>
                         <h3 class="font-bold text-white text-base">行銷電子報 (EDM)</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">自動精煉文章精華，生成具備點擊誘因的主旨與精緻 HTML 電子報版型文案。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#eab308]">🎨</span>
                         <h3 class="font-bold text-white text-base">社群輪播圖提示詞</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">自動為輪播圖的多個頁面規劃視覺構圖、文字內容與 AI 繪圖提示詞 (Prompt)。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#f43f5e]">📊</span>
                         <h3 class="font-bold text-white text-base">資訊圖表規劃結構</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">深度分析文稿，為您規劃出適合製作成 Infographic 的資訊結構報告與繪圖提示詞。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#fb7185]">🎬</span>
                         <h3 class="font-bold text-white text-base">YT 封面提示詞</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">從影片內容提煉吸睛標題、角色動作、鏡頭構圖與 16:9 YouTube 封面繪圖提示詞。</p>
                 </div>
-                <div class="portal-card w-full sm:w-[calc(50%-0.5rem)] md:w-[calc(33.333%-0.667rem)] lg:w-[calc(25%-0.75rem)] p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
+                <div class="portal-card p-5 rounded-xl border border-white/5 bg-white/5 text-left flex flex-col gap-2">
                     <div class="flex items-center gap-2">
                         <span class="text-2xl text-[#38bdf8]">📽️</span>
                         <h3 class="font-bold text-white text-base">Reels 分鏡提示詞</h3>
                     </div>
                     <p class="text-xs text-gray-400 leading-normal">將文章拆解成 4～5 張有故事節奏的 9:16 直式圖卡，逐張產生可直接使用的繪圖提示詞。</p>
+                </div>
                 </div>
             </div>
 
