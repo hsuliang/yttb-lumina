@@ -41,6 +41,14 @@ export const AI_PROMPT_MESSAGES = { chapters: [ "AI 正在精讀影片內容，�
         "正在強化繁體中文標題的字體與對比效果...",
         "AI 正在整合光影與視覺風格，請稍候..."
     ],
+    reels: [
+        "正在閱讀文本，找出 Reels 圖卡的 Hook 與核心問題...",
+        "正在規劃 4～5 張 9:16 直式圖卡的故事節奏...",
+        "正在為每張圖卡提煉短標題、重點與視覺焦點...",
+        "正在套用人物、Logo、安全區與系列風格規則...",
+        "正在整理每張獨立的繪圖提示詞，避免多圖拼貼...",
+        "Reels 逐張繪圖提示詞完成，正在進行最後檢查..."
+    ],
     transcribe: [
         "正在將音檔上傳至語音辨識引擎...",
         "AI 正在仔細聆聽您的語音內容...",
@@ -87,6 +95,8 @@ export let state = {
     currentInfographicVersionIndex: 0,
     thumbnailVersions: [],
     currentThumbnailVersionIndex: 0,
+    reelsVersions: [],
+    currentReelsVersionIndex: 0,
     topicTitleSuggestions: [],
     topicTitleSuggestionsSourceId: '',
     transcribeResult: null,

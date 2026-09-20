@@ -717,6 +717,8 @@ ${content}
             state.edmVersions.length ||
             state.carouselVersions.length ||
             state.infographicVersions.length ||
+            state.thumbnailVersions.length ||
+            state.reelsVersions.length ||
             state.topicTitleSuggestions.length
         );
         const { changed } = activateSource(smartArea.value);
