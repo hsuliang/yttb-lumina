@@ -37,3 +37,14 @@ test('welcome portal feature cards use four cards above five cards', () => {
     assert.equal((fourRow.match(/class="portal-card /g) || []).length, 4);
     assert.equal((fiveRow.match(/class="portal-card /g) || []).length, 5);
 });
+
+test('sidebar main navigation uses compact but separated spacing', () => {
+    const mainNavStart = html.indexOf('<!-- Main Nav Links -->');
+    const footerNavStart = html.indexOf('<!-- Footer Nav -->', mainNavStart);
+    assert.ok(mainNavStart >= 0 && footerNavStart > mainNavStart);
+
+    const mainNav = html.slice(mainNavStart, footerNavStart);
+    assert.match(mainNav, /overflow-y-auto gap-2/);
+    assert.equal((mainNav.match(/class="tab-btn[^\"]*py-2/g) || []).length, 9);
+    assert.doesNotMatch(mainNav, /class="tab-btn[^\"]*py-3/);
+});

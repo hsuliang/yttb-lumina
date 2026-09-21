@@ -443,6 +443,10 @@ hr {
     border-bottom: 2px solid transparent;
     font-weight: 600;
 }
+.sidebar-main-nav > .tab-btn {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
 .tab-btn:hover:not(:disabled) {
     color: var(--heading-color);
 }
