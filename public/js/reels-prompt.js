@@ -72,12 +72,10 @@ export const REELS_PROMPT_RULES = `
 
 export function buildReelsPrompt({
     sourceContent = '',
-    purpose = 'Facebook Reels 圖卡',
     roles = [],
     includeLogo = false,
     style = 'auto',
     customStyle = '',
-    brandColors = '',
     shotCount = 'auto',
     variationModifier = '',
     shouldOverride = false,
@@ -89,9 +87,6 @@ export function buildReelsPrompt({
     const styleDescription = shouldOverride && variationModifier
         ? `請以以下變化指令覆蓋原本的視覺風格：${variationModifier}`
         : `${resolveStyle(style, customStyle)}${variationModifier ? ` 另外加入：${variationModifier}` : ''}`;
-    const palette = String(brandColors || '').trim()
-        ? `品牌色請以「${String(brandColors).trim()}」為主要色彩邏輯，保持整組一致。`
-        : '未指定品牌色，請依文章主題與選定風格決定和諧、易讀且一致的配色。';
     const countRule = resolveShotCount(shotCount);
     const outputPrefixInstruction = resolveOutputPrefixInstruction(shotCount);
     const roleInstruction = buildRoleInstruction(normalizedRoles);
@@ -99,8 +94,7 @@ export function buildReelsPrompt({
 
     return `${REELS_PROMPT_RULES}
 【任務目標】
-使用用途：${purpose}
-輸出一組 4～5 張適合短影音的 Reels 圖卡。${countRule}
+輸出一組 4～5 張適合短影音的 Facebook Reels 圖卡。${countRule}
 
 【執行順序】
 1. 先讀懂文本，不要直接生圖。
@@ -108,7 +102,7 @@ export function buildReelsPrompt({
 3. 只輸出逐張完整繪圖提示詞，不輸出規劃表、表格或分析過程；每張都是獨立完成品，執行時一次只生成其中一張。
 
 【共同圖片規格】
-- 所有圖卡固定為 9:16 直式，適用 ${purpose}。
+- 所有圖卡固定為 9:16 直式，適用 Facebook Reels。
 - 整組維持一致畫風、色彩邏輯、人物比例、標題風格、版面系統與品牌調性，但每張構圖不可完全相同。
 - 每張只能有一個主要視覺焦點，保留足夠留白，文字不得壓在人臉或主要物件上。
 - 重要文字、人物臉部、CTA 與 Logo 避開最上方、最下方及右側互動區，放在 Reels 安全區。
@@ -119,9 +113,8 @@ export function buildReelsPrompt({
 ${roleInstruction}
 ${logoInstruction}
 
-【視覺風格與色彩】
+【視覺風格】
 ${styleDescription}
-${palette}
 
 【故事節奏】
 - 4 張優先採用：第 1 張封面／Hook；第 2 張核心問題或主要觀點；第 3 張方法／案例／實用重點；第 4 張結論／CTA。
@@ -129,29 +122,55 @@ ${palette}
 - 只在最後一張優先放 CTA，可使用「收藏起來」「分享給需要的人」「關注更多教學應用」等 Reels 用語，不可使用「往左滑看更多」或「下一頁看重點」。Hashtag 若使用，只在最後一張放 2～4 個。
 
 【每張提示詞固定欄位】
-請為每張依序寫出：第幾張與功能定位、Facebook Reels 用途與 9:16 比例、整體風格、人物設定與對應 image、畫面主體與動作、場景背景、主標與副標、最多 3 個重點短句、CTA（需要時）、Logo 處理、安全區與留白限制，以及單張完整圖片與禁止拼貼的限制。主標與副標請直接呈現文字內容，不要把「主標題：」「副標題：」「重點短句：」等分類標籤印到圖上。
+請為每張依序寫出：功能定位、9:16 比例、整體風格、人物設定與對應 image、畫面主體與動作、場景背景、主標與副標、最多 3 個重點短句、CTA（需要時）、Logo 處理、安全區與留白限制，以及單張完整圖片與禁止拼貼的限制。主標與副標請直接呈現文字內容，不要把「主標題：」「副標題：」「重點短句：」等分類標籤印到圖上。
 
 【輸出開頭固定指令】
 ${outputPrefixInstruction}
+
+【上架文案】
+在全部逐張繪圖提示詞之後，另輸出一段約 100 字（90～110 字）的繁體中文 Reels 上架文案，適合直接貼到 Facebook 或 Instagram，包含吸引人的開頭、內容重點與自然 CTA。請只使用「【上架文案】」作為這段文案的標記，不要把圖片提示詞或欄位說明混進文案。
 
 【原始文本】
 ---
 ${source}
 ---
 
-請使用繁體中文輸出，先輸出上述固定開頭指令，再依序使用「[第 1 張]」「[第 2 張]」等標題，只輸出實際規劃的 4 或 5 段逐張完整繪圖提示詞；不要輸出規劃表、表格或分析說明，不要使用 Markdown 程式碼區塊，不要把多張圖片的成品合併成一張。`;
+請使用繁體中文輸出，先輸出上述固定開頭指令，再依序使用「[第 1 張]」「[第 2 張]」等標題輸出實際規劃的 4 或 5 段逐張完整繪圖提示詞，最後輸出「【上架文案】」與約 100 字上架文案；不要輸出規劃表、表格或分析說明，不要使用 Markdown 程式碼區塊，不要把多張圖片的成品合併成一張。`;
+}
+
+const LISTING_COPY_MARKER_PATTERN = /(?:^|\n)\s*(?:【\s*上架文案\s*】|\[\s*上架文案\s*\]|上架文案\s*[:：])\s*/i;
+const BRACKETED_SHOT_MARKER_PATTERN = /(?:^|\n)\s*[\[【［]\s*第\s*([1-5一二三四五])\s*張\s*[\]】］][^\n]*/gi;
+const PLAIN_SHOT_MARKER_PATTERN = /(?:^|\n)\s*第\s*([1-5一二三四五])\s*張\s*[:：—-][^\n]*/gi;
+
+function collectShotMarkers(text, pattern) {
+    pattern.lastIndex = 0;
+    const matches = [];
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+        matches.push({ index: match.index, number: match[1] });
+    }
+    return matches;
+}
+
+export function extractReelsListingCopy(text = '') {
+    const source = String(text || '');
+    const marker = LISTING_COPY_MARKER_PATTERN.exec(source);
+    if (!marker) return '';
+    return source
+        .slice(marker.index + marker[0].length)
+        .replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, '')
+        .trim();
 }
 
 export function extractReelsPromptBlocks(text = '') {
-    const matches = [];
-    const markerPattern = /(?:^|\n)\s*\[?第\s*([1-5一二三四五])\s*張[^\n]*\]?/gi;
-    let match;
-    while ((match = markerPattern.exec(text)) !== null) {
-        matches.push({ index: match.index, number: match[1] });
-    }
-    return matches.map((marker, index) => {
-        const end = matches[index + 1]?.index ?? text.length;
-        const content = text.slice(marker.index, end).trim();
+    const source = String(text || '');
+    const listingMarker = LISTING_COPY_MARKER_PATTERN.exec(source);
+    const promptText = listingMarker ? source.slice(0, listingMarker.index) : source;
+    const matches = collectShotMarkers(promptText, BRACKETED_SHOT_MARKER_PATTERN);
+    const fallbackMatches = matches.length ? matches : collectShotMarkers(promptText, PLAIN_SHOT_MARKER_PATTERN);
+    return fallbackMatches.map((marker, index) => {
+        const end = fallbackMatches[index + 1]?.index ?? promptText.length;
+        const content = promptText.slice(marker.index, end).trim();
         return { number: marker.number, content };
     });
 }
@@ -168,11 +187,13 @@ export function normalizeReelsPromptOutput(text = '', requestedShotCount = 'auto
     const cleaned = String(text || '').trim();
     if (!cleaned) return '';
 
-    const blocks = extractReelsPromptBlocks(cleaned);
-    const shotCount = resolveOutputShotCount(cleaned, requestedShotCount);
+    const listingMarker = LISTING_COPY_MARKER_PATTERN.exec(cleaned);
+    const promptText = (listingMarker ? cleaned.slice(0, listingMarker.index) : cleaned).trim();
+    const blocks = extractReelsPromptBlocks(promptText);
+    const shotCount = resolveOutputShotCount(promptText, requestedShotCount);
     const prefix = `生成以下 ${shotCount} 張圖片，務必分開生成，一次只生一張，共 ${shotCount}張`;
     if (!blocks.length) {
-        return cleaned.startsWith(prefix) ? cleaned : `${prefix}\n\n${cleaned}`;
+        return promptText.startsWith(prefix) ? promptText : `${prefix}\n\n${promptText}`;
     }
 
     return `${prefix}\n\n${blocks.map(block => block.content).join('\n\n')}`;

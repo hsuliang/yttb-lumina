@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
-import { buildReelsPrompt, extractReelsPromptBlocks, normalizeReelsPromptOutput } from './reels-prompt.js';
+import { buildReelsPrompt, extractReelsListingCopy, extractReelsPromptBlocks, normalizeReelsPromptOutput } from './reels-prompt.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
 
 export function initializeTab8() {
@@ -16,8 +16,6 @@ export function initializeTab8() {
     const customStyleContainer = document.getElementById('reels-custom-style-container');
     const customStyleTextarea = document.getElementById('reels-custom-style');
     const includeLogoInput = document.getElementById('reels-include-logo');
-    const brandColorsInput = document.getElementById('reels-brand-colors');
-    const purposeInput = document.getElementById('reels-purpose');
     const shotCountSelect = document.getElementById('reels-shot-count');
     const versionsContainer = document.getElementById('reels-versions-tabs-container');
     const placeholder = document.getElementById('reels-placeholder');
@@ -25,9 +23,12 @@ export function initializeTab8() {
     const promptDisplay = document.getElementById('reels-prompt-display');
     const copyAllBtn = document.getElementById('copy-all-reels-prompts-btn');
     const individualCopyContainer = document.getElementById('reels-individual-copy-container');
+    const listingCard = document.getElementById('reels-listing-card');
+    const listingDisplay = document.getElementById('reels-listing-display');
+    const copyListingBtn = document.getElementById('copy-reels-listing-btn');
     const referenceCarouselBtn = document.getElementById('reels-reference-carousel-btn');
 
-    if (!generateBtn || !variationBtn || !rolesContainer || !addRoleBtn || !styleSelect || !customStyleContainer || !customStyleTextarea || !includeLogoInput || !brandColorsInput || !purposeInput || !shotCountSelect || !versionsContainer || !placeholder || !outputContainer || !promptDisplay || !copyAllBtn || !individualCopyContainer) return;
+    if (!generateBtn || !variationBtn || !rolesContainer || !addRoleBtn || !styleSelect || !customStyleContainer || !customStyleTextarea || !includeLogoInput || !shotCountSelect || !versionsContainer || !placeholder || !outputContainer || !promptDisplay || !copyAllBtn || !individualCopyContainer || !listingCard || !listingDisplay || !copyListingBtn) return;
 
     let roles = [];
 
@@ -114,6 +115,9 @@ export function initializeTab8() {
             variationBtn.disabled = true;
             copyAllBtn.classList.add('hidden');
             individualCopyContainer.replaceChildren();
+            listingCard.classList.add('hidden');
+            listingDisplay.textContent = '';
+            copyListingBtn.disabled = true;
             return;
         }
         placeholder.classList.add('hidden');
@@ -123,15 +127,16 @@ export function initializeTab8() {
         setLoadingState(false);
         renderMarkdownBold(promptDisplay, currentVersion.textContent);
         renderIndividualCopyButtons(currentVersion.textContent);
+        listingDisplay.textContent = currentVersion.listingCopy || '未生成上架文案，請重新生成。';
+        copyListingBtn.disabled = !currentVersion.listingCopy;
+        listingCard.classList.remove('hidden');
     }
 
     function resetTab8() {
         state.reelsVersions = [];
         state.currentReelsVersionIndex = 0;
         roles = [];
-        purposeInput.value = 'Facebook Reels 圖卡';
         includeLogoInput.checked = false;
-        brandColorsInput.value = '';
         shotCountSelect.value = 'auto';
         styleSelect.value = 'auto';
         customStyleTextarea.value = '';
@@ -165,12 +170,10 @@ export function initializeTab8() {
         syncRolesFromInputs();
         return buildReelsPrompt({
             sourceContent,
-            purpose: purposeInput.value.trim() || 'Facebook Reels 圖卡',
             roles: roles.map(role => role.name),
             includeLogo: includeLogoInput.checked,
             style: styleSelect.value,
             customStyle: customStyleTextarea.value,
-            brandColors: brandColorsInput.value,
             shotCount: shotCountSelect.value,
             variationModifier,
             shouldOverride,
@@ -205,6 +208,7 @@ export function initializeTab8() {
         activeBtn.classList.add('bg-error/10', 'text-error', 'border-error/20');
         placeholder.classList.add('hidden');
         outputContainer.classList.remove('hidden');
+        listingCard.classList.add('hidden');
         renderMarkdownBold(promptDisplay, '正在整理 Reels 逐張繪圖提示詞…');
         setLoadingState(true);
 
@@ -221,11 +225,16 @@ export function initializeTab8() {
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
 
             if (!isCurrentSource(requestSourceId)) return;
+            const cleanedResult = result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, '');
             const textContent = normalizeReelsPromptOutput(
-                result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, ''),
+                cleanedResult,
                 shotCountSelect.value,
             );
-            const version = { sourceId: requestSourceId, textContent };
+            const version = {
+                sourceId: requestSourceId,
+                textContent,
+                listingCopy: extractReelsListingCopy(cleanedResult),
+            };
             if (isVariation) {
                 state.reelsVersions.push(version);
                 state.currentReelsVersionIndex = state.reelsVersions.length - 1;
@@ -292,6 +301,16 @@ export function initializeTab8() {
             showToast('全部 Reels 逐張繪圖提示詞已複製！', { type: 'success' });
         } catch (_) {
             showToast('複製失敗，請手動選取提示詞。', { type: 'error' });
+        }
+    });
+    copyListingBtn.addEventListener('click', async () => {
+        const currentVersion = state.reelsVersions[state.currentReelsVersionIndex];
+        if (!currentVersion?.listingCopy) return;
+        try {
+            await navigator.clipboard.writeText(currentVersion.listingCopy);
+            showToast('上架文案已複製！', { type: 'success' });
+        } catch (_) {
+            showToast('複製失敗，請手動選取上架文案。', { type: 'error' });
         }
     });
     referenceCarouselBtn?.addEventListener('click', referenceCarouselSettings);
