@@ -4,7 +4,6 @@ import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
-import { renderMarkdownBold } from './markdown-renderer.js';
 import { assembleSocialPrompt } from './social-prompt.js';
 
 /**
@@ -17,6 +16,35 @@ const SOCIAL_SETTINGS_STORAGE_KEYS = {
     TONE: 'aliang-yttb-setting-social-tone',
     PROMPT_WIZARD: 'aliang-yttb-setting-social-wizard'
 };
+
+const SOCIAL_BOLD_MARKUP_PATTERN = /<strong>(.*?)<\/strong>|\*\*([^*\n]+?)\*\*/gi;
+
+function renderSocialBold(element, text) {
+    if (!element) return;
+    const ownerDocument = element.ownerDocument || document;
+    const source = String(text ?? '');
+    let lastIndex = 0;
+    let match;
+
+    SOCIAL_BOLD_MARKUP_PATTERN.lastIndex = 0;
+    element.replaceChildren();
+    while ((match = SOCIAL_BOLD_MARKUP_PATTERN.exec(source)) !== null) {
+        if (match.index > lastIndex) {
+            element.appendChild(ownerDocument.createTextNode(source.slice(lastIndex, match.index)));
+        }
+        const strong = ownerDocument.createElement('strong');
+        strong.textContent = match[1] ?? match[2];
+        element.appendChild(strong);
+        lastIndex = SOCIAL_BOLD_MARKUP_PATTERN.lastIndex;
+    }
+    if (lastIndex < source.length) {
+        element.appendChild(ownerDocument.createTextNode(source.slice(lastIndex)));
+    }
+}
+
+function normalizeSocialBoldMarkup(text) {
+    return String(text ?? '').replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>').replace(/\*\*/g, '');
+}
 
 function resetTab3() {
     state.socialPostVersions = [];
@@ -31,9 +59,9 @@ function resetTab3() {
     if(varBtn) varBtn.disabled = true;
     if(copyBtn) copyBtn.classList.add('hidden');
     
-    renderMarkdownBold(document.getElementById('facebook-post-output'), '');
-    renderMarkdownBold(document.getElementById('instagram-post-output'), '');
-    renderMarkdownBold(document.getElementById('line-post-output'), '');
+    renderSocialBold(document.getElementById('facebook-post-output'), '');
+    renderSocialBold(document.getElementById('instagram-post-output'), '');
+    renderSocialBold(document.getElementById('line-post-output'), '');
     document.getElementById('social-hashtags').value = '';
     document.getElementById('social-cta').value = '';
     const wizardSettings = JSON.parse(localStorage.getItem(SOCIAL_SETTINGS_STORAGE_KEYS.PROMPT_WIZARD)) || {};
@@ -72,9 +100,9 @@ function renderCurrentSocialVersionUI() {
     const currentVersion = state.socialPostVersions[state.currentSocialVersionIndex];
     if (!currentVersion) return;
     
-    renderMarkdownBold(document.getElementById('facebook-post-output'), currentVersion.facebook);
-    renderMarkdownBold(document.getElementById('instagram-post-output'), currentVersion.instagram);
-    renderMarkdownBold(document.getElementById('line-post-output'), currentVersion.line);
+    renderSocialBold(document.getElementById('facebook-post-output'), currentVersion.facebook);
+    renderSocialBold(document.getElementById('instagram-post-output'), currentVersion.instagram);
+    renderSocialBold(document.getElementById('line-post-output'), currentVersion.line);
 
     switchSocialTab(state.activeSocialTab);
 }
@@ -207,7 +235,7 @@ export const switchSocialTab = function(platform) {
             socialOutputContainer.classList.remove('hidden');
             const activeOutput = socialPostOutputs[state.activeSocialTab];
             if (activeOutput) {
-                renderMarkdownBold(activeOutput, '');
+                renderSocialBold(activeOutput, '');
                 activeOutput.classList.add('text-center', 'animate-pulse');
                 activeOutput.style.color = '#f97316';
                 activeOutput.style.fontSize = '1.1rem';
@@ -229,7 +257,7 @@ export const switchSocialTab = function(platform) {
                                 activeOutput.style.fontSize = '';
                                 activeOutput.style.fontWeight = '';
                             }
-                            renderMarkdownBold(activeOutput, fullText);
+                            renderSocialBold(activeOutput, fullText);
                             activeOutput.scrollTop = activeOutput.scrollHeight;
                         }
                     }, state.currentAbortController.signal);
@@ -239,7 +267,7 @@ export const switchSocialTab = function(platform) {
                         break;
                     }
                     console.warn(`第 ${i+1} 次嘗試，社群貼文回應格式不完整，正在自動重試...`);
-                    if (activeOutput) renderMarkdownBold(activeOutput, '初步回應格式不完整，正在自動重試...');
+                    if (activeOutput) renderSocialBold(activeOutput, '初步回應格式不完整，正在自動重試...');
                 }
             if (!isValidResponse) {
                 throw new Error("AI 回應格式不完整，請稍後再試或生成另一版本。");
@@ -252,9 +280,9 @@ export const switchSocialTab = function(platform) {
             if (!isCurrentSource(requestSourceId)) return;
             const newVersion = {
                 sourceId: requestSourceId,
-                facebook: fbMatch ? fbMatch[1].trim() : '無法解析 Facebook 貼文。',
-                instagram: igMatch ? igMatch[1].trim() : '無法解析 Instagram 貼文。',
-                line: lineMatch ? lineMatch[1].trim() : '無法解析 Line 貼文。'
+                facebook: fbMatch ? normalizeSocialBoldMarkup(fbMatch[1].trim()) : '無法解析 Facebook 貼文。',
+                instagram: igMatch ? normalizeSocialBoldMarkup(igMatch[1].trim()) : '無法解析 Instagram 貼文。',
+                line: lineMatch ? normalizeSocialBoldMarkup(lineMatch[1].trim()) : '無法解析 Line 貼文。'
             };
 
             if (isVariation) {
@@ -278,7 +306,7 @@ export const switchSocialTab = function(platform) {
                     activeOutput.style.color = '';
                     activeOutput.style.fontSize = '';
                     activeOutput.style.fontWeight = '';
-                    renderMarkdownBold(activeOutput, '生成已中斷。');
+                    renderSocialBold(activeOutput, '生成已中斷。');
                 }
             } else if (error.message && error.message.includes('overloaded')) { 
                 showModal({ 
@@ -312,19 +340,33 @@ export const switchSocialTab = function(platform) {
         });
     }
 
-    function copySocialPost() {
+    async function copySocialPost() {
         const currentVersion = state.socialPostVersions[state.currentSocialVersionIndex];
         if (!currentVersion) return;
         const targetContent = currentVersion[state.activeSocialTab];
-        if (targetContent) {
-            navigator.clipboard.writeText(targetContent).then(() => {
-                showToast('已複製到剪貼簿！');
-                const originalHtml = socialCopyBtn.innerHTML;
-                socialCopyBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">check</span>已複製!';
-                setTimeout(() => {
-                    socialCopyBtn.innerHTML = originalHtml;
-                }, 2000);
-            });
+        const output = socialPostOutputs[state.activeSocialTab];
+        if (!targetContent || !output) return;
+
+        const plainText = output.innerText || output.textContent || String(targetContent).replace(/<\/?strong>/gi, '').replace(/\*\*/g, '');
+        const htmlContent = `<div>${output.innerHTML.replace(/\r?\n/g, '<br>')}</div>`;
+        try {
+            if (navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
+                const clipboardItem = new ClipboardItem({
+                    'text/plain': new Blob([plainText], { type: 'text/plain' }),
+                    'text/html': new Blob([htmlContent], { type: 'text/html' }),
+                });
+                await navigator.clipboard.write([clipboardItem]);
+            } else {
+                await navigator.clipboard.writeText(plainText);
+            }
+            showToast('已複製到剪貼簿！');
+            const originalHtml = socialCopyBtn.innerHTML;
+            socialCopyBtn.innerHTML = '<span class="material-symbols-outlined text-[16px]">check</span>已複製!';
+            setTimeout(() => {
+                socialCopyBtn.innerHTML = originalHtml;
+            }, 2000);
+        } catch (_) {
+            showToast('複製失敗，請稍後再試。', { type: 'error' });
         }
     }
 

@@ -90,14 +90,13 @@ function convertHtmlToMarkdown(htmlContent) {
     content = content.replace(/<h2>(.*?)<\/h2>/g, '## $1');
     content = content.replace(/<h1>(.*?)<\/h1>/g, '# $1');
     content = content.replace(/<hr\s*\/?>/g, '\n---\n');
-    content = content.replace(/<strong>(.*?)<\/strong>/g, '**$1**');
     content = content.replace(/<em>(.*?)<\/em>/g, '*$1*');
     content = content.replace(/<li>(.*?)<\/li>/g, (match, p1) => `* ${p1.replace(/<p>|<\/p>/g, '')}\n`);
     content = content.replace(/<ul>/g, '').replace(/<\/ul>/g, '');
     content = content.replace(/<a href="(.*?)"[^>]*>(.*?)<\/a>/g, '[$2]($1)');
     content = content.replace(/<p><br><\/p>/g, '\n');
     content = content.replace(/<p>/g, '').replace(/<\/p>/g, '\n');
-    content = content.replace(/<[^>]*>/g, '');
+    content = content.replace(/<(?!\/?strong\b)[^>]*>/g, '');
     content = content.replace(/\n{3,}/g, '\n\n');
     return content.trim();
 }
@@ -167,6 +166,7 @@ function assembleBlogPrompt(options) {
     if (wizardSettings.h2Style === 'question') { h2_style_rule = "每個段落都需要一個帶有疑問句、引發好奇的小標題"; }
     else if (wizardSettings.h2Style === 'emoji') { h2_style_rule = "每個段落都需要一個活潑有趣、可加入 Emoji 的小標題"; }
     rules.push(`- 格式要求：每個小標題用 <h2> 標籤包圍，其後的內文用 <p> 標籤包圍。`);
+    rules.push('- 粗體格式：若要強調重點，直接使用 HTML <strong>...</strong> 標籤；禁止使用 Markdown 的雙星號粗體標記。');
     if (wizardSettings.elemBold) { rules.push('- 特殊元素：請在內文中適度將重要的關鍵字詞加上 <strong> 粗體標籤。'); }
     if (wizardSettings.elemTable) { rules.push('- 特殊元素：請在文章結尾處，自動生成一個「重點回顧」的 HTML 表格(<table>)，總結文章要點。'); }
     if (wizardSettings.elemQuote) { rules.push('- 特殊元素：請在文章內文中，選擇一句最精彩的「金句」，並用 <blockquote> 標籤將其引用出來。'); }

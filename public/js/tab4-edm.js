@@ -117,6 +117,7 @@ import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
         5.  **行動呼籲 (CTA)**: 在結尾處，必須設計一個強而有力的行動呼籲按鈕。請使用 HTML 的 \`<a>\` 標籤來製作這個按鈕，並給它一些基本的內聯 CSS 樣式，使其看起來像一個真實的按鈕（例如：有背景色、圓角、置中等）。CTA 的目標是引導讀者觀看原始影片或閱讀完整文章。
         6.  **個人化**: 在適當的地方（如開頭的問候），可以使用 \`[讀者姓名]\` 這樣的預留位置，方便使用者匯入到他們的電子報系統中。
         7.  **不要包含**：不要在你的回覆中包含 "\`\`\`html" 或任何程式碼區塊的標記，直接輸出純粹的 HTML 內容。
+        8.  **粗體格式**：需要強調重點時，直接使用 HTML <strong>...</strong> 標籤；禁止使用 Markdown 的雙星號粗體標記。
 
         [原始文章]:
         ---
@@ -180,7 +181,7 @@ import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
                 }
             }, state.currentAbortController.signal);
             if (!isCurrentSource(requestSourceId)) return;
-            const newVersion = { sourceId: requestSourceId, htmlContent: result };
+            const newVersion = { sourceId: requestSourceId, htmlContent: normalizeMarkdownBoldHtml(result) };
 
             if (isVariation) {
                 state.edmVersions.push(newVersion);
@@ -234,7 +235,7 @@ import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
 
     function copyEdmHtml() {
         if (state.edmVersions.length === 0) return;
-        const currentContent = state.edmVersions[state.currentEdmVersionIndex].htmlContent;
+        const currentContent = normalizeMarkdownBoldHtml(state.edmVersions[state.currentEdmVersionIndex].htmlContent);
         navigator.clipboard.writeText(currentContent).then(() => {
             showToast('HTML 原始碼已複製！');
             const originalHtml = copyEdmHtmlBtn.innerHTML;

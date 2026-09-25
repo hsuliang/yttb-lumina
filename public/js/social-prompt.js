@@ -43,6 +43,7 @@ export function assembleSocialPrompt(options) {
     } = options;
 
     const globalRules = [];
+    globalRules.push('- 粗體格式：需要強調時，直接使用 <strong>...</strong> 標記文字；不要使用 Markdown 的雙星號粗體標記，也不要輸出其他 HTML 標籤。');
     if (variationModifier) globalRules.push(`- 風格變化指令: ${variationModifier}`);
     globalRules.push(`- 貼文目標: ${objective}`);
     globalRules.push(`- 貼文長度: ${length}`);
