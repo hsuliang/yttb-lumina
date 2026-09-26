@@ -1,4 +1,4 @@
-const MARKDOWN_BOLD_PATTERN = /\*\*([^*\n]+?)\*\*/g;
+const MARKDOWN_BOLD_PATTERN = /\\?\*\\?\*([^*\n]+?)\\?\*\\?\*/g;
 
 function appendMarkdownBoldNodes(parent, text, ownerDocument) {
     const source = String(text ?? '');

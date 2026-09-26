@@ -26,9 +26,13 @@ export function initializeTab8() {
     const listingCard = document.getElementById('reels-listing-card');
     const listingDisplay = document.getElementById('reels-listing-display');
     const copyListingBtn = document.getElementById('copy-reels-listing-btn');
-    const referenceCarouselBtn = document.getElementById('reels-reference-carousel-btn');
+    const referenceSettingsBtn = document.getElementById('reels-reference-carousel-btn');
 
     if (!generateBtn || !variationBtn || !rolesContainer || !addRoleBtn || !styleSelect || !customStyleContainer || !customStyleTextarea || !includeLogoInput || !shotCountSelect || !versionsContainer || !placeholder || !outputContainer || !promptDisplay || !copyAllBtn || !individualCopyContainer || !listingCard || !listingDisplay || !copyListingBtn) return;
+
+    if (referenceSettingsBtn) {
+        referenceSettingsBtn.title = '參考輪播圖的角色、Logo 與視覺風格設定，也可選擇參考其他 Tab。';
+    }
 
     let roles = [];
 
@@ -144,23 +148,6 @@ export function initializeTab8() {
         renderRoles();
         renderVersionTabs();
         renderCurrentVersion();
-    }
-
-    function referenceCarouselSettings() {
-        syncRolesFromInputs();
-        const carouselRoleInputs = document.querySelectorAll('.carousel-role-name');
-        if (document.getElementById('carousel-roles-container')) {
-            roles = Array.from(carouselRoleInputs).map(input => ({ name: input.value.trim() }));
-        }
-        const carouselLogo = document.getElementById('carousel-include-logo');
-        const carouselStyle = document.getElementById('carousel-style');
-        const carouselCustomStyle = document.getElementById('carousel-custom-style');
-        if (carouselLogo) includeLogoInput.checked = carouselLogo.checked;
-        if (carouselStyle) styleSelect.value = carouselStyle.value;
-        if (carouselCustomStyle) customStyleTextarea.value = carouselCustomStyle.value;
-        customStyleContainer.classList.toggle('hidden', styleSelect.value !== 'custom');
-        renderRoles();
-        showToast('已參考輪播圖的角色、Logo 與視覺風格設定。', { type: 'success' });
     }
 
     function collectPrompt(variationModifier = '', shouldOverride = false) {
@@ -313,7 +300,6 @@ export function initializeTab8() {
             showToast('複製失敗，請手動選取上架文案。', { type: 'error' });
         }
     });
-    referenceCarouselBtn?.addEventListener('click', referenceCarouselSettings);
     window.addEventListener('lumina:clearDownstreamTabs', resetTab8);
 
     renderRoles();

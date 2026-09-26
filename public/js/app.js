@@ -14,6 +14,7 @@ import { isGeminiKeyAvailable } from './gemini-routing.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
 import { initializeBloggerSettings } from './blogger-settings.js';
+import { initializeSharedReferenceSettings } from './shared-reference-settings.js';
 
 /**
  * app.js
@@ -49,6 +50,7 @@ LEGACY_DRAFT_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
     const apiKeyHelpPanel = document.getElementById('api-key-help-panel');
     const allTabButtons = document.querySelectorAll('.tab-btn[data-tab]');
     const allTabContents = document.querySelectorAll('.tab-content');
+    const mobileTabSelect = document.getElementById('mobile-tab-select');
     const modalCloseBtn = document.getElementById('modal-close-btn');
     const modalCopyBtn = document.getElementById('modal-copy-btn');
     const resetAppBtn = document.getElementById('reset-app-btn');
@@ -702,6 +704,7 @@ export const switchTab = (tabId) => {
         const clickedButton = document.querySelector(`[data-tab="${tabId}"]`);
         clickedButton.classList.add('active');
         document.getElementById(tabId).classList.remove('hidden');
+        if (mobileTabSelect) mobileTabSelect.value = tabId;
 
         const dot = document.getElementById(`${tabId}-dot`);
         if (dot) { dot.classList.add('hidden'); }
@@ -720,6 +723,7 @@ export const switchTab = (tabId) => {
         try { if (initializeTab6) { initializeTab6(); } } catch(e) { console.error("Error initializing Tab 6:", e); }
         try { if (initializeTab7) { initializeTab7(); } } catch(e) { console.error("Error initializing Tab 7:", e); }
         try { if (initializeTab8) { initializeTab8(); } } catch(e) { console.error("Error initializing Tab 8:", e); }
+        try { initializeSharedReferenceSettings(); } catch(e) { console.error("Error initializing shared reference settings:", e); }
         try { initializeBloggerSettings(); } catch(e) { console.error("Error initializing Blogger settings:", e); }
 
         try { updateApiKeyStatus(); window.addEventListener('settings-updated', updateApiKeyStatus); } catch(e) { console.error("Error updating API key status:", e); }
@@ -1524,6 +1528,20 @@ state.currentAbortController = null;
                 showToast('已清除上一份逐字稿的產出內容。');
             }
         });
+
+        if (mobileTabSelect) {
+            mobileTabSelect.addEventListener('change', () => {
+                const tabId = mobileTabSelect.value;
+                const smartArea = document.getElementById('smart-area');
+                const hasContent = smartArea && smartArea.value.trim().length > 0;
+                if (tabId !== 'tab1' && tabId !== 'tab0' && !hasContent) {
+                    mobileTabSelect.value = document.querySelector('.tab-btn.active')?.dataset.tab || 'tab1';
+                    showToast('請先貼上或整理您的字幕/文稿內容！', { type: 'warning' });
+                    return;
+                }
+                switchTab(tabId);
+            });
+        }
 
         // 歡迎首頁 Portal 邏輯與事件綁定 (採用直接綁定與事件代理雙重保險，確保按鈕在任何情況下皆有效)
         const welcomePortal = document.getElementById('welcome-portal');

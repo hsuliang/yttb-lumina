@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
 import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
 import { extractTopicTitleSuggestions, validateTopicTitleSuggestion } from './topic-title-validator.js';
+import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
  * tab1-srt.js
@@ -63,41 +64,11 @@ function updateCharCount(text = '') {
     }
 }
 
-function renderTopicTitle(text = '') {
-    const container = document.getElementById('display-topic-title');
-    if (!container) return;
-
-    const fragment = document.createDocumentFragment();
-    let cursor = 0;
-
-    while (cursor < text.length) {
-        const boldStart = text.indexOf('**', cursor);
-        if (boldStart === -1) {
-            fragment.appendChild(document.createTextNode(text.slice(cursor)));
-            break;
-        }
-
-        fragment.appendChild(document.createTextNode(text.slice(cursor, boldStart)));
-        const boldEnd = text.indexOf('**', boldStart + 2);
-        if (boldEnd === -1) {
-            fragment.appendChild(document.createTextNode(text.slice(boldStart + 2)));
-            break;
-        }
-
-        const strong = document.createElement('strong');
-        strong.textContent = text.slice(boldStart + 2, boldEnd);
-        fragment.appendChild(strong);
-        cursor = boldEnd + 2;
-    }
-
-    container.replaceChildren(fragment);
-}
-
 function setAiOutputText(type, text = '') {
     const output = document.getElementById(`display-${type}`);
     if (!output) return;
-    if (type === 'topic-title') {
-        renderTopicTitle(text);
+    if (type === 'topic-title' || type === 'summary') {
+        renderMarkdownBold(output, text);
     } else {
         output.value = text;
     }
@@ -106,7 +77,10 @@ function setAiOutputText(type, text = '') {
 function getAiOutputText(type) {
     const output = document.getElementById(`display-${type}`);
     if (!output) return '';
-    return type === 'topic-title' ? output.textContent : output.value;
+    if (type === 'topic-title' || type === 'summary') {
+        return (output.innerText || output.textContent || '').replace(/\n+$/, '');
+    }
+    return output.value;
 }
 
 function buildTopicTitleRepairPrompt(basePrompt, previousResult, violations) {
@@ -485,7 +459,7 @@ ${content}
             updateCharCount(getAiOutputText('topic-title'));
         } else if (viewToShow === 'summary') {
             if (displaySummary) displaySummary.classList.remove('hidden');
-            updateCharCount(displaySummary ? displaySummary.value : '');
+            updateCharCount(getAiOutputText('summary'));
         } else if (viewToShow === 'chapters') {
             if (displayChapters) displayChapters.classList.remove('hidden');
             updateCharCount(displayChapters ? displayChapters.value : '');
@@ -680,6 +654,10 @@ ${content}
             switchView(button.dataset.view);
         });
     });
+    ['topic-title', 'summary'].forEach(type => {
+        const output = document.getElementById(`display-${type}`);
+        output?.addEventListener('input', () => updateCharCount(getAiOutputText(type)));
+    });
     maxCharsSlider.addEventListener('input', (e) => { maxCharsValue.textContent = e.target.value; });
     mergeShortLinesSlider.addEventListener('input', (e) => { mergeShortLinesValue.textContent = e.target.value; });
     if (timelineShiftInput && timelineShiftValue) {
@@ -736,8 +714,8 @@ ${content}
         const displaySummary = document.getElementById('display-summary');
         const displayChapters = document.getElementById('display-chapters');
         if (displayProcessed) displayProcessed.textContent = '';
-        if (displayTopicTitle) renderTopicTitle('');
-        if (displaySummary) displaySummary.value = '';
+        if (displayTopicTitle) setAiOutputText('topic-title', '');
+        if (displaySummary) setAiOutputText('summary', '');
         if (displayChapters) displayChapters.value = '';
         exportSrtBtn.disabled = true;
     });

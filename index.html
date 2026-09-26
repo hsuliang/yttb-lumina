@@ -305,19 +305,33 @@
                 <span class="font-label-md text-label-md">使用說明</span>
             </a>
             <div class="px-4 py-2 text-[10px] text-on-surface-variant/50 whitespace-nowrap">
-                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．秋分．20260925<span class="text-error font-bold">R1</span>
+                <a href="https://52hal.cc/al" target="_blank" class="hover:text-primary transition-colors">ㄚ亮笑長練功坊</a> | 丙午．秋分．20260926<span class="text-error font-bold">R2</span>
             </div>
         </div>
     </nav>
 
     <!-- Main Workspace Container -->
-    <main class="flex-1 ml-nav-width h-screen overflow-hidden p-6 relative box-border bg-background flex flex-col">
+    <main class="flex-1 md:ml-nav-width h-screen overflow-hidden p-3 md:p-6 relative box-border bg-background flex flex-col">
         
         <!-- Ambient Glows -->
         <div class="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none z-0"></div>
         <div class="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-tertiary/5 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
         <div class="max-w-[1600px] w-full mx-auto flex-1 flex flex-col gap-card-gap min-h-0 relative z-10">
+            <div class="md:hidden shrink-0">
+                <label class="sr-only" for="mobile-tab-select">切換功能分頁</label>
+                <select id="mobile-tab-select" class="w-full glass-input rounded-lg px-3 py-2.5 text-body-sm text-on-surface">
+                    <option value="tab0">字幕產生器</option>
+                    <option value="tab1" selected>逐字稿整理</option>
+                    <option value="tab2">部落格文章</option>
+                    <option value="tab3">社群貼文</option>
+                    <option value="tab4">電子報生成</option>
+                    <option value="tab5">輪播圖提示詞</option>
+                    <option value="tab6">資訊圖表提示詞</option>
+                    <option value="tab7">YT 封面提示詞</option>
+                    <option value="tab8">Reels 分鏡提示詞</option>
+                </select>
+            </div>
             
             <div id="tab0" class="tab-content hidden flex-1 flex flex-col gap-card-gap min-h-0">
                 <div class="flex justify-between items-end shrink-0">
@@ -625,7 +639,7 @@
                             <div id="display-original" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
                             <div id="display-processed" class="view-content w-full h-full p-6 overflow-y-auto font-mono text-sm whitespace-pre-wrap hidden leading-relaxed text-on-surface bg-surface-container/10"></div>
                             <div id="display-topic-title" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none overflow-y-auto whitespace-pre-wrap leading-relaxed font-mono text-sm text-on-surface hidden empty:before:content-[attr(data-placeholder)] empty:before:text-on-surface-variant/30" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="爆款主題建議將在此顯示..."></div>
-                            <textarea id="display-summary" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 摘要將在此顯示..."></textarea>
+                            <div id="display-summary" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none overflow-y-auto whitespace-pre-wrap leading-relaxed font-mono text-sm text-on-surface hidden empty:before:content-[attr(data-placeholder)] empty:before:text-on-surface-variant/30" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="AI 摘要將在此顯示..."></div>
                             <textarea id="display-chapters" class="view-content w-full h-full p-6 bg-surface-container/10 focus:outline-none resize-none leading-relaxed font-mono text-sm text-on-surface placeholder:text-on-surface-variant/30 hidden" placeholder="AI 章節將在此顯示..."></textarea>
                             
                             <div id="tab1-floating-actions" class="hidden"></div>
@@ -1160,7 +1174,7 @@
 
                 <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
                     <!-- Left Settings Panel -->
-                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 flex-1 min-h-0 lg:flex-none shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
                             <span class="material-symbols-outlined text-primary text-[20px]">view_carousel</span>輪播圖設定
                         </h3>
@@ -1174,6 +1188,10 @@
                                     <span class="material-symbols-outlined text-[16px]">auto_awesome</span>最佳化文字以提升品質
                                 </button>
                             </div>
+
+                            <button id="carousel-reference-settings-btn" type="button" class="w-full py-2.5 rounded-lg border border-tertiary/40 bg-tertiary/10 text-tertiary hover:bg-tertiary/20 transition-colors text-xs font-semibold flex items-center justify-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px]">sync_alt</span>參考其他 Tab 設定
+                            </button>
 
                             <hr class="border-outline-variant/10">
 
@@ -1314,7 +1332,7 @@
 
                 <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
                     <!-- Left Settings Panel -->
-                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-y-auto p-5 gap-5 flex-1 min-h-0 lg:flex-none shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2">
                             <span class="material-symbols-outlined text-primary text-[20px]">insert_chart</span>圖表設定
                         </h3>
@@ -1339,6 +1357,10 @@
                                 <p class="font-label-md text-[10px] text-on-surface-variant mt-0.5 leading-none">系統將分析適合的圖表類型與排版風格</p>
                             </div>
                         </div>
+
+                        <button id="infographic-reference-settings-btn" type="button" class="w-full py-2.5 rounded-lg border border-tertiary/40 bg-tertiary/10 text-tertiary hover:bg-tertiary/20 transition-colors text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0">
+                            <span class="material-symbols-outlined text-[16px]">sync_alt</span>參考其他 Tab 設定
+                        </button>
 
                         <!-- Settings controls inputs -->
                         <div class="flex-1 overflow-y-auto pr-1 space-y-3">
@@ -1532,7 +1554,7 @@
                 </div>
 
                 <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
-                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden p-5 gap-5 flex-1 min-h-0 lg:flex-none shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2 shrink-0">
                             <span class="material-symbols-outlined text-primary text-[20px]">video_camera_front</span>封面設定
                         </h3>
@@ -1544,6 +1566,10 @@
                                     <span class="material-symbols-outlined text-[16px]">auto_awesome</span>最佳化文字以提升品質
                                 </button>
                             </div>
+
+                            <button id="thumbnail-reference-settings-btn" type="button" class="w-full py-2.5 rounded-lg border border-tertiary/40 bg-tertiary/10 text-tertiary hover:bg-tertiary/20 transition-colors text-xs font-semibold flex items-center justify-center gap-1.5">
+                                <span class="material-symbols-outlined text-[16px]">sync_alt</span>參考其他 Tab 設定
+                            </button>
 
                             <hr class="border-outline-variant/10">
 
@@ -1591,6 +1617,39 @@
                                         <option value="eye-level-wide">充滿張力與透視感的廣角平視</option>
                                         <option value="high-angle">廣角俯視鏡頭</option>
                                         <option value="symmetrical-panoramic">強烈透視感的對稱式全景</option>
+                                    </select>
+                                    <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[20px]">expand_more</span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-narrative-direction">人物／敘事方向</label>
+                                <div class="relative">
+                                    <select id="thumbnail-narrative-direction" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none appearance-none pr-10">
+                                        <option value="auto" selected>AI 依內容判斷（推薦）</option>
+                                        <option value="natural-understanding">自然理解／思考</option>
+                                        <option value="interaction-discussion">互動討論</option>
+                                        <option value="professional-demo">專業示範</option>
+                                        <option value="dramatic-surprise">懸念衝擊／誇張驚訝</option>
+                                        <option value="funny-absurd">爆笑／無厘頭</option>
+                                        <option value="challenge-anticipation">投入挑戰／期待</option>
+                                        <option value="satisfied-result">成果肯定</option>
+                                    </select>
+                                    <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[20px]">expand_more</span>
+                                </div>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="font-label-md text-label-md text-on-surface font-semibold block" for="thumbnail-title-position">標題位置</label>
+                                <div class="relative">
+                                    <select id="thumbnail-title-position" class="w-full glass-input rounded-lg px-4 py-2.5 text-body-sm text-on-surface cursor-pointer focus:outline-none appearance-none pr-10">
+                                        <option value="auto" selected>依畫面留白自動安排（推薦）</option>
+                                        <option value="top-left">左上方</option>
+                                        <option value="top-center">上方中央</option>
+                                        <option value="top-right">右上方</option>
+                                        <option value="left-middle">左側中央</option>
+                                        <option value="right-middle">右側中央</option>
+                                        <option value="lower-left">左下偏中</option>
                                     </select>
                                     <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[20px]">expand_more</span>
                                 </div>
@@ -1662,7 +1721,7 @@
                 </div>
 
                 <div class="flex flex-col lg:flex-row gap-card-gap flex-1 min-h-0 items-stretch">
-                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden p-5 gap-5 shrink-0 shadow-lg shadow-black/10">
+                    <div class="w-full lg:w-[30%] bg-surface-container/50 backdrop-blur-md rounded-2xl border border-outline-variant/20 flex flex-col overflow-hidden p-5 gap-5 flex-1 min-h-0 lg:flex-none shadow-lg shadow-black/10">
                         <h3 class="font-headline-md text-body-lg font-semibold text-on-surface flex items-center gap-2 shrink-0">
                             <span class="material-symbols-outlined text-primary text-[20px]">movie_filter</span>Reels 分鏡設定
                         </h3>
@@ -1676,7 +1735,7 @@
                             </div>
 
                             <button id="reels-reference-carousel-btn" type="button" class="w-full py-2.5 rounded-lg border border-tertiary/40 bg-tertiary/10 text-tertiary hover:bg-tertiary/20 transition-colors text-xs font-semibold flex items-center justify-center gap-1.5">
-                                <span class="material-symbols-outlined text-[16px]">sync_alt</span>參考輪播圖設定
+                                <span class="material-symbols-outlined text-[16px]">sync_alt</span>參考其他 Tab 設定
                             </button>
 
                             <hr class="border-outline-variant/10">

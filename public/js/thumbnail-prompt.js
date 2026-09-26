@@ -16,6 +16,27 @@ const SHOT_DESCRIPTIONS = {
     'symmetrical-panoramic': '使用帶有強烈透視感的對稱式全景鏡頭（symmetrical panoramic shot），讓人物與背景形成秩序鮮明的對稱構圖與明顯景深；適合群像陣容、專業知識交鋒與未來科技場景。',
 };
 
+const NARRATIVE_DIRECTION_DESCRIPTIONS = {
+    auto: '請依影片主題與情緒決定人物／敘事方向，可使用自然、專業、懸念、驚訝或喜劇表現；不要把任何一種表情或手勢當成固定預設。',
+    'natural-understanding': '以理解、思考、認同或會心微笑為主，使用自然的眼神、姿勢與小幅手勢，呈現內容被理解或發現重點的瞬間。',
+    'interaction-discussion': '安排角色自然交流、討論或聆聽，讓人物視線與姿態彼此呼應；依角色分配不同反應，不要讓所有人做相同手勢。',
+    'professional-demo': '呈現專業示範或操作情境，人物專注、自信地展示與主題相關的物件或步驟，表情清楚但不僵硬。',
+    'dramatic-surprise': '使用有內容依據的懸念衝擊，可呈現驚訝、震驚、難以置信或突然發現等誇張情緒。不要每次都固定成瞪大雙眼、張大嘴巴、雙手抱頭；依情境改變眉眼、身體重心、手勢、視線與角色互動。',
+    'funny-absurd': '可採爆笑或無厘頭喜劇方向，以表情反差、錯愕、忍笑、誇張姿勢或與主題相關的幽默物件製造笑點；保持視覺笑點清楚，不要加入與影片無關的情節或人物。',
+    'challenge-anticipation': '呈現投入挑戰或等待結果的瞬間，可使用專注、期待、克制的加油動作或彼此交換眼神，讓動作與影片中的挑戰直接相關。',
+    'satisfied-result': '呈現成果、肯定或完成後的情緒，可用滿足、自信、欣慰或分享成果的自然表情與姿勢，避免固定套用得獎式歡呼。',
+};
+
+const TITLE_POSITION_DESCRIPTIONS = {
+    auto: '依人物、主題物件、視線與實際留白彈性安排標題位置；自動模式下，不要沿用前一版位置。',
+    'top-left': '主標題優先安排在左上方的安全留白處。',
+    'top-center': '主標題優先安排在上方中央的安全留白處。',
+    'top-right': '主標題優先安排在右上方的安全留白處，並避開 Logo。',
+    'left-middle': '主標題優先安排在左側中央的安全留白處。',
+    'right-middle': '主標題優先安排在右側中央的安全留白處。',
+    'lower-left': '主標題優先安排在左下偏中的安全留白處，避開人物、主題物件與影片時間標籤區。',
+};
+
 const ASPECT_RATIO_NOTE = '畫面長寬比為 16:9';
 const FINAL_LIGHTING_SENTENCE = '調整人物的光線與陰影以完全符合環境氛圍。';
 const ART_STYLE_LINE_PATTERN = /^(\[藝術風格\]\s*[：:]\s*)(.*)$/m;
@@ -64,8 +85,11 @@ export function buildThumbnailPrompt({
     title = '',
     subtitle = '',
     shot = 'auto',
+    narrativeDirection = 'auto',
+    titlePosition = 'auto',
     style = 'auto',
     customStyle = '',
+    previousDesigns = [],
     variationModifier = '',
     shouldOverride = false,
 }) {
@@ -97,17 +121,22 @@ export function buildThumbnailPrompt({
         : '尚未指定封面文字；請先從影片內容找出最值得點擊的核心，再讓主體、動作、地點、背景、構圖、鏡頭與藝術風格共同服務於該核心。';
     const styleDescription = getStyleDescription(style, customStyle, variationModifier, shouldOverride);
     const shotDescription = SHOT_DESCRIPTIONS[shot] || SHOT_DESCRIPTIONS.auto;
+    const narrativeDirectionDescription = NARRATIVE_DIRECTION_DESCRIPTIONS[narrativeDirection] || NARRATIVE_DIRECTION_DESCRIPTIONS.auto;
+    const titlePositionDescription = TITLE_POSITION_DESCRIPTIONS[titlePosition] || TITLE_POSITION_DESCRIPTIONS.auto;
+    const previousVariationInstruction = previousDesigns.length
+        ? `\n\n【前版差異要求】\n以下是本次來源已生成版本的主體、場景、構圖與文字安排摘要：\n${previousDesigns.slice(-3).map((design, index) => `版本 ${index + 1}：\n${design}`).join('\n\n')}\n本次請明顯更換人物表情、動作、視線或互動，以及場景細節與鏡頭安排。標題位置若由 AI 自動決定，請避開前版位置；若使用者指定了標題位置，則遵循指定位置並改變其他視覺安排。角色身份、指定標題、副標題、Logo 規則與六段輸出結構維持不變。`
+        : '';
 
     return `你是一位專業的 YouTube 封面創意總監與 AI 繪圖提示詞專家。請根據 [原始內容] 只產出一組可以直接交給 ChatGPT Image 或 Nano Banana 類繪圖工具使用的繁體中文「YT 封面繪圖提示詞」。
 
 先在內部判讀影片真正的主題、受眾、情緒與最值得呈現的故事，再為這張封面設計一個清楚的視覺主軸。只輸出一個完整方案，不輸出分析過程、說明、額外標題、Markdown 程式碼區塊或多個方案。
 
 【創意安排原則】
-- 「會心理解、互動討論、專業示範、投入挑戰、成果肯定」是可參考的敘事方向，不是固定模板。依影片內容挑選最合適的一種、融合相容元素，或採用更貼切的方向；不要每次照同一順序輪替。
-- 人物有設定時，依角色分配不同且有意義的表情、動作與視線，例如專注觀察、思考、認同、交流、示範、期待或自然的成就感。可用微微前傾、輕指、點頭、托腮、記錄或開放手勢等細節，但要符合內容，不要為了熱鬧硬加動作。
-- 避免所有人物同時瞪大雙眼、張大嘴、抱頭、尖叫、指向畫面或直視鏡頭。表情不必誇張；有情緒層次、自然互動與清楚的視線關係即可。不要因採用某種敘事方向就固定角色數量或手勢。
+- 人物／敘事方向：${narrativeDirectionDescription}
+- 人物有設定時，讓每個角色依內容呈現有差異的表情、動作與視線；可使用專注觀察、思考、認同、交流、示範、期待、驚訝、大笑或無厘頭反應。動作可以是微微前傾、側身、回頭看主題物件、托腮、記錄、開放手勢或符合喜劇情境的姿勢，不要只在「指向畫面」與「雙手抱頭」之間重複。
+- 驚訝與誇張表情、爆笑與無厘頭都可以使用，依使用者選擇與影片情境決定；不要固定成每次唯一的表情或動作。多人場景需分配不同反應與視線，避免所有人物同時做相同動作或直視鏡頭。
 - 場景要與影片主題直接相關，挑選 2～4 個最能說明主題的背景細節即可。背景可適度簡化或虛化，並用人物視線、物件方向與光線自然引導觀眾閱讀。
-- 主標題位置必須依人物、主題物件、視線與實際留白彈性安排，可置於左上、右上、上方中央、左右側中央、左下偏中、人物之間的負空間或其他合適位置；不要固定在同一側，也不要遮住人物臉部、重要手勢或主題物件。關鍵文字避開最右下角的影片時間標籤區。
+- 標題位置偏好：${titlePositionDescription}仍須避開人物臉部、重要手勢、主題物件與最右下角的影片時間標籤區；若留白不足，微調文字區域以確保清楚易讀。
 - 標題長度不設上限。可依實際字數和語意拆成 1～4 行、調整字級與行距，或放大原文中的關鍵詞；只能調整視覺排版，不能刪改文字來遷就版面。
 - 整張封面以 1 個主標題、至多 1 個副標題和 1 個主要視覺焦點為主；控制在 2～3 種主要色彩，避免同時堆疊多層描邊、陰影、底框與裝飾。
 - 不要捏造影片內容未支持的事實、數據、承諾或成果。所有構圖、人物、物件與風格選擇都應服務同一主題，並確保縮成手機縮圖時仍容易辨認。
@@ -137,10 +166,10 @@ ${titleFocusInstruction}
 
 【六段式視覺架構】
 1. [人物設定]：必須以「${personOutputInstruction}」開頭。
-2. [主體與動作]：依影片內容描述主體、情緒與動作。有人物時，安排自然且彼此有差異的反應與視線；沒有設定角色時，以物件、場景或象徵元素承載故事，不要新增人物。
+2. [主體與動作]：依影片內容描述主體、情緒與動作，並遵循人物／敘事方向「${narrativeDirectionDescription}」。有人物時，安排符合情境且彼此有差異的反應與視線；沒有設定角色時，以物件、場景或象徵元素承載故事，不要新增人物。
 3. [地點/背景]：選擇與影片主題直接相關的具體場景，保留少量代表性細節，避免背景搶走人物、物件或文字的焦點。
 4. [構圖/鏡頭]：${shotDescription}
-5. [文字]：${titleInstruction} ${subtitleInstruction} ${logoInstruction} ${title.trim() ? '主標題原文是「' + title.trim() + '」；' : ''}${subtitle.trim() ? '副標題原文是「' + subtitle.trim() + '」；' : ''}使用者指定文字必須逐字保留，包括標點、數字、專有名詞及原有順序。若以引號標示文字（例如：""爆款密碼""與""三個方法解決你的困擾""），引號僅供辨識，不要把引號畫進圖片。依人物、主題物件、視線與留白彈性選擇文字位置，不要固定放在同一側；主標題必須比副標題醒目，字體與效果需在手機縮圖尺寸仍清楚可讀。
+5. [文字]：${titleInstruction} ${subtitleInstruction} ${logoInstruction} ${title.trim() ? '主標題原文是「' + title.trim() + '」；' : ''}${subtitle.trim() ? '副標題原文是「' + subtitle.trim() + '」；' : ''}使用者指定文字必須逐字保留，包括標點、數字、專有名詞及原有順序。若以引號標示文字（例如：""爆款密碼""與""三個方法解決你的困擾""），引號僅供辨識，不要把引號畫進圖片。${titlePositionDescription}主標題必須比副標題醒目，字體與效果需在手機縮圖尺寸仍清楚可讀。
 6. [藝術風格]：${styleDescription} 本段必須完整加註：「畫面長寬比為 16:9」。
 
 【圖片與排版規格】
@@ -151,6 +180,7 @@ ${titleFocusInstruction}
 - 文字位置、人物表情動作、場景細節與鏡頭選擇應隨影片內容變化；附件中的五種方向是靈感參考，不代表每張封面都必須使用其中固定的姿勢或版位。
 - 不可出現任何未授權動漫、影視角色或仿冒品牌識別。
 - 最終提示詞的最後一句必須原文寫上：「調整人物的光線與陰影以完全符合環境氛圍。」
+${previousVariationInstruction}
 
 【原始內容】
 ---

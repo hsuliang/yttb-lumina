@@ -22,7 +22,8 @@ test('tabs 2 through 7 render generated bold text directly', () => {
 
     assert.match(tab2, /normalizeMarkdownBoldHtml/);
     assert.match(tab2, /renderMarkdownBold/);
-    assert.match(tab3, /renderMarkdownBold/);
+    assert.match(tab3, /function renderSocialBold/);
+    assert.match(tab3, /ownerDocument\.createElement\('strong'\)/);
     assert.match(tab4, /normalizeMarkdownBoldHtml/);
     assert.match(tab5, /renderMarkdownBold/);
     assert.match(tab6, /renderMarkdownBold/);

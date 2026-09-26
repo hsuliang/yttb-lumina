@@ -30,10 +30,12 @@ export function initializeTab7() {
     const subtitleInput = document.getElementById('thumbnail-subtitle');
     const includeLogoInput = document.getElementById('thumbnail-include-logo');
     const shotSelect = document.getElementById('thumbnail-shot');
+    const narrativeDirectionSelect = document.getElementById('thumbnail-narrative-direction');
+    const titlePositionSelect = document.getElementById('thumbnail-title-position');
     const topicTitleSelection = document.getElementById('thumbnail-topic-title-selection');
     const topicTitleSelect = document.getElementById('thumbnail-topic-title-select');
 
-    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptDisplay || !titleInput || !subtitleInput || !includeLogoInput || !shotSelect || !topicTitleSelection || !topicTitleSelect) return;
+    if (!generateBtn || !variationBtn || !rolesContainer || !versionsContainer || !promptDisplay || !titleInput || !subtitleInput || !includeLogoInput || !shotSelect || !narrativeDirectionSelect || !titlePositionSelect || !topicTitleSelection || !topicTitleSelect) return;
 
     let roles = [];
 
@@ -159,6 +161,8 @@ export function initializeTab7() {
         subtitleInput.value = '';
         includeLogoInput.checked = false;
         shotSelect.value = 'auto';
+        narrativeDirectionSelect.value = 'auto';
+        titlePositionSelect.value = 'auto';
         styleSelect.value = 'auto';
         customStyleTextarea.value = '';
         customStyleContainer.classList.add('hidden');
@@ -168,7 +172,23 @@ export function initializeTab7() {
         renderCurrentVersion();
     }
 
-    function collectPrompt(variationModifier, shouldOverride) {
+    function getPreviousDesigns() {
+        const sectionNames = ['主體與動作', '地點/背景', '構圖/鏡頭', '文字'];
+        return state.thumbnailVersions
+            .filter(version => version.sourceId === state.currentSourceId)
+            .slice(-3)
+            .map(version => {
+                const lines = version.textContent.split(/\r?\n/);
+                return sectionNames.map(sectionName => {
+                    const line = lines.find(item => item.trim().startsWith(`[${sectionName}]`));
+                    const match = line?.match(/^\s*\[[^\]]+\]\s*[：:]\s*(.*)$/);
+                    return match ? `${sectionName}：${match[1].slice(0, 400)}` : '';
+                }).filter(Boolean).join('\n');
+            })
+            .filter(Boolean);
+    }
+
+    function collectPrompt(variationModifier, shouldOverride, isVariation) {
         const rawSource = document.getElementById('smart-area').value;
         if (!state.currentSourceId && rawSource.trim()) activateSource(rawSource);
         const sourceContent = getPreferredSource(rawSource).text;
@@ -181,8 +201,11 @@ export function initializeTab7() {
             title: titleInput.value,
             subtitle: subtitleInput.value,
             shot: shotSelect.value,
+            narrativeDirection: narrativeDirectionSelect.value,
+            titlePosition: titlePositionSelect.value,
             style: styleSelect.value,
             customStyle: customStyleTextarea.value,
+            previousDesigns: isVariation ? getPreviousDesigns() : [],
             variationModifier,
             shouldOverride,
         });
@@ -201,7 +224,7 @@ export function initializeTab7() {
 
         let prompt;
         try {
-            prompt = collectPrompt(variationModifier, shouldOverride);
+            prompt = collectPrompt(variationModifier, shouldOverride, isVariation);
         } catch (error) {
             showModal({ title: '無法生成提示詞', message: error.message });
             return;

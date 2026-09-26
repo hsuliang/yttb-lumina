@@ -120,11 +120,9 @@ test('invalid blockbuster topic lengths trigger one inline automatic repair', ()
 test('blockbuster topic output renders bold text without showing markdown markers', () => {
     const source = readProjectFile('public/js/tab1-srt.js');
 
-    assert.match(source, /function renderTopicTitle/);
-    assert.match(source, /document\.createElement\('strong'\)/);
-    assert.match(source, /strong\.textContent = text\.slice/);
-    assert.match(source, /container\.replaceChildren\(fragment\)/);
-    assert.match(source, /type === 'topic-title' \? output\.textContent : output\.value/);
+    assert.match(source, /import \{ renderMarkdownBold \} from '\.\/markdown-renderer\.js'/);
+    assert.match(source, /if \(type === 'topic-title' \|\| type === 'summary'\) \{\s*renderMarkdownBold\(output, text\);/);
+    assert.match(source, /return \(output\.innerText \|\| output\.textContent \|\| ''\)/);
 });
 
 test('Tab 1 AI status updates the blockbuster topic suggestion button', () => {
