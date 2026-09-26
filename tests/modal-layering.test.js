@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const readme = readFileSync(new URL('../public/readme.html', import.meta.url), 'utf8');
 
 function modalZIndex(id) {
     const match = html.match(new RegExp(`id="${id}"[^>]*class="[^"]*z-\\[(\\d+)\\]`));
@@ -16,6 +17,8 @@ test('universal error modal appears above global settings', () => {
 
 test('displayed release version is R2', () => {
     assert.match(html, /丙午．秋分．20260926<span[^>]*>R2<\/span>/);
+    assert.match(readme, /目前版本：丙午．秋分．20260926<span[^>]*>R2<\/span>/);
+    assert.match(readme, /丙午．秋分．20260926R2/);
     assert.doesNotMatch(html, /丙午．白露．20260921<span[^>]*>R2<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260804<span[^>]*>R12<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260803<span[^>]*>R11<\/span>/);
