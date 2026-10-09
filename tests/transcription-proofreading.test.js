@@ -7,6 +7,7 @@ import {
     expandConsistencySuggestions,
     getSrtTimelineSignature,
     parseProofreadingSuggestions,
+    requestProofreadingSuggestions,
     splitSrtForProofreading,
     srtToPlainText,
     srtToVtt,
@@ -17,6 +18,98 @@ const sampleSrt = [
     '2\n00:00:02,000 --> 00:00:05,000\n書借了以後都沒有還預期',
     '3\n00:00:05,000 --> 00:00:08,000\n聯絡部也貼過了',
 ].join('\n\n');
+let geminiTestKeyCounter = 0;
+
+class MemoryStorage {
+    #values = new Map();
+
+    getItem(key) {
+        return this.#values.get(key) ?? null;
+    }
+
+    setItem(key, value) {
+        this.#values.set(key, String(value));
+    }
+}
+
+async function withGeminiResponses(responses, callback) {
+    const original = {
+        fetch: globalThis.fetch,
+        localStorage: globalThis.localStorage,
+        sessionStorage: globalThis.sessionStorage,
+        document: globalThis.document,
+        dateNow: Date.now,
+    };
+    const apiKey = `proofreading-retry-test-key-${++geminiTestKeyCounter}`;
+    const localStorage = new MemoryStorage();
+    localStorage.setItem('geminiApiKeys', JSON.stringify([{ key: apiKey, count: 0 }]));
+    const requests = [];
+    const responseTexts = [...responses];
+    let fakeNow = Date.now();
+
+    globalThis.localStorage = localStorage;
+    globalThis.sessionStorage = new MemoryStorage();
+    globalThis.document = { getElementById: () => null };
+    globalThis.Date.now = () => {
+        fakeNow += 7000;
+        return fakeNow;
+    };
+    globalThis.fetch = async url => {
+        if (String(url).includes('/models?')) {
+            return new Response(JSON.stringify({
+                models: [{
+                    name: 'models/gemini-2.5-flash',
+                    supportedGenerationMethods: ['generateContent'],
+                }],
+            }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+
+        requests.push(String(url));
+        const text = responseTexts.shift();
+        return new Response(JSON.stringify({
+            candidates: [{
+                content: { parts: [{ text }] },
+                finishReason: 'STOP',
+            }],
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+
+    try {
+        return await callback({ apiKey, requests });
+    } finally {
+        globalThis.fetch = original.fetch;
+        globalThis.localStorage = original.localStorage;
+        globalThis.sessionStorage = original.sessionStorage;
+        globalThis.document = original.document;
+        globalThis.Date.now = original.dateNow;
+    }
+}
+
+test('proofreading retries a batch once when Gemini returns malformed JSON', async () => {
+    await withGeminiResponses([
+        '{"suggestions":[',
+        '{"suggestions":[]}',
+    ], async ({ apiKey, requests }) => {
+        const suggestions = await requestProofreadingSuggestions({ apiKey, srt: sampleSrt });
+
+        assert.deepEqual(suggestions, []);
+        assert.equal(requests.length, 2);
+    });
+});
+
+test('proofreading identifies a batch when its retry still returns malformed JSON', async () => {
+    await withGeminiResponses([
+        '{"suggestions":[',
+        '{"suggestions":[',
+    ], async ({ apiKey, requests }) => {
+        await assert.rejects(
+            requestProofreadingSuggestions({ apiKey, srt: sampleSrt }),
+            /第 1\/1 批字幕的 AI 回應格式錯誤，已重試一次仍失敗/,
+        );
+
+        assert.equal(requests.length, 2);
+    });
+});
 
 test('proofreading prompt allows suggestions only and forbids timeline edits', () => {
     const prompt = buildProofreadingPrompt(sampleSrt, ['聯絡簿']);

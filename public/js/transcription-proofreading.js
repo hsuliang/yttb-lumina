@@ -46,6 +46,21 @@ function parseJsonPayload(value) {
     return JSON.parse(cleaned);
 }
 
+function parseProofreadingBatchResponse(response) {
+    const payload = parseJsonPayload(response);
+    const items = Array.isArray(payload) ? payload : payload?.suggestions;
+    if (!Array.isArray(items)) {
+        const error = new Error('AI 校對回應缺少 suggestions 陣列。');
+        error.code = 'proofreading_response_format';
+        throw error;
+    }
+    return items;
+}
+
+function isProofreadingResponseFormatError(error) {
+    return error instanceof SyntaxError || error?.code === 'proofreading_response_format';
+}
+
 function countOccurrences(text, target) {
     if (!target) return 0;
     let count = 0;
@@ -249,16 +264,29 @@ export async function requestProofreadingSuggestions({
 
     for (let index = 0; index < batches.length; index++) {
         onProgress?.(index + 1, batches.length);
-        const response = await callGeminiAPI(
-            apiKey,
-            buildProofreadingPrompt(batches[index], terminology),
-            true,
-            null,
-            abortSignal,
-        );
-        const payload = parseJsonPayload(response);
-        const items = Array.isArray(payload) ? payload : payload?.suggestions;
-        if (!Array.isArray(items)) throw new Error('AI 校對回應格式不正確。');
+        let items;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const response = await callGeminiAPI(
+                apiKey,
+                buildProofreadingPrompt(batches[index], terminology),
+                true,
+                null,
+                abortSignal,
+            );
+            try {
+                items = parseProofreadingBatchResponse(response);
+                break;
+            } catch (error) {
+                if (!isProofreadingResponseFormatError(error)) throw error;
+                if (attempt === 1) {
+                    const failure = new Error(
+                        `第 ${index + 1}/${batches.length} 批字幕的 AI 回應格式錯誤，已重試一次仍失敗；本次校對未完成，請稍後重試。`,
+                    );
+                    failure.cause = error;
+                    throw failure;
+                }
+            }
+        }
         candidates.push(...items);
     }
 
