@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    GEMINI_FALLBACK_MODEL,
+    GEMINI_FALLBACK_MODELS,
+    GEMINI_TEXT_MODEL_ALLOWLIST,
     buildApprovedFlashModelList,
     classifyGeminiError,
     filterModelsForKey,
+    getGeminiModelRateLimits,
     getMillisecondsUntilNextPacificDay,
     isGeminiKeyAvailable,
     parseGeminiRetryDelayMs,
 } from '../public/js/gemini-routing.js';
 
-test('approved Flash text models are sorted newest first with latest alias last', () => {
+test('approved Flash text models use the fixed stable model allowlist in priority order', () => {
     const models = [
         { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.5-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.7-flash', supportedGenerationMethods: ['generateContent'] },
@@ -20,43 +23,54 @@ test('approved Flash text models are sorted newest first with latest alias last'
         { name: 'models/gemini-3.1-flash-image', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.1-flash-live-preview', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-3.5-flash-lite', supportedGenerationMethods: ['generateContent'] },
+        { name: 'models/gemini-3.1-flash-lite', supportedGenerationMethods: ['generateContent'] },
         { name: 'models/gemini-4.0-flash', supportedGenerationMethods: ['embedContent'] },
         { name: 'models/gemini-4.0-flash', supportedGenerationMethods: ['generateContent'] },
     ];
 
     assert.deepEqual(buildApprovedFlashModelList(models), [
-        'gemini-3.7-flash',
+        'gemini-3.8-flash',
         'gemini-3.6-flash',
-        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
         'gemini-2.5-flash',
-        GEMINI_FALLBACK_MODEL,
+    ]);
+    assert.deepEqual(GEMINI_TEXT_MODEL_ALLOWLIST, [
+        'gemini-3.8-flash',
+        'gemini-3.6-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.1-flash-lite',
+        'gemini-2.5-flash',
     ]);
 });
 
-test('latest alias remains available when no approved stable model is returned', () => {
-    assert.deepEqual(buildApprovedFlashModelList([]), [GEMINI_FALLBACK_MODEL]);
+test('model discovery never adds a moving latest alias when no allowed model is returned', () => {
+    assert.deepEqual(buildApprovedFlashModelList([]), []);
+    assert.deepEqual(GEMINI_FALLBACK_MODELS, ['gemini-3.8-flash', 'gemini-2.5-flash']);
 });
 
-test('quota errors distinguish unavailable models from exhausted projects', () => {
-    assert.deepEqual(
-        classifyGeminiError({ status: 429, message: 'Quota exceeded, limit: 0, model: gemini-3.6-flash' }),
-        {
-            action: 'next_model',
-            reason: 'model_quota_unavailable',
-            cooldownMs: 24 * 60 * 60 * 1000,
-        },
-    );
+test('quota errors scope cooldown to the affected model or project', () => {
+    const modelQuota = classifyGeminiError({
+        status: 429,
+        message: 'Quota exceeded, limit: 0, model: gemini-3.6-flash',
+    });
+    assert.equal(modelQuota.action, 'quota_cooldown');
+    assert.equal(modelQuota.scope, 'model');
+    assert.equal(modelQuota.reason, 'project_rate_limited');
+    assert.equal(modelQuota.cooldownMs, 60 * 1000);
+
     assert.equal(classifyGeminiError({
         status: 429,
         message: 'RESOURCE_EXHAUSTED',
         errorDetails: [{ quotaValue: '0', quotaDimensions: { model: 'gemini-3.6-flash' } }],
-    }).action, 'next_model');
+    }).scope, 'model');
 
     const projectQuota = classifyGeminiError({
         status: 429,
         message: 'RESOURCE_EXHAUSTED. Please retry in 45.5s.',
     });
-    assert.equal(projectQuota.action, 'next_key');
+    assert.equal(projectQuota.action, 'quota_cooldown');
+    assert.equal(projectQuota.scope, 'key');
     assert.equal(projectQuota.reason, 'project_rate_limited');
     assert.equal(projectQuota.cooldownMs, 45500);
 
@@ -74,19 +88,44 @@ test('daily quota, safety, invalid requests, and transient failures take differe
     assert.equal(classifyGeminiError({ message: 'finishReason: SAFETY' }).action, 'stop');
     assert.equal(classifyGeminiError({ code: 'content_safety', message: '請求因安全設定而被阻擋' }).action, 'stop');
     assert.equal(classifyGeminiError({ status: 400, message: 'INVALID_ARGUMENT' }).action, 'stop');
-    assert.equal(classifyGeminiError({ status: 503, message: 'UNAVAILABLE' }).action, 'next_model');
-    assert.equal(classifyGeminiError({ message: 'Failed to fetch' }).action, 'next_model');
+    assert.equal(classifyGeminiError({ status: 503, message: 'UNAVAILABLE' }).action, 'retry_once');
+    assert.equal(classifyGeminiError({ message: 'Failed to fetch' }).action, 'retry_once');
 });
 
-test('stream parse failures move to another model instead of stopping the whole request', () => {
+test('stream parse failures stop instead of fanning out duplicate generations', () => {
     assert.deepEqual(classifyGeminiError({
         code: 'stream_parse',
         message: '[Gemini API] Failed to parse stream',
     }), {
-        action: 'next_model',
+        action: 'stop',
         reason: 'stream_parse_error',
-        cooldownMs: 60 * 1000,
     });
+});
+
+test('local model budgets keep headroom under screenshot quotas', () => {
+    assert.deepEqual(getGeminiModelRateLimits('gemini-3.8-flash'), { rpm: 4, tpm: 200_000, rpd: 16 });
+    assert.deepEqual(getGeminiModelRateLimits('gemini-3.5-flash-lite'), { rpm: 12, tpm: 200_000, rpd: 400 });
+});
+
+test('daily request cap is tracked independently for each model and Pacific day', () => {
+    const now = Date.parse('2026-07-26T06:30:00Z');
+    const day = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Los_Angeles',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date(now));
+    const entry = {
+        usageByModel: {
+            'gemini-3.8-flash': { day, requests: 16 },
+            'gemini-3.5-flash-lite': { day, requests: 399 },
+        },
+    };
+
+    assert.deepEqual(
+        filterModelsForKey(['gemini-3.8-flash', 'gemini-3.5-flash-lite'], entry, now),
+        ['gemini-3.5-flash-lite'],
+    );
 });
 
 test('retry delay is parsed from structured error details', () => {
@@ -101,11 +140,11 @@ test('key and model cooldowns exclude temporarily unavailable candidates', () =>
     assert.equal(isGeminiKeyAvailable({ key: 'key-a', cooldownUntil: 1001 }, now), false);
     assert.deepEqual(
         filterModelsForKey(
-            ['gemini-3.6-flash', GEMINI_FALLBACK_MODEL],
+            ['gemini-3.6-flash', 'gemini-2.5-flash'],
             { modelCooldowns: { 'gemini-3.6-flash': 1001 } },
             now,
         ),
-        [GEMINI_FALLBACK_MODEL],
+        ['gemini-2.5-flash'],
     );
 });
 

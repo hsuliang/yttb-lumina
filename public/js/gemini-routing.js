@@ -1,20 +1,35 @@
-export const GEMINI_FALLBACK_MODEL = 'gemini-flash-latest';
-export const GEMINI_REQUEST_INTERVAL_MS = 6000;
+export const GEMINI_FALLBACK_MODELS = Object.freeze([
+    'gemini-3.8-flash',
+    'gemini-2.5-flash',
+]);
 export const GEMINI_DEFAULT_QUOTA_COOLDOWN_MS = 60 * 1000;
 export const GEMINI_DAILY_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const GEMINI_MODEL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-export const GEMINI_TRANSIENT_MODEL_COOLDOWN_MS = 60 * 1000;
+export const GEMINI_TRANSIENT_RETRY_DELAY_MS = 1000;
 
 export const GEMINI_TEXT_MODEL_ALLOWLIST = Object.freeze([
-    'gemini-3.7-flash',
+    'gemini-3.8-flash',
     'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-3.1-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
     'gemini-2.5-flash',
 ]);
 
-const VERSIONED_FLASH_MODEL_PATTERN = /^(gemini-(\d+(?:\.\d+)?)-flash)(?:-(\d{3}))?$/i;
-const EXCLUDED_MODEL_PATTERN = /(tts|image|imagen|vision|live|audio|embedding|robotics|computer[-_]?use|veo|lyria|preview|experimental|exp|lite)/i;
+const VERSIONED_FLASH_MODEL_PATTERN = /^(gemini-\d+(?:\.\d+)?-flash(?:-lite)?)(?:-(\d{3}))?$/i;
+const EXCLUDED_MODEL_PATTERN = /(tts|image|imagen|vision|live|audio|embedding|robotics|computer[-_]?use|veo|lyria|preview|experimental|exp)/i;
+
+export function getGeminiModelRateLimits(modelName) {
+    const isLite = /-flash-lite(?:-|$)/i.test(modelName || '');
+    return isLite
+        ? { rpm: 12, tpm: 200_000, rpd: 400 }
+        : { rpm: 4, tpm: 200_000, rpd: 16 };
+}
+
+export function isGeminiModelDailyQuotaReached(entry, modelName, now = Date.now()) {
+    const usage = entry?.usageByModel?.[modelName];
+    if (!usage || usage.day !== getPacificDayKey(now)) return false;
+    return Number(usage.requests || 0) >= getGeminiModelRateLimits(modelName).rpd;
+}
 
 function getModelName(model) {
     const rawName = typeof model === 'string' ? model : model?.name;
@@ -23,10 +38,12 @@ function getModelName(model) {
 
 function parseModelVersion(modelName) {
     const match = modelName.match(VERSIONED_FLASH_MODEL_PATTERN);
-    if (!match) return { versionParts: [], revision: -1 };
+    if (!match) return { baseModelName: '', versionParts: [], revision: -1 };
+    const version = match[1].match(/^gemini-(\d+(?:\.\d+)?)-flash(?:-lite)?$/i)?.[1] || '';
     return {
-        versionParts: match[2].split('.').map(Number),
-        revision: match[3] ? Number(match[3]) : Number.MAX_SAFE_INTEGER,
+        baseModelName: match[1].toLowerCase(),
+        versionParts: version.split('.').map(Number),
+        revision: match[2] ? Number(match[2]) : Number.MAX_SAFE_INTEGER,
     };
 }
 
@@ -35,7 +52,7 @@ export function buildApprovedFlashModelList(models = []) {
         .filter(model => {
             const modelName = getModelName(model);
             const methods = typeof model === 'string' ? ['generateContent'] : (model?.supportedGenerationMethods || []);
-            const baseModelName = modelName.match(VERSIONED_FLASH_MODEL_PATTERN)?.[1]?.toLowerCase();
+            const baseModelName = parseModelVersion(modelName).baseModelName;
             return methods.includes('generateContent') &&
                 GEMINI_TEXT_MODEL_ALLOWLIST.includes(baseModelName) &&
                 !EXCLUDED_MODEL_PATTERN.test(modelName);
@@ -43,9 +60,13 @@ export function buildApprovedFlashModelList(models = []) {
         .map(getModelName)
         .filter(Boolean);
 
-    const sorted = [...new Set(approved)].sort((a, b) => {
+    const modelOrder = new Map(GEMINI_TEXT_MODEL_ALLOWLIST.map((model, index) => [model, index]));
+    return [...new Set(approved)].sort((a, b) => {
         const aVersion = parseModelVersion(a);
         const bVersion = parseModelVersion(b);
+        const orderDifference = (modelOrder.get(aVersion.baseModelName) ?? Infinity) -
+            (modelOrder.get(bVersion.baseModelName) ?? Infinity);
+        if (orderDifference !== 0) return orderDifference;
         const length = Math.max(aVersion.versionParts.length, bVersion.versionParts.length);
         for (let i = 0; i < length; i++) {
             const difference = (bVersion.versionParts[i] || 0) - (aVersion.versionParts[i] || 0);
@@ -53,8 +74,6 @@ export function buildApprovedFlashModelList(models = []) {
         }
         return bVersion.revision - aVersion.revision;
     });
-
-    return [...sorted.filter(model => model !== GEMINI_FALLBACK_MODEL), GEMINI_FALLBACK_MODEL];
 }
 
 function collectDetailStrings(value, result = []) {
@@ -128,30 +147,21 @@ export function classifyGeminiError(error) {
         return { action: 'stop', reason: 'content_safety' };
     }
 
-    if (error?.code === 'stream_parse' || normalized.includes('failed to parse stream')) {
+    if (status === 429 || normalized.includes('resource_exhausted') || normalized.includes('quota exceeded')) {
+        const isDailyQuota = /(requests?.?per.?day|perday|daily|rpd)/i.test(errorText);
+        const isModelQuota = /(per.?model|model\s*[:=]\s*gemini-|model\s+gemini-)/i.test(errorText);
         return {
-            action: 'next_model',
-            reason: 'stream_parse_error',
-            cooldownMs: GEMINI_TRANSIENT_MODEL_COOLDOWN_MS,
+            action: 'quota_cooldown',
+            scope: isModelQuota ? 'model' : 'key',
+            reason: isDailyQuota ? 'daily_quota_exhausted' : 'project_rate_limited',
+            cooldownMs: isDailyQuota
+                ? getMillisecondsUntilNextPacificDay()
+                : retryDelayMs || GEMINI_DEFAULT_QUOTA_COOLDOWN_MS,
         };
     }
 
-    if (status === 429 || normalized.includes('resource_exhausted') || normalized.includes('quota exceeded')) {
-        const isLimitZero = /(?:limit|quotavalue)["'\s:=-]*0(?:\D|$)/i.test(errorText);
-        if (isLimitZero) {
-            return {
-                action: 'next_model',
-                reason: 'model_quota_unavailable',
-                cooldownMs: GEMINI_MODEL_COOLDOWN_MS,
-            };
-        }
-
-        const isDailyQuota = /(requests?.?per.?day|perday|daily|rpd)/i.test(errorText);
-        return {
-            action: 'next_key',
-            reason: isDailyQuota ? 'daily_quota_exhausted' : 'project_rate_limited',
-            cooldownMs: retryDelayMs || (isDailyQuota ? getMillisecondsUntilNextPacificDay() : GEMINI_DEFAULT_QUOTA_COOLDOWN_MS),
-        };
+    if (error?.code === 'stream_parse' || normalized.includes('failed to parse stream')) {
+        return { action: 'stop', reason: 'stream_parse_error' };
     }
 
     if (status === 404 ||
@@ -192,9 +202,9 @@ export function classifyGeminiError(error) {
         normalized.includes('overloaded') ||
         normalized.includes('unavailable')) {
         return {
-            action: 'next_model',
-            reason: 'transient_model_error',
-            cooldownMs: GEMINI_TRANSIENT_MODEL_COOLDOWN_MS,
+            action: 'retry_once',
+            reason: 'transient_service_error',
+            cooldownMs: retryDelayMs || GEMINI_TRANSIENT_RETRY_DELAY_MS,
         };
     }
 
@@ -207,5 +217,8 @@ export function isGeminiKeyAvailable(entry, now = Date.now()) {
 
 export function filterModelsForKey(models, entry, now = Date.now()) {
     const modelCooldowns = entry?.modelCooldowns || {};
-    return models.filter(model => Number(modelCooldowns[model] || 0) <= now);
+    return models.filter(model =>
+        Number(modelCooldowns[model] || 0) <= now &&
+        !isGeminiModelDailyQuotaReached(entry, model, now),
+    );
 }
