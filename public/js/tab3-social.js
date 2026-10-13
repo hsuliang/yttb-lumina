@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { assembleSocialPrompt } from './social-prompt.js';
 
 /**
@@ -195,7 +195,7 @@ export const switchSocialTab = function(platform) {
     }
 
         async function proceedGenerateSocialPosts(variationModifier = '', shouldOverride = false) {
-            const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+            const apiKey = getConfiguredGeminiApiKey();
     
             const rawSourceText = document.getElementById('smart-area').value.trim();
             if (!state.currentSourceId && rawSourceText) activateSource(rawSourceText);

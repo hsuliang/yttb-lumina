@@ -10,7 +10,7 @@ import { initializeTab7 } from './tab7-thumbnail.js';
 import { initializeTab8 } from './tab8-reels.js';
 import { showToast, showModal, hideModal, copyModalContent, saveFile } from './ui-components.js';
 import { resolveFlashModelsList } from './gemini-api.js';
-import { isGeminiKeyAvailable } from './gemini-routing.js';
+import { clearGeminiApiKey, getGeminiApiKey, saveGeminiApiKey } from './gemini-key-storage.js';
 import { state } from './state.js';
 import { VariationHub } from './variation-hub.js';
 import { initializeBloggerSettings } from './blogger-settings.js';
@@ -196,46 +196,18 @@ export const updateSourceStatusUI = function() {
     }
 
     function removeStorageKeys() {
-        localStorage.removeItem('geminiApiKey');
-        localStorage.removeItem('geminiApiKeys');
+        clearGeminiApiKey();
         localStorage.removeItem('apiKeyExpiry');
         localStorage.removeItem('apiKeyExpiryMode');
-        sessionStorage.removeItem('geminiApiKey');
-        sessionStorage.removeItem('geminiApiKeys');
         sessionStorage.removeItem('apiKeyExpiry');
         sessionStorage.removeItem('apiKeyExpiryMode');
     }
 
-    // --- 金鑰池管理變數與平衡輪替邏輯 ---
-    let modalApiKeys = [];
+    // --- 單一 Gemini 金鑰設定 ---
+    let modalApiKey = '';
 
     function loadModalApiKeys() {
-        const stored = getStorageItem('geminiApiKeys');
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored);
-                if (Array.isArray(parsed)) {
-                    modalApiKeys = parsed.map(entry => {
-                        if (typeof entry === 'string') {
-                            return { key: entry, count: 0 };
-                        }
-                        if (entry && typeof entry === 'object') {
-                            return { ...entry, key: entry.key || '', count: entry.count || 0 };
-                        }
-                        return { key: '', count: 0 };
-                    }).filter(entry => entry.key.length > 0);
-                } else if (typeof parsed === 'string') {
-                    modalApiKeys = [{ key: parsed, count: 0 }];
-                } else {
-                    modalApiKeys = [];
-                }
-            } catch (e) {
-                modalApiKeys = [];
-            }
-        } else {
-            const singleKey = getStorageItem('geminiApiKey');
-            modalApiKeys = singleKey ? [{ key: singleKey, count: 0 }] : [];
-        }
+        modalApiKey = getGeminiApiKey();
         renderModalApiKeys();
 
         // 同步下拉選單的選中值
@@ -251,7 +223,7 @@ export const updateSourceStatusUI = function() {
         apiKeysListContainer.innerHTML = '';
         const isLumina = document.querySelector('.glass-panel') || document.querySelector('#api-key-modal.backdrop-blur-sm');
         
-        if (!Array.isArray(modalApiKeys) || modalApiKeys.length === 0) {
+        if (!modalApiKey) {
             if (isLumina) {
                 apiKeysListContainer.innerHTML = '<p class="text-xs text-on-surface-variant/50 text-center py-2">尚未設定任何金鑰</p>';
             } else {
@@ -259,8 +231,6 @@ export const updateSourceStatusUI = function() {
             }
             return;
         }
-        modalApiKeys.forEach((entry, index) => {
-            if (!entry || !entry.key) return;
             const item = document.createElement('div');
             if (isLumina) {
                 item.className = 'flex items-center justify-between bg-surface-container-lowest/50 p-2 rounded text-xs border border-outline-variant/10';
@@ -268,43 +238,27 @@ export const updateSourceStatusUI = function() {
                 item.className = 'flex items-center justify-between bg-[var(--gray-bg)] p-2 rounded text-xs border border-[var(--card-border)]';
             }
             
-            const masked = entry.key.length > 10 
-                ? `${entry.key.substring(0, 6)}...${entry.key.substring(entry.key.length - 4)}`
-                : entry.key;
+            const masked = modalApiKey.length > 10
+                ? `${modalApiKey.substring(0, 6)}...${modalApiKey.substring(modalApiKey.length - 4)}`
+                : modalApiKey;
             
             if (isLumina) {
                 item.innerHTML = `
-                    <span class="font-mono text-on-surface">${masked} <span class="text-on-surface-variant/70">(使用: ${entry.count || 0}次)</span></span>
-                    <button type="button" class="text-red-400 hover:text-red-300 font-bold delete-key-item-btn" data-index="${index}">刪除</button>
+                    <span class="font-mono text-on-surface"></span>
+                    <button type="button" class="text-red-400 hover:text-red-300 font-bold delete-key-item-btn">刪除</button>
                 `;
             } else {
                 item.innerHTML = `
-                    <span class="font-mono text-[var(--body-text)]">${masked} <span class="text-[var(--gray-text)]">(使用: ${entry.count || 0}次)</span></span>
-                    <button type="button" class="text-red-500 hover:text-red-700 font-bold delete-key-item-btn" data-index="${index}">刪除</button>
+                    <span class="font-mono text-[var(--body-text)]"></span>
+                    <button type="button" class="text-red-500 hover:text-red-700 font-bold delete-key-item-btn">刪除</button>
                 `;
             }
+            item.querySelector('span').textContent = masked;
             apiKeysListContainer.appendChild(item);
-        });
-    }
-
-    function parseAndAddKeys(text) {
-        if (!text) return { added: 0, duplicates: 0 };
-        const rawKeys = text.split(/[\n,\s\t\r]+/).map(k => k.trim()).filter(k => k.length > 0);
-        let added = 0;
-        let duplicates = 0;
-        rawKeys.forEach(key => {
-            if (modalApiKeys.some(entry => entry.key === key)) {
-                duplicates++;
-            } else {
-                modalApiKeys.push({ key, count: 0 });
-                added++;
-            }
-        });
-        return { added, duplicates };
     }
 
 export const hasTextAIEnabled = function() {
-    const apiKey = getBalancedApiKey();
+    const apiKey = getConfiguredGeminiApiKey();
     if (apiKey) return true;
     
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
@@ -315,32 +269,8 @@ export const hasTextAIEnabled = function() {
     return false;
 };
 
-export const getBalancedApiKey = function() {
-        try {
-            const keysJson = getStorageItem('geminiApiKeys');
-            if (!keysJson) {
-                return getStorageItem('geminiApiKey') || '';
-            }
-            const keysList = JSON.parse(keysJson);
-            if (!Array.isArray(keysList) || keysList.length === 0) {
-                return getStorageItem('geminiApiKey') || '';
-            }
-
-            const availableKeys = keysList.filter(entry => isGeminiKeyAvailable(entry));
-            if (availableKeys.length === 0) return '';
-            
-            const minCount = Math.min(...availableKeys.map(k => k.count || 0));
-            const candidates = availableKeys.filter(k => (k.count || 0) === minCount);
-            const selected = candidates[Math.floor(Math.random() * candidates.length)];
-            
-            // 不在此處 +1，計數統一由 gemini-api.js 的成功回呼處理，避免雙重計數
-            console.log(`[API Key Rotation] 選擇金鑰: ${selected.key.substring(0, 6)}...${selected.key.substring(selected.key.length - 4)} (目前已累計使用: ${selected.count || 0} 次)`);
-            
-            return selected.key;
-        } catch (e) {
-            console.error('Error balancing API key:', e);
-            return getStorageItem('geminiApiKey') || '';
-        }
+export const getConfiguredGeminiApiKey = function() {
+        return getGeminiApiKey();
     };
 
     function toggleAppearancePanel() { appearancePanel.classList.toggle('hidden'); }
@@ -399,12 +329,15 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
     async function saveApiKey() {
         const text = apiKeyInput.value.trim();
         if (text) {
-            parseAndAddKeys(text);
-            apiKeyInput.value = '';
+            if (/[,\s]/.test(text)) {
+                showToast('一次只能設定一組 API Key。', { type: 'error' });
+                return;
+            }
+            modalApiKey = text;
         }
 
-        if (modalApiKeys.length === 0) {
-            showToast('請至少新增一組 API Key。', { type: 'error' });
+        if (!modalApiKey) {
+            showToast('請輸入一組 API Key。', { type: 'error' });
             return;
         }
 
@@ -413,52 +346,21 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
         saveApiKeyBtn.textContent = '驗證中...';
 
         try {
-            const validationPromises = modalApiKeys.map(async (entry) => {
-                await resolveFlashModelsList(entry.key, true);
-                return entry;
-            });
+            const models = await resolveFlashModelsList(modalApiKey, true);
+            if (models.length === 0) throw new Error('此專案沒有可用的文字模型。');
 
-            const results = await Promise.allSettled(validationPromises);
-            
-            const validApiKeys = [];
-            const invalidKeys = [];
-            
-            results.forEach((r, idx) => {
-                if (r.status === 'fulfilled') {
-                    validApiKeys.push({
-                        ...r.value,
-                        cooldownUntil: 0,
-                        nextRequestAt: 0,
-                        consecutiveFailures: 0,
-                        lastErrorReason: '',
-                        modelCooldowns: {},
-                    });
-                } else {
-                    invalidKeys.push(modalApiKeys[idx]);
-                }
-            });
-
-            if (validApiKeys.length === 0) {
-                showModal({
-                    title: '金鑰驗證失敗',
-                    message: '您輸入的所有金鑰均無效或已耗盡額度，請檢查並重新輸入。'
-                });
-                return;
+            // 更新保存期限時保留同一金鑰的配額冷卻紀錄。
+            for (const storage of [localStorage, sessionStorage]) {
+                storage.removeItem('apiKeyExpiry');
+                storage.removeItem('apiKeyExpiryMode');
             }
-
-            modalApiKeys = validApiKeys;
-            renderModalApiKeys();
-
-            // 清除之前的舊金鑰與期限
-            removeStorageKeys();
 
             // 取得過期時間模式
             const expirySelect = document.getElementById('api-key-expiry-select');
             const expiryMode = expirySelect ? expirySelect.value : '2h';
             const isSession = expiryMode === 'session';
 
-            setStorageItem('geminiApiKeys', JSON.stringify(validApiKeys), isSession);
-            setStorageItem('geminiApiKey', validApiKeys[0].key, isSession);
+            saveGeminiApiKey(modalApiKey, isSession);
             setStorageItem('apiKeyExpiryMode', expiryMode, isSession);
 
             let expiryTime = '';
@@ -480,16 +382,13 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
 
             updateApiKeyStatus();
             window.dispatchEvent(new Event('settings-updated'));
-            
-            if (invalidKeys.length > 0) {
-                showToast(`已儲存 ${validApiKeys.length} 組有效金鑰，自動排除 ${invalidKeys.length} 組無效金鑰。`);
-            } else {
-                showToast('API Key 已儲存，AI 功能已啟用！');
-            }
+            apiKeyInput.value = '';
+            renderModalApiKeys();
+            showToast('API Key 已儲存，AI 功能已啟用！');
             
         } catch (err) {
             console.error("Key validation error:", err);
-            showModal({ title: '驗證出錯', message: `驗證過程中發生錯誤：${err.message}` });
+            showModal({ title: '金鑰驗證失敗', message: `請到 Google AI Studio 檢查金鑰、專案權限與模型配額。${err.message}` });
         } finally {
             saveApiKeyBtn.disabled = false;
             saveApiKeyBtn.textContent = originalText;
@@ -532,12 +431,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
 
             const portalText = document.getElementById('portal-key-status-text');
             if (portalText && portalText.textContent.startsWith('已設定')) {
-                const keysJson = getStorageItem('geminiApiKeys');
-                let keysCount = 0;
-                try {
-                    keysCount = keysJson ? JSON.parse(keysJson).length : (getStorageItem('geminiApiKey') ? 1 : 0);
-                } catch(e) {}
-                portalText.textContent = `已設定 (共 ${keysCount} 組金鑰) (金鑰有效，尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
+                portalText.textContent = `已設定 Gemini 金鑰 (尚餘 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')})`;
             }
             return true;
         };
@@ -556,23 +450,13 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
             removeStorageKeys();
         }
         
-        const apiKey = getStorageItem('geminiApiKey');
-        const apiKeysJson = getStorageItem('geminiApiKeys');
-        let keysCount = 0;
-        if (apiKeysJson) {
-            try {
-                keysCount = JSON.parse(apiKeysJson).length;
-            } catch (e) {
-                keysCount = 0;
-            }
-        } else if (apiKey) {
-            keysCount = 1;
-        }
+        const apiKey = getGeminiApiKey();
+        const keysCount = apiKey ? 1 : 0;
 
         const statusBox = document.getElementById('api-key-status-box');
 
         const hasCf = !!(getStorageItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url'));
-        let geminiStr = keysCount > 0 ? `Gemini: 已設定(${keysCount})` : 'Gemini: 未設';
+        let geminiStr = keysCount > 0 ? 'Gemini: 已設定' : 'Gemini: 未設';
         let cfStr = hasCf ? 'CF: 已設定' : 'CF: 未設';
         const engineSelect = document.getElementById('global-ai-engine');
         let engineText = engineSelect && engineSelect.selectedIndex >= 0 ? engineSelect.options[engineSelect.selectedIndex].text : 'Auto';
@@ -653,7 +537,7 @@ export const showApiKeyModal = () => showGlobalSettingsModal('settings-tab-gemin
                     }
                 }
                 
-                portalText.textContent = `已設定 (共 ${keysCount} 組金鑰)${timeText}`;
+                portalText.textContent = `已設定 Gemini 金鑰${timeText}`;
                 portalBtn.textContent = '管理金鑰';
                 portalBtn.className = 'py-1 px-3 rounded text-xs bg-green-500/25 hover:bg-green-500/40 text-green-200 border border-green-500/30 transition-all';
             } else {
@@ -1300,23 +1184,22 @@ export const switchTab = (tabId) => {
         if (apiKeysListContainer) {
             apiKeysListContainer.addEventListener('click', (e) => {
                 if (e.target.classList.contains('delete-key-item-btn')) {
-                    const index = parseInt(e.target.dataset.index, 10);
-                    modalApiKeys.splice(index, 1);
+                    modalApiKey = '';
                     renderModalApiKeys();
-                    showToast('已從清單中移除金鑰。');
+                    showToast('已從設定表單中移除金鑰；按「清除金鑰」可刪除已儲存金鑰。');
                 }
             });
         }
         const clearApiKeysBtn = document.getElementById('clear-api-keys-btn');
         if (clearApiKeysBtn) {
             clearApiKeysBtn.addEventListener('click', () => {
-                modalApiKeys = [];
+                modalApiKey = '';
                 renderModalApiKeys();
                 removeStorageKeys();
                 updateApiKeyStatus();
                 if (apiKeyInput) apiKeyInput.value = '';
                 window.dispatchEvent(new Event('settings-updated'));
-                showToast('已清除所有 API Key。', { type: 'success' });
+                showToast('已清除 Gemini API Key。', { type: 'success' });
             });
         }
         if (saveApiKeyBtn) saveApiKeyBtn.addEventListener('click', saveApiKey);
@@ -1324,18 +1207,18 @@ export const switchTab = (tabId) => {
         const toggleKeyVisibilityBtn = document.getElementById('toggle-key-visibility-btn');
         if (toggleKeyVisibilityBtn) {
             toggleKeyVisibilityBtn.addEventListener('click', () => {
-                const apiKeyTextarea = document.getElementById('gemini-api-key');
+                const apiKeyField = document.getElementById('gemini-api-key');
                 const eyeOpenIcon = document.getElementById('eye-open-icon');
                 const eyeClosedIcon = document.getElementById('eye-closed-icon');
                 
-                if (apiKeyTextarea && eyeOpenIcon && eyeClosedIcon) {
-                    const isMasked = apiKeyTextarea.classList.contains('masked-keys');
+                if (apiKeyField && eyeOpenIcon && eyeClosedIcon) {
+                    const isMasked = apiKeyField.type === 'password';
                     if (isMasked) {
-                        apiKeyTextarea.classList.remove('masked-keys');
+                        apiKeyField.type = 'text';
                         eyeOpenIcon.classList.add('hidden');
                         eyeClosedIcon.classList.remove('hidden');
                     } else {
-                        apiKeyTextarea.classList.add('masked-keys');
+                        apiKeyField.type = 'password';
                         eyeOpenIcon.classList.remove('hidden');
                         eyeClosedIcon.classList.add('hidden');
                     }
@@ -1602,7 +1485,7 @@ state.currentAbortController = null;
 
         // 跨分頁金鑰與過期狀態同步監聽器
         window.addEventListener('storage', (e) => {
-            if (e.key === 'geminiApiKey' || e.key === 'geminiApiKeys' || e.key === 'apiKeyExpiry' || e.key === 'apiKeyExpiryMode') {
+            if (e.key === 'geminiApiKey' || e.key === 'apiKeyExpiry' || e.key === 'apiKeyExpiryMode') {
                 updateApiKeyStatus();
             }
         });

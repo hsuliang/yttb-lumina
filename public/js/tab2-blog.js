@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { VariationHub } from './variation-hub.js';
 import { state, PRESET_CTAS, PRESET_TAGS, CUSTOM_CTA_STORAGE_KEY, CUSTOM_TAGS_STORAGE_KEY } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
-import { updateAiButtonStatus, updateSourceStatusUI, getBalancedApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, updateSourceStatusUI, getConfiguredGeminiApiKey, hasTextAIEnabled, updateTabAvailability, showApiKeyModal } from './app.js';
 import { initializeBloggerPublisher } from './blogger-publisher.js';
 import { normalizeMarkdownBoldHtml, renderMarkdownBold } from './markdown-renderer.js';
 
@@ -510,7 +510,7 @@ export const renderTags = function () { const tagContainer = document.getElement
     function initializeTags() { renderTagSuggestions(); tagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(tagInput.value); tagInput.value = ''; } }); saveTagsBtn.addEventListener('click', saveCustomTagsToStorage); }
 
     async function optimizeTextForBlog() {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
 
         // 1. 定義來源：優先檢查是否有「已整理」的文本，若無則取用輸入框的原始文本
         const rawContent = document.getElementById('smart-area').value.trim();
@@ -615,7 +615,7 @@ export const renderTags = function () { const tagContainer = document.getElement
     }
 
     async function analyzeKeywords() {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
 
         const currentHtml = getLatestHtmlContent();
         if (!currentHtml) {
@@ -661,7 +661,7 @@ export const renderTags = function () { const tagContainer = document.getElement
     }
 
     async function analyzeInternalLinks() {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
 
         const currentHtml = getLatestHtmlContent();
         const linksSourceText = internalLinksSource.value.trim();
@@ -713,7 +713,7 @@ export const renderTags = function () { const tagContainer = document.getElement
 
     // ########## FINAL ROBUST VERSION WITH SMART RETRY ##########
     async function proceedGenerateBlogPost(variationModifier = '', shouldOverride = false) {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
 
         const rawSourceText = document.getElementById('smart-area').value.trim();
         if (!state.currentSourceId && rawSourceText) activateSource(rawSourceText);

@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
 
 /**
@@ -127,7 +127,7 @@ import { normalizeMarkdownBoldHtml } from './markdown-renderer.js';
     }
 
     async function handleGenerateEdm(variationModifier = '', shouldOverride = false) { // Changed signature
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
         const requestSourceId = state.currentSourceId || activateSource(document.getElementById('smart-area').value).sourceId;
 
         

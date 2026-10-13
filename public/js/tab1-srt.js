@@ -3,7 +3,7 @@ import { showToast, showModal, hideModal, stopPromptRotation, saveFile } from '.
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
-import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
+import { updateAiButtonStatus, getConfiguredGeminiApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
 import { extractTopicTitleSuggestions, validateTopicTitleSuggestion } from './topic-title-validator.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
 
@@ -153,7 +153,7 @@ function resetTab1() {
 // --- 初始化函式 ---
     // --- 函式定義 ---
     async function handleAiFeature(type) {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
         // ########## FIX END ##########
 
         if (!state.currentSourceId && smartArea.value.trim()) activateSource(smartArea.value);

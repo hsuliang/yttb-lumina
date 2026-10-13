@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
@@ -460,7 +460,7 @@ ${layoutInstructionsText}
 
     // --- API 呼叫與生成邏輯 ---
     async function handleGenerateCarousel(variationModifier = '', shouldOverride = false) {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
         const requestSourceId = state.currentSourceId || activateSource(document.getElementById('smart-area').value).sourceId;
 
         const isVariation = variationModifier !== '';

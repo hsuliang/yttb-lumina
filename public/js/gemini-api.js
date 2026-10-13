@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { buildTranscriptionTerminologyInstruction, TEXT_GENERATION_SYSTEM_INSTRUCTION } from './prompt-policy.js';
 import { callCloudflareTextAPI } from './cf-api.js';
+import { getGeminiApiState, updateGeminiApiState } from './gemini-key-storage.js';
 import {
     GEMINI_FALLBACK_MODELS,
     buildApprovedFlashModelList,
@@ -8,7 +9,6 @@ import {
     filterModelsForKey,
     getGeminiModelRateLimits,
     isGeminiModelDailyQuotaReached,
-    isGeminiKeyAvailable,
 } from './gemini-routing.js';
 
 /**
@@ -20,7 +20,7 @@ import {
 /**
  * 【使用官方 Gemini REST API】
  * 呼叫 Gemini API 並獲取回應。
- * 重試、節流與金鑰輪替由本模組統一處理。
+ * 重試、節流與模型切換由本模組統一處理。
  *
  * @param {string} apiKey - 您的 Gemini API Key。
  * @param {string} prompt - 要發送給模型的提示詞。
@@ -286,82 +286,6 @@ async function generateGeminiContent({
     };
 }
 
-function readStoredKeyEntries() {
-    let isSession = false;
-    let stored = localStorage.getItem('geminiApiKeys');
-    if (!stored) {
-        stored = sessionStorage.getItem('geminiApiKeys');
-        isSession = true;
-    }
-
-    if (!stored) return { entries: [], isSession };
-
-    try {
-        const parsed = JSON.parse(stored);
-        const entries = Array.isArray(parsed)
-            ? parsed.map(entry => typeof entry === 'string' ? { key: entry, count: 0 } : entry).filter(entry => entry?.key)
-            : [];
-        return { entries, isSession };
-    } catch (error) {
-        console.warn('Failed to parse geminiApiKeys from storage', error);
-        return { entries: [], isSession };
-    }
-}
-
-function writeStoredKeyEntries(entries, isSession) {
-    const storage = isSession ? sessionStorage : localStorage;
-    storage.setItem('geminiApiKeys', JSON.stringify(entries));
-}
-
-function updateStoredKeyEntry(apiKey, updater) {
-    const { entries, isSession } = readStoredKeyEntries();
-    const entry = entries.find(item => item.key === apiKey);
-    if (!entry) return null;
-    updater(entry);
-    writeStoredKeyEntries(entries, isSession);
-    return entry;
-}
-
-function getStoredKeyEntry(apiKey) {
-    return readStoredKeyEntries().entries.find(entry => entry.key === apiKey) || { key: apiKey, count: 0 };
-}
-
-function buildKeyPool(preferredKey) {
-    const now = Date.now();
-    const stored = readStoredKeyEntries();
-    let { entries } = stored;
-    if (entries.length === 0 && preferredKey) {
-        entries = [{ key: preferredKey, count: 0 }];
-        const isSession = stored.isSession || (
-            !localStorage.getItem('geminiApiKeys') &&
-            !localStorage.getItem('geminiApiKey') &&
-            sessionStorage.getItem('geminiApiKey') === preferredKey
-        );
-        writeStoredKeyEntries(entries, isSession);
-    }
-    let availableEntries = entries.filter(entry => isGeminiKeyAvailable(entry, now));
-
-    availableEntries.sort((a, b) => {
-        const routeDifference = Number(a.routingCount ?? a.count ?? 0) - Number(b.routingCount ?? b.count ?? 0);
-        if (routeDifference !== 0) return routeDifference;
-        return Number(a.lastRoutedAt || 0) - Number(b.lastRoutedAt || 0);
-    });
-
-    const selected = availableEntries[0];
-    if (!selected) return [];
-
-    // Reserve the next route synchronously so concurrent calls do not all pick
-    // the same least-used key before the first HTTP request is recorded.
-    updateStoredKeyEntry(selected.key, entry => {
-        entry.routingCount = Number(entry.routingCount ?? entry.count ?? 0) + 1;
-        entry.lastRoutedAt = now;
-    });
-    selected.routingCount = Number(selected.routingCount ?? selected.count ?? 0) + 1;
-    selected.lastRoutedAt = now;
-
-    return [selected.key, ...availableEntries.slice(1).map(entry => entry.key)];
-}
-
 function getPacificDayKey(timestamp = Date.now()) {
     return new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/Los_Angeles',
@@ -373,7 +297,7 @@ function getPacificDayKey(timestamp = Date.now()) {
 
 function recordKeyAttempt(apiKey, modelName, requestId) {
     const now = Date.now();
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         const usage = entry.usageByModel?.[modelName];
         const sample = usage?.tokenUsage?.find(item => item.id === requestId);
         if (sample) {
@@ -391,7 +315,7 @@ function recordKeyAttempt(apiKey, modelName, requestId) {
 
 function recordKeySuccess(apiKey, modelName, response, requestId) {
     const promptTokens = Number(response?.usageMetadata?.promptTokenCount);
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         entry.count = (entry.count || 0) + 1;
         entry.consecutiveFailures = 0;
         entry.lastErrorReason = '';
@@ -407,7 +331,7 @@ function recordKeySuccess(apiKey, modelName, response, requestId) {
 }
 
 function markKeyCooldown(apiKey, decision) {
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         entry.consecutiveFailures = (entry.consecutiveFailures || 0) + 1;
         entry.lastErrorReason = decision.reason;
         entry.cooldownUntil = Math.max(
@@ -418,7 +342,7 @@ function markKeyCooldown(apiKey, decision) {
 }
 
 function markModelCooldown(apiKey, modelName, decision) {
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         entry.modelCooldowns = entry.modelCooldowns || {};
         entry.modelCooldowns[modelName] = Math.max(
             Number(entry.modelCooldowns[modelName] || 0),
@@ -508,7 +432,7 @@ function reserveModelRequestSlot(apiKey, modelName, estimatedTokens) {
     const intervalMs = Math.ceil(60 * 1000 / limits.rpm) + 250;
     const routeId = `${apiKey}:${modelName}`;
     const now = Date.now();
-    const storedEntry = getStoredKeyEntry(apiKey);
+    const storedEntry = getGeminiApiState(apiKey);
     if (isGeminiModelDailyQuotaReached(storedEntry, modelName, now)) return null;
 
     const storedModelNextRequestAt = storedEntry.modelNextRequestAt || {};
@@ -526,7 +450,7 @@ function reserveModelRequestSlot(apiKey, modelName, estimatedTokens) {
     const nextRequestAt = readyAt + intervalMs;
     const requestId = `${now}-${Math.random().toString(36).slice(2)}`;
     const day = getPacificDayKey(readyAt);
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         const currentUsage = entry.usageByModel?.[modelName];
         const usage = currentUsage?.day === day
             ? currentUsage
@@ -553,7 +477,7 @@ function reserveModelRequestSlot(apiKey, modelName, estimatedTokens) {
 
 function releaseModelRequestReservation(apiKey, modelName, reservation) {
     if (!reservation) return;
-    updateStoredKeyEntry(apiKey, entry => {
+    updateGeminiApiState(apiKey, entry => {
         const usage = entry.usageByModel?.[modelName];
         if (!usage || usage.day !== reservation.day) return;
         const index = usage.tokenUsage?.findIndex(sample => sample.id === reservation.requestId) ?? -1;
@@ -627,7 +551,9 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     }
 
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${apiKey}`);
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', {
+            headers: { 'x-goog-api-key': apiKey },
+        });
         if (!response.ok) {
             throw createGeminiError(`Failed to fetch models: ${response.status}`, { status: response.status });
         }
@@ -650,138 +576,69 @@ export async function resolveFlashModelsList(apiKey, throwOnError = false) {
     }
 }
 
-async function generateWithKeyPool(apiKey, buildRequest, { onModel = null, logPrefix = '' } = {}) {
-    const keyPool = buildKeyPool(apiKey);
-    if (keyPool.length === 0) {
-        throw createGeminiError('目前沒有可用的 Gemini API Key；金鑰可能尚未設定或正在配額冷卻中。', {
-            code: 'no_available_key',
-        });
+async function generateWithSingleKey(apiKey, buildRequest, { onModel = null, logPrefix = '' } = {}) {
+    if (!apiKey) throw createGeminiError('請先設定 Gemini API Key。', { code: 'no_available_key' });
+
+    const storedState = getGeminiApiState(apiKey);
+    if (Number(storedState.cooldownUntil || 0) > Date.now()) {
+        throw createGeminiError('Gemini 專案仍在配額等待期間。', { code: 'quota_wait' });
     }
 
-    let lastError = null;
-    let stopRouting = false;
+    let models;
+    try {
+        models = filterModelsForKey(await resolveFlashModelsList(apiKey), storedState);
+    } catch (error) {
+        const decision = classifyGeminiError(error);
+        if (decision.action === 'quota_cooldown') {
+            error.geminiQuotaReason = decision.reason;
+            markKeyCooldown(apiKey, decision);
+        }
+        throw error;
+    }
+    if (models.length === 0) {
+        throw createGeminiError('目前沒有可用的 Gemini 模型。', { code: 'no_available_model' });
+    }
 
-    for (const currentKey of keyPool) {
-        let models;
+    let lastError;
+    for (const modelName of models) {
+        if (isGeminiModelDailyQuotaReached(getGeminiApiState(apiKey), modelName)) {
+            throw createGeminiError('已達本機設定的每日安全額度。', { code: 'local_daily_quota' });
+        }
         try {
-            const resolvedModels = await resolveFlashModelsList(currentKey);
-            const storedEntry = getStoredKeyEntry(currentKey);
-            models = filterModelsForKey(resolvedModels, storedEntry);
-            if (
-                models.length === 0 &&
-                resolvedModels.some(model => isGeminiModelDailyQuotaReached(storedEntry, model))
-            ) {
-                lastError = createGeminiError(
-                    '目前此專案的 Gemini 模型已達本機設定的每日安全額度。',
-                    { code: 'local_daily_quota' },
-                );
+            onModel?.(modelName);
+            const request = await buildRequest(apiKey, modelName);
+            const generated = await generateGeminiContentWithRetry({ ...request, apiKey, modelName });
+            if (generated.dailyQuotaReached) {
+                throw createGeminiError('已達本機設定的每日安全額度。', { code: 'local_daily_quota' });
             }
+            return { ...generated.result, modelName, apiKey };
         } catch (error) {
             lastError = error;
             const decision = classifyGeminiError(error);
-            if (decision.action === 'abort') throw error;
-            if (decision.action === 'next_key') {
-                markKeyCooldown(currentKey, decision);
-                continue;
-            }
             if (decision.action === 'quota_cooldown') {
                 error.geminiQuotaReason = decision.reason;
-                error.geminiQuotaScope = 'key';
-                markKeyCooldown(currentKey, decision);
+                markKeyCooldown(apiKey, decision);
+                throw error;
             }
-            break;
-        }
-
-        if (models.length === 0) continue;
-        let modelFallbackCount = 0;
-
-        for (const modelName of models) {
-            try {
-                onModel?.(modelName);
-                console.log(`${logPrefix}Trying API Key (...${currentKey.slice(-4)}) with Model: ${modelName}`);
-                const request = await buildRequest(currentKey, modelName);
-                const generated = await generateGeminiContentWithRetry({
-                    ...request,
-                    apiKey: currentKey,
-                    modelName,
+            if (decision.action === 'next_model' || decision.action === 'retry_once') {
+                markModelCooldown(apiKey, modelName, {
+                    ...decision,
+                    cooldownMs: Math.max(Number(decision.cooldownMs || 0), 60 * 1000),
                 });
-
-                if (generated.dailyQuotaReached) {
-                    lastError = createGeminiError(
-                        `${modelName} 已達本機設定的每日安全額度，請改用其他可用模型或專案。`,
-                        { code: 'local_daily_quota' },
-                    );
-                    continue;
-                }
-
-                console.log(`${logPrefix}[API Key Usage Updated] Key: ...${currentKey.slice(-4)}`);
-                return { ...generated.result, modelName, apiKey: currentKey };
-            } catch (error) {
-                lastError = error;
-                console.warn(`${logPrefix}Model ${modelName} with Key (...${currentKey.slice(-4)}) failed: ${error.message || error}`);
-                const decision = classifyGeminiError(error);
-
-                if (decision.action === 'abort' || decision.action === 'stop') throw error;
-
-                if (decision.action === 'next_key') {
-                    markKeyCooldown(currentKey, decision);
-                    break;
-                }
-
-                if (decision.action === 'quota_cooldown') {
-                    error.geminiQuotaReason = decision.reason;
-                    error.geminiQuotaScope = decision.scope;
-                    if (decision.scope === 'model') {
-                        markModelCooldown(currentKey, modelName, decision);
-                    } else {
-                        markKeyCooldown(currentKey, decision);
-                    }
-                    // Do not fan the same user operation out across other keys/models after a 429.
-                    stopRouting = true;
-                    break;
-                }
-
-                if (decision.action === 'retry_once') {
-                    markModelCooldown(currentKey, modelName, {
-                        ...decision,
-                        cooldownMs: Math.max(
-                            Number(decision.cooldownMs || 0),
-                            60 * 1000,
-                        ),
-                    });
-                    stopRouting = true;
-                    break;
-                }
-
-                if (decision.action === 'next_model') {
-                    markModelCooldown(currentKey, modelName, decision);
-                    modelFallbackCount += 1;
-                    if (modelFallbackCount > 1) {
-                        stopRouting = true;
-                        break;
-                    }
-                    continue;
-                }
+                console.warn(`${logPrefix}${modelName} 暫時不可用，嘗試下一個模型。`, error);
+                continue;
             }
+            throw error;
         }
-
-        if (stopRouting) break;
-    }
-
-    if (!lastError) {
-        lastError = createGeminiError(
-            '目前沒有符合 allowlist 且可用的 Gemini 模型。',
-            { code: 'no_available_model' },
-        );
     }
     throw lastError;
 }
 
 /**
  * 呼叫 Gemini API 並獲取回應。
- * 自動進行金鑰池與多模型故障降級自癒重試。
+ * 使用單一金鑰，在模型暫時不可用時依序切換。
  *
- * @param {string} apiKey - 偏好/目前輪替到的金鑰。
+ * @param {string} apiKey - 使用者設定的唯一 API Key。
  * @param {string} prompt - 要發送給模型的提示詞。
  * @param {boolean} forceJson - 是否強制使用 JSON 輸出模式。
  * @returns {Promise<string>} AI 生成的文本內容。
@@ -790,13 +647,14 @@ async function generateWithKeyPool(apiKey, buildRequest, { onModel = null, logPr
 export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null) {
     const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
 
-    if (aiEngine === 'cloudflare' && !forceJson) {
+    if (aiEngine === 'cloudflare') {
         return await callCloudflareTextAPI(prompt, onStream, abortSignal, forceModel);
     }
 
     let result;
+    let hasStreamedContent = false;
     try {
-        result = await generateWithKeyPool(apiKey, async (_currentKey, modelName) => ({
+        result = await generateWithSingleKey(apiKey, async (_currentKey, modelName) => ({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: {
                 responseMimeType: forceJson ? 'application/json' : 'text/plain',
@@ -805,7 +663,10 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
                 role: 'system',
                 parts: [{ text: TEXT_GENERATION_SYSTEM_INSTRUCTION }],
             },
-            onStream: onStream && !forceJson ? onStream : null,
+            onStream: onStream && !forceJson ? (chunk, fullText) => {
+                if (chunk) hasStreamedContent = true;
+                onStream(chunk, fullText);
+            } : null,
             streamStatus: onStream && !forceJson ? `Gemini (${modelName}) 思考中...` : null,
             abortSignal,
         }), {
@@ -819,14 +680,14 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
             },
         });
     } catch (error) {
-        if (aiEngine === 'auto' && !forceJson) {
-            console.warn('Gemini 失敗，觸發 Cloudflare 備援機制...', error.message);
-            try {
-                return await callCloudflareTextAPI(prompt, onStream, abortSignal);
-            } catch (cfErr) {
-                console.error('Cloudflare 備援亦失敗:', cfErr);
-                throw new Error(translateError(error.message, error) + `\n(備援失敗: ${cfErr.message})`);
-            }
+        const cfUrl = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+        const reason = classifyGeminiError(error).reason;
+        if (aiEngine === 'auto' && cfUrl && !hasStreamedContent &&
+            !abortSignal?.aborted && !['aborted', 'content_safety', 'invalid_request'].includes(reason) &&
+            typeof window !== 'undefined' && window.confirm(
+                `${translateError(error.message, error)}\n\n是否將這次內容送往已設定的 Cloudflare Worker 繼續生成？`,
+            )) {
+            return await callCloudflareTextAPI(prompt, onStream, abortSignal);
         }
         throw new Error(translateError(error.message, error));
     }
@@ -835,7 +696,7 @@ export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream 
 
 /**
  * 呼叫 Gemini API 進行音訊轉寫（multimodal: text + audio）。
- * 複用金鑰池輪替與模型降級邏輯。
+ * 複用單一金鑰與模型降級邏輯。
  *
  * @param {string} apiKey - 偏好的 API Key。
  * @param {string} audioBase64 - 音訊檔案的 base64 編碼字串。
@@ -855,7 +716,7 @@ export async function callGeminiAudioAPI(apiKey, audioBase64, mimeType, promptTe
     ];
 
     try {
-        const result = await generateWithKeyPool(apiKey, async () => ({
+        const result = await generateWithSingleKey(apiKey, async () => ({
             contents: [{ role: 'user', parts }],
             generationConfig: { responseMimeType: 'text/plain', maxOutputTokens: 65536 },
             systemInstruction,
@@ -893,11 +754,15 @@ export function translateError(message, error = {}) {
     const normalizedMessage = String(message).toLowerCase();
 
     if (error.code === 'local_daily_quota') {
-        return "【已達每日安全額度】已達本機設定的 Gemini 每日保守上限，系統會等到太平洋時間午夜後再使用該模型；若有其他仍可用的專案或模型，可先改用它們。這是本機預防上限，實際配額以 Google AI Studio 顯示為準。";
+        return "【已達每日安全額度】已達本機設定的 Gemini 每日保守上限，請等待太平洋時間午夜重置。實際配額以 Google AI Studio 顯示為準。";
     }
 
     if (error.code === 'no_available_key') {
-        return "【目前沒有可用的 Gemini 專案】請檢查 API Key 設定，或等待被冷卻的專案恢復。";
+        return "【尚未設定 Gemini 金鑰】請先設定一組 API Key。";
+    }
+
+    if (error.code === 'quota_wait') {
+        return "【Gemini 配額等待中】這個專案尚未恢復可用額度，請稍後再試並到 Google AI Studio 查看實際配額。";
     }
 
     if (error.code === 'no_available_model') {
@@ -906,7 +771,7 @@ export function translateError(message, error = {}) {
 
     // 串流回應未完整傳回或格式異常
     if (normalizedMessage.includes("failed to parse stream")) {
-        return "【AI 串流回應中斷】AI 已開始回傳內容，但網路或 Gemini 服務的串流回應未完整傳回，因此無法完成這次 AI 生成。\n\n可能原因：網路短暫不穩、Gemini 服務忙碌，或瀏覽器連線中途被中斷。\n\n處理方式：請先重新生成；若再次發生，確認網路連線後稍候再試。持續發生時，請改用其他 Gemini API Key，或切換至其他 AI 引擎。畫面上已出現的部分內容可能不完整，請勿直接使用。";
+        return "【AI 串流回應中斷】AI 已開始回傳內容，但網路或 Gemini 服務的串流回應未完整傳回，因此無法完成這次 AI 生成。\n\n可能原因：網路短暫不穩、Gemini 服務忙碌，或瀏覽器連線中途被中斷。\n\n處理方式：請先重新生成；若再次發生，確認網路連線後稍候再試，或手動選用其他 AI 引擎。畫面上已出現的部分內容可能不完整，請勿直接使用。";
     }
     
     // 503 / High Demand / Overloaded
@@ -917,14 +782,18 @@ export function translateError(message, error = {}) {
     // 429 / Rate Limit / Quota Exceeded
     if (normalizedMessage.includes("429") || normalizedMessage.includes("quota exceeded") || normalizedMessage.includes("exhausted") || normalizedMessage.includes("rate limit")) {
         if (error.geminiQuotaReason === 'daily_quota_exhausted') {
-            return "【Gemini 每日配額已用盡】這個專案／模型已達 Google 配額上限，系統已停止本次連續重試，並暫停使用受影響的路由直到太平洋時間午夜重置。其他獨立專案之後仍可繼續承擔新請求。";
+            return "【Gemini 每日配額已用盡】這個專案已達 Google 配額上限，請等待太平洋時間午夜重置；換同專案金鑰不會增加額度。";
         }
-        return "【Gemini 暫時限流】這個專案或模型已達每分鐘配額，系統已停止本次連續重試，並依 Google 提供的等待時間冷卻受影響的路由。稍後可重新操作。";
+        return "【Gemini 暫時限流】這個專案或模型已達每分鐘配額，請等待 Google 提供的冷卻時間後再試。";
     }
     
-    // 400 / 403 / Invalid API Key
-    if (normalizedMessage.includes("api key not valid") || normalizedMessage.includes("not valid") || normalizedMessage.includes("invalid") || normalizedMessage.includes("400") || normalizedMessage.includes("403")) {
-        return "【無效的金鑰】您輸入的 Gemini API Key 格式不正確或已被停用，請至 Google AI Studio 重新確認並貼上正確的金鑰。";
+    // 401 / 403 / Key disabled
+    if (error.status === 401 || error.status === 403 || normalizedMessage.includes('api key not valid') || normalizedMessage.includes('reported as leaked')) {
+        return "【Gemini 金鑰無法使用】請至 Google AI Studio 檢查金鑰是否失效、洩漏或缺少權限。若只是金鑰遭撤銷且專案正常，可更新此專案的金鑰；若專案或帳號受限，請先處理限制原因，不要另建帳號或專案規避限制。";
+    }
+
+    if (error.status === 400 || normalizedMessage.includes('invalid_argument')) {
+        return "【Gemini 請求無效】請檢查輸入內容或模型設定後再試。";
     }
     
     // Safety

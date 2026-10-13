@@ -8,5 +8,5 @@ test('stream parsing errors explain likely causes and recovery steps', () => {
     assert.match(message, /串流回應中斷/);
     assert.match(message, /網路/);
     assert.match(message, /重新生成/);
-    assert.match(message, /API Key/);
+    assert.match(message, /手動選用其他 AI 引擎/);
 });

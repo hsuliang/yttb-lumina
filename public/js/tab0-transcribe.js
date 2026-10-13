@@ -27,7 +27,7 @@ import {
     srtToPlainText,
     srtToVtt as proofreadingSrtToVtt,
 } from './transcription-proofreading.js';
-import { getBalancedApiKey, showGlobalSettingsModal, switchTab } from './app.js';
+import { getConfiguredGeminiApiKey, showGlobalSettingsModal, switchTab } from './app.js';
 
 /**
  * tab0-transcribe.js
@@ -323,7 +323,7 @@ function getFileExtension(filename) {
 // ########## CORE: TRANSCRIBE FUNCTIONS ##########
 
 async function transcribeWithGemini(file, language, customDict, onProgress = () => {}, onChunkComplete = () => {}, onStream = () => {}) {
-    const apiKey = getBalancedApiKey();
+    const apiKey = getConfiguredGeminiApiKey();
     if (!apiKey) {
         throw new Error("請先設定 Gemini API Key。");
     }
@@ -915,7 +915,7 @@ export function initializeTab0() {
             const geminiOption = engineSelect.querySelector('option[value="gemini"]');
             const whisperOption = engineSelect.querySelector('option[value="whisper"]');
             
-            const hasGemini = typeof getBalancedApiKey !== 'undefined' && getBalancedApiKey();
+            const hasGemini = typeof getConfiguredGeminiApiKey !== 'undefined' && getConfiguredGeminiApiKey();
             const hasWorker = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
             
             if (geminiOption) {
@@ -928,13 +928,7 @@ export function initializeTab0() {
                 whisperOption.textContent = hasWorker ? 'Whisper Large V3 Turbo' : 'Whisper Large V3 Turbo (未設定 Worker)';
             }
 
-            if (engineSelect.value === 'gemini' && !hasGemini && hasWorker) {
-                engineSelect.value = 'whisper';
-                state.transcribeEngine = 'whisper';
-            } else if (engineSelect.value === 'whisper' && !hasWorker && hasGemini) {
-                engineSelect.value = 'gemini';
-                state.transcribeEngine = 'gemini';
-            }
+            // Keep the user's selected engine; changing providers requires consent.
         };
 
         // 監聽全局設定變更事件
@@ -1315,7 +1309,7 @@ export function initializeTab0() {
             showToast('請先完成字幕辨識。', { type: 'warning' });
             return;
         }
-        const apiKey = getBalancedApiKey();
+        const apiKey = getConfiguredGeminiApiKey();
         if (!apiKey) {
             showModal({
                 title: '需要 Gemini API Key',
@@ -1424,7 +1418,7 @@ export function initializeTab0() {
                     return;
                 }
             } else if (state.transcribeEngine === 'gemini') {
-                const hasApiKey = !!(localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+                const hasApiKey = !!getConfiguredGeminiApiKey();
                 if (!hasApiKey) {
                     showModal({
                         title: '缺少 Gemini API Key',
@@ -1523,14 +1517,34 @@ export function initializeTab0() {
                     } else {
                         // Gemini 模式同樣只提供專有名詞辨識提示。
                         let geminiDict = terminologyDict;
-                        result = await transcribeWithGemini(
-                            selectedFile, 
-                            state.transcribeLanguage, 
-                            geminiDict, 
-                            handleWhisperProgress,
-                            handleChunkComplete,
-                            handleStream
-                        );
+                        try {
+                            result = await transcribeWithGemini(
+                                selectedFile,
+                                state.transcribeLanguage,
+                                geminiDict,
+                                handleWhisperProgress,
+                                handleChunkComplete,
+                                handleStream
+                            );
+                        } catch (error) {
+                            const hasWorker = localStorage.getItem('aliang-tab0-worker-url') || sessionStorage.getItem('aliang-tab0-worker-url');
+                            if (!hasWorker || finalizedSrt || /安全|取消|AbortError/.test(error.message || '') ||
+                                !window.confirm(`Gemini 辨識失敗：${error.message}\n\n是否將音訊送往已設定的 Cloudflare Worker 改用 Whisper 辨識？`)) {
+                                throw error;
+                            }
+                            if (srtPanel) srtPanel.textContent = '';
+                            const { buildWhisperDictionary } = await import('./transcription-text.js');
+                            result = await transcribeWithWhisper(
+                                selectedFile,
+                                state.transcribeLanguage,
+                                buildWhisperDictionary(state.aiTerminologyRules, state.batchReplaceRules),
+                                handleWhisperProgress,
+                                handleChunkComplete
+                            );
+                            state.transcribeEngine = 'whisper';
+                            if (engineSelect) engineSelect.value = 'whisper';
+                            localStorage.setItem(TAB0_STORAGE_KEYS.engine, 'whisper');
+                        }
                     }
 
                     displayResults(result);

@@ -42,7 +42,7 @@ async function withGeminiResponses(responses, callback) {
     };
     const apiKey = `proofreading-retry-test-key-${++geminiTestKeyCounter}`;
     const localStorage = new MemoryStorage();
-    localStorage.setItem('geminiApiKeys', JSON.stringify([{ key: apiKey, count: 0 }]));
+    localStorage.setItem('geminiApiKey', apiKey);
     const requests = [];
     const responseTexts = [...responses];
     let fakeNow = Date.now();

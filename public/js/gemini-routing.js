@@ -3,7 +3,6 @@ export const GEMINI_FALLBACK_MODELS = Object.freeze([
     'gemini-2.5-flash',
 ]);
 export const GEMINI_DEFAULT_QUOTA_COOLDOWN_MS = 60 * 1000;
-export const GEMINI_DAILY_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const GEMINI_MODEL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const GEMINI_TRANSIENT_RETRY_DELAY_MS = 1000;
 
@@ -180,9 +179,8 @@ export function classifyGeminiError(error) {
         normalized.includes('permission_denied') ||
         normalized.includes('unauthenticated')) {
         return {
-            action: 'next_key',
+            action: 'stop',
             reason: 'key_unavailable',
-            cooldownMs: GEMINI_DAILY_QUOTA_COOLDOWN_MS,
         };
     }
 
@@ -211,14 +209,9 @@ export function classifyGeminiError(error) {
     return { action: 'stop', reason: 'unknown_non_retryable' };
 }
 
-export function isGeminiKeyAvailable(entry, now = Date.now()) {
-    return Boolean(entry?.key) && Number(entry.cooldownUntil || 0) <= now;
-}
-
 export function filterModelsForKey(models, entry, now = Date.now()) {
     const modelCooldowns = entry?.modelCooldowns || {};
     return models.filter(model =>
-        Number(modelCooldowns[model] || 0) <= now &&
-        !isGeminiModelDailyQuotaReached(entry, model, now),
+        Number(modelCooldowns[model] || 0) <= now,
     );
 }

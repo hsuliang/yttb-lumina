@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { updateAiButtonStatus, getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { updateAiButtonStatus, getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
 
 /**
@@ -545,7 +545,7 @@ export const analyzeInfographicContent = function() {
     async function handleGenerateInfographic(variationModifier = '', shouldOverride = false) {
         const generateBtn = document.getElementById('generate-infographic-btn');
         const generateVariationBtn = document.getElementById('generate-infographic-variation-btn');
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
         const rawSourceText = document.getElementById('smart-area').value;
         const requestSourceId = state.currentSourceId || activateSource(rawSourceText).sourceId;
 

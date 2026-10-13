@@ -8,7 +8,6 @@ import {
     filterModelsForKey,
     getGeminiModelRateLimits,
     getMillisecondsUntilNextPacificDay,
-    isGeminiKeyAvailable,
     parseGeminiRetryDelayMs,
 } from '../public/js/gemini-routing.js';
 
@@ -124,7 +123,7 @@ test('daily request cap is tracked independently for each model and Pacific day'
 
     assert.deepEqual(
         filterModelsForKey(['gemini-3.8-flash', 'gemini-3.5-flash-lite'], entry, now),
-        ['gemini-3.5-flash-lite'],
+        ['gemini-3.8-flash', 'gemini-3.5-flash-lite'],
     );
 });
 
@@ -134,10 +133,8 @@ test('retry delay is parsed from structured error details', () => {
     }), 12250);
 });
 
-test('key and model cooldowns exclude temporarily unavailable candidates', () => {
+test('model cooldowns exclude temporarily unavailable candidates', () => {
     const now = 1000;
-    assert.equal(isGeminiKeyAvailable({ key: 'key-a', cooldownUntil: 999 }, now), true);
-    assert.equal(isGeminiKeyAvailable({ key: 'key-a', cooldownUntil: 1001 }, now), false);
     assert.deepEqual(
         filterModelsForKey(
             ['gemini-3.6-flash', 'gemini-2.5-flash'],
@@ -146,6 +143,11 @@ test('key and model cooldowns exclude temporarily unavailable candidates', () =>
         ),
         ['gemini-2.5-flash'],
     );
+});
+
+test('invalid or blocked key stops routing', () => {
+    assert.equal(classifyGeminiError({ status: 401, message: 'API key not valid' }).action, 'stop');
+    assert.equal(classifyGeminiError({ status: 403, message: 'PERMISSION_DENIED' }).reason, 'key_unavailable');
 });
 
 test('daily quota cooldown ends at the next Pacific calendar day', () => {

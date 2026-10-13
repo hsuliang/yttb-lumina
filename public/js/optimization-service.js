@@ -2,7 +2,7 @@ import { showToast, showModal, hideModal } from './ui-components.js';
 import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getCanonicalTranscript, isCurrentSource } from './content-source.js';
-import { updateSourceStatusUI, getBalancedApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
+import { updateSourceStatusUI, getConfiguredGeminiApiKey, updateTabAvailability, showApiKeyModal } from './app.js';
 
 /**
  * optimization-service.js
@@ -16,7 +16,7 @@ export const optimizationService = {
      * 這是一個異步函式，會在原地顯示模態窗，並在完成後更新全局狀態。
      */
     async optimizeSourceText() {
-        const apiKey = getBalancedApiKey ? getBalancedApiKey() : (localStorage.getItem('geminiApiKey') || sessionStorage.getItem('geminiApiKey'));
+        const apiKey = getConfiguredGeminiApiKey();
 
 
         const rawContent = document.getElementById('smart-area').value.trim();

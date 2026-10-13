@@ -143,7 +143,7 @@ export async function callCloudflareTextAPI(prompt, onStream = null, abortSignal
         
         let errorMsg = e.message;
         if (errorMsg.includes('4006') || errorMsg.includes('10,000 neurons')) {
-            errorMsg = 'Cloudflare AI 免費額度（10,000 neurons）今日已耗盡！請設定 Gemini API 金鑰啟用備援機制，或是等待明天額度重置。';
+            errorMsg = 'Cloudflare AI 免費額度（10,000 neurons）今日已耗盡！請等待額度重置，或手動切換至 Gemini。';
         }
         
         throw new Error(`Cloudflare API 失敗: ${errorMsg}`);

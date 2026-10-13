@@ -3,7 +3,7 @@ import { callGeminiAPI } from './gemini-api.js';
 import { state } from './state.js';
 import { activateSource, getPreferredSource, isCurrentSource } from './content-source.js';
 import { VariationHub } from './variation-hub.js';
-import { getBalancedApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
+import { getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { buildReelsPrompt, extractReelsListingCopy, extractReelsPromptBlocks, normalizeReelsPromptOutput } from './reels-prompt.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
 
@@ -187,7 +187,7 @@ export function initializeTab8() {
         }
 
         const requestSourceId = state.currentSourceId;
-        const apiKey = getBalancedApiKey();
+        const apiKey = getConfiguredGeminiApiKey();
         state.currentAbortController = new AbortController();
         const activeBtn = isVariation ? variationBtn : generateBtn;
         const originalBtnHtml = activeBtn.innerHTML;

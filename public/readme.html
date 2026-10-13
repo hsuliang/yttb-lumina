@@ -175,7 +175,7 @@
                     </span>
                     <h3 class="text-lg font-bold text-white">設定 Gemini API 金鑰</h3>
                     <p class="text-gray-400 text-sm mt-1 leading-relaxed">
-                        點選首頁狀態列旁的「設定金鑰」或側邊欄底部的「金鑰管理」按鈕，展開「📖 如何免費申請？」連結。依照教學，登入 Google 帳號並至 Google AI Studio 點擊 "Create API Key" 免費申請，將取得以 <code class="text-[#f97316] font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">AIza</code> 開頭的金鑰複製，貼回本工具儲存即可。本工具亦支援填入多組金鑰實現負載平衡輪替。<br>
+                        點選首頁狀態列旁的「設定金鑰」或側邊欄底部的「金鑰管理」按鈕，展開「📖 如何免費申請？」連結。依照教學，登入 Google 帳號並至 Google AI Studio 點擊 "Create API Key" 申請，將取得以 <code class="text-[#f97316] font-mono font-bold bg-white/5 px-1.5 py-0.5 rounded">AIza</code> 開頭的單一金鑰複製，貼回本工具儲存即可。<br>
                         <a href="https://youtu.be/9iqluTyt82c" target="_blank" rel="noopener" class="text-[#f97316] hover:underline font-bold inline-flex items-center gap-1 mt-1.5">🎥 如何申請 Google API Key 教學影片 <span class="material-symbols-outlined text-[12px]">open_in_new</span></a>
                     </p>
                 </div>
@@ -253,7 +253,7 @@
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3">
                     <h3 class="font-bold text-white">全域設定</h3>
                     <p class="text-gray-400 text-sm leading-relaxed">
-                        可管理 Gemini API 金鑰池、金鑰保存期限、Cloudflare Worker URL／Token、Cloudflare 文字模型與 Gemini／Cloudflare 文字生成引擎。字幕辨識另支援繁體中文、英文、日文與自動偵測。
+                        可管理單一 Gemini API 金鑰、金鑰保存期限、Cloudflare Worker URL／Token、Cloudflare 文字模型與 Gemini／Cloudflare 文字生成引擎。字幕辨識另支援繁體中文、英文、日文與自動偵測。
                     </p>
                 </div>
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl space-y-3">
@@ -464,13 +464,13 @@
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
                     <h4 class="font-bold text-white text-sm mb-2">Q1: 免費申請的 Gemini API Key 有限制嗎？</h4>
                     <p class="text-gray-400 text-xs leading-relaxed">
-                        目前 Google AI Studio 提供的免費金鑰 (Gemini 2.5 Flash) 有每分鐘 15 次請求的限制。若您需要處理極大量的影片或文章，建議依照本程式金鑰設定提示，申請 2 到 3 組不同的免費金鑰一同填入，系統會自動在呼叫時進行智慧輪替，避免超出請求上限限制。
+                        有。實際限制會依 Google 專案、模型與帳戶方案而異，請至 Google AI Studio 查看目前額度。遇到配額限制時，請依提示等待重置；也可在確認後使用已設定的 Cloudflare AI。請勿以多個金鑰或專案規避配額。
                     </p>
                 </div>
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
                     <h4 class="font-bold text-white text-sm mb-2">Q2: 程式有關閉頁面即清除金鑰的機制嗎？</h4>
                     <p class="text-gray-400 text-xs leading-relaxed">
-                        有的。在您設定金鑰時，可以下拉選擇「金鑰保存期限」。如果您是在公用電腦操作，建議選擇「分頁關閉即清除」(存於 Session Storage)，當您將此瀏覽器分頁關閉後，所有 API 金鑰即會被自動銷毀抹除，無須擔心外洩。
+                        有的。在您設定金鑰時，可以下拉選擇「金鑰保存期限」。如果您是在公用電腦操作，建議選擇「分頁關閉即清除」(存於 Session Storage)，當您將此瀏覽器分頁關閉後，API 金鑰即會被清除。
                     </p>
                 </div>
                 <div class="bg-white/5 border border-white/5 p-6 rounded-2xl">
