@@ -4,7 +4,6 @@ import { callGeminiAudioAPI } from './gemini-api.js';
 
 import { showToast, showModal, hideModal, saveFile } from './ui-components.js';
 import { state, AI_PROMPT_MESSAGES } from './state.js';
-import { applyReplacementRules } from './srt-processor.js';
 import { shouldConfirmSourceReplacement } from './content-source.js';
 import {
     formatAudioTime,
@@ -23,6 +22,8 @@ import {
 } from './transcription-quality.js';
 import {
     applyProofreadingSuggestions,
+    buildRuleProofreadingSuggestions,
+    mergeProofreadingSuggestions,
     requestProofreadingSuggestions,
     srtToPlainText,
     srtToVtt as proofreadingSrtToVtt,
@@ -182,26 +183,6 @@ function validateAndFixSrt(rawText) {
         plainText: fixedBlocks.map(b => b.split('\n').slice(2).join(' ')).join('\n'),
         blockCount: fixedBlocks.length,
     };
-}
-
-// ########## BATCH REPLACE ON SRT (Stage 1 Post-Processing) ##########
-
-/**
- * 對已完成的 SRT 文字做錯別字批次替換（第一階段後處理）。
- * 只會替換字幕文字內容，不會影響時間戳。
- * @param {string} srtText - 完整的 SRT 字串
- * @param {Array} rules - [{original, replacement}, ...]
- * @returns {string} 替換後的 SRT 字串
- */
-function applyBatchReplaceToSrt(srtText, rules) {
-    if (!rules || rules.length === 0 || !srtText) return srtText;
-    const protectedTerms = state.aiTerminologyRules
-        .filter(rule => rule.type === 'positive')
-        .map(rule => rule.term);
-    return srtText.split('\n').map(line => {
-        if (/^\d+$/.test(line.trim()) || line.includes('-->')) return line;
-        return applyReplacementRules(line, rules, protectedTerms).text;
-    }).join('\n');
 }
 
 // ########## AUDIO CHUNKING UTILITIES ##########
@@ -474,11 +455,8 @@ async function transcribeWithGemini(file, language, customDict, onProgress = () 
         }
     }
 
-    let finalSrt = allSrtBlocks.join('\n\n');
-    // 第一階段：對辨識結果套用錯別字替換（後處理）
-    finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
-    const protectedTerms = state.aiTerminologyRules.filter(rule => rule.type === 'positive').map(rule => rule.term);
-    const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
+    const finalSrt = allSrtBlocks.join('\n\n');
+    const finalText = allText.join('\n');
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     
     onProgress({
@@ -832,11 +810,8 @@ async function transcribeWithWhisper(file, language, customDict, onProgress = ()
         }
     }
 
-    let finalSrt = normalizeSrtTimeline(allSrtBlocks.join('\n\n'));
-    // 第一階段：對辨識結果套用錯別字替換（後處理）
-    finalSrt = applyBatchReplaceToSrt(finalSrt, state.batchReplaceRules);
-    const protectedTerms = state.aiTerminologyRules.filter(rule => rule.type === 'positive').map(rule => rule.term);
-    const finalText = applyReplacementRules(allText.join('\n'), state.batchReplaceRules, protectedTerms).text;
+    const finalSrt = normalizeSrtTimeline(allSrtBlocks.join('\n\n'));
+    const finalText = allText.join('\n');
     const finalVtt = 'WEBVTT\n\n' + finalSrt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
     const finalBlockCount = finalSrt ? finalSrt.split(/\n\s*\n/).filter(Boolean).length : 0;
     const requestFailures = failedRanges.filter(range => range.reasons?.some(
@@ -899,6 +874,19 @@ export function initializeTab0() {
 
     let selectedFile = null;
     let proofreadingUndoSnapshot = null;
+    let transcriptionRunId = 0;
+
+    function clearTranscriptionResult() {
+        state.transcribeResult = null;
+        proofreadingUndoSnapshot = null;
+        proofreadUndoBtn?.classList.add('hidden');
+        [exportSrtBtn, exportVttBtn, exportTxtBtn, proofreadBtn, sendToTab1Btn]
+            .forEach(button => { if (button) button.disabled = true; });
+        ['tab0-result-srt', 'tab0-result-vtt', 'tab0-result-text']
+            .forEach(id => { const panel = document.getElementById(id); if (panel) panel.textContent = ''; });
+        document.getElementById('tab0-result-info')?.classList.add('hidden');
+        document.getElementById('tab0-empty-state')?.classList.remove('hidden');
+    }
 
     // --- 載入已儲存的設定 ---
     const savedEngine = localStorage.getItem(TAB0_STORAGE_KEYS.engine) || 'gemini';
@@ -962,6 +950,12 @@ export function initializeTab0() {
             showToast(`不支援的檔案格式 (.${ext})。支援：${TAB0_SUPPORTED_FORMATS.join(', ')}`, { type: 'error' });
             return;
         }
+        transcriptionRunId++;
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+        }
+        clearTranscriptionResult();
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
         selectedFile = file;
         state.originalFileName = file.name.replace(/\.[^.]+$/, "");
@@ -1114,6 +1108,10 @@ export function initializeTab0() {
         const vttTabBtn = document.querySelector('.tab0-result-tab[data-target="tab0-result-vtt"]');
 
         const isWhisper = data.engine === 'whisper';
+        // 已核准 SRT 是三種匯出及 Tab1 傳送的唯一文字來源。
+        if (data.srt) {
+            data = { ...data, text: srtToPlainText(data.srt), vtt: proofreadingSrtToVtt(data.srt) };
+        }
 
         if (textPanel) textPanel.textContent = data.text || '（無純文字結果）';
         if (vttPanel) vttPanel.textContent = data.vtt || '（此模式不產生 VTT）';
@@ -1138,14 +1136,14 @@ export function initializeTab0() {
         }
         if (exportVttBtn) {
             exportVttBtn.classList.remove('hidden');
-            exportVttBtn.disabled = !data.vtt;
-            exportVttBtn.classList.toggle('opacity-50', !data.vtt);
-            exportVttBtn.classList.toggle('cursor-not-allowed', !data.vtt);
+            exportVttBtn.disabled = !data.srt;
+            exportVttBtn.classList.toggle('opacity-50', !data.srt);
+            exportVttBtn.classList.toggle('cursor-not-allowed', !data.srt);
         }
         if (exportTxtBtn) {
-            exportTxtBtn.disabled = !data.text;
-            exportTxtBtn.classList.toggle('opacity-50', !data.text);
-            exportTxtBtn.classList.toggle('cursor-not-allowed', !data.text);
+            exportTxtBtn.disabled = !data.srt;
+            exportTxtBtn.classList.toggle('opacity-50', !data.srt);
+            exportTxtBtn.classList.toggle('cursor-not-allowed', !data.srt);
         }
         if (proofreadBtn) {
             proofreadBtn.disabled = !data.srt;
@@ -1153,7 +1151,7 @@ export function initializeTab0() {
             proofreadBtn.classList.toggle('cursor-not-allowed', !data.srt);
         }
         if (sendToTab1Btn) {
-            const hasContent = !!(data.srt || data.text);
+            const hasContent = !!data.srt;
             sendToTab1Btn.disabled = !hasContent;
             sendToTab1Btn.classList.toggle('opacity-50', !hasContent);
             sendToTab1Btn.classList.toggle('cursor-not-allowed', !hasContent);
@@ -1199,8 +1197,10 @@ export function initializeTab0() {
         const items = suggestions.map((suggestion, index) => {
             const confidenceLabel = suggestion.confidence === 'high' ? '高信心' : '中信心';
             const isConsistency = suggestion.source === 'consistency';
-            const badgeLabel = isConsistency ? '一致性補查' : confidenceLabel;
-            const badgeClass = isConsistency
+            const isRule = suggestion.source === 'rule';
+            const isTerminology = suggestion.source === 'terminology';
+            const badgeLabel = isRule ? '錯字規則' : isTerminology ? '專有名詞' : isConsistency ? '一致性補查' : confidenceLabel;
+            const badgeClass = isRule || isTerminology || isConsistency
                 ? 'bg-tertiary-container text-on-tertiary-container'
                 : suggestion.confidence === 'high'
                     ? 'bg-primary/15 text-primary'
@@ -1213,7 +1213,7 @@ export function initializeTab0() {
                     <span class="flex min-w-0 items-center gap-1.5 text-sm leading-5 text-on-surface">
                         <span class="min-w-0 truncate line-through text-error" title="${escapeProofreadingHtml(suggestion.original)}">${escapeProofreadingHtml(suggestion.original)}</span>
                         <span class="shrink-0 text-on-surface-variant">→</span>
-                        <span class="min-w-0 truncate font-bold text-primary" title="${escapeProofreadingHtml(suggestion.suggested)}">${escapeProofreadingHtml(suggestion.suggested)}</span>
+                        <span class="min-w-0 truncate font-bold text-primary" title="${escapeProofreadingHtml(suggestion.suggested || '刪除')}">${escapeProofreadingHtml(suggestion.suggested || '刪除')}</span>
                         <span class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] leading-4 ${badgeClass}">${badgeLabel}</span>
                     </span>
                     <span class="col-start-2 col-span-2 truncate text-[11px] leading-4 text-on-surface-variant" title="${escapeProofreadingHtml(detail)}">${escapeProofreadingHtml(detail)}</span>
@@ -1226,7 +1226,7 @@ export function initializeTab0() {
                 <span class="block whitespace-normal">
                     <span class="mb-2 flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
                         <span id="proofreading-selected-count" class="rounded-full bg-primary/15 px-2 py-1 font-bold text-primary">已選 0／${suggestions.length}</span>
-                        <span class="mr-auto">預設不勾選；只套用確認項目，時間軸不變。</span>
+                        <span class="mr-auto">預設不勾選；重疊建議只能選一項，時間軸不變。</span>
                         <button type="button" data-proofreading-action="select-all" class="rounded-lg border border-outline-variant/30 px-2.5 py-1 font-bold text-on-surface hover:border-primary/50">全選</button>
                         <button type="button" data-proofreading-action="clear" class="rounded-lg border border-outline-variant/30 px-2.5 py-1 font-bold text-on-surface hover:border-primary/50">清除</button>
                     </span>
@@ -1265,12 +1265,7 @@ export function initializeTab0() {
                     }
 
                     proofreadingUndoSnapshot = { ...current };
-                    const corrected = {
-                        ...current,
-                        srt: result.srt,
-                        text: srtToPlainText(result.srt),
-                        vtt: current.vtt ? proofreadingSrtToVtt(result.srt) : current.vtt,
-                    };
+                    const corrected = { ...current, srt: result.srt };
                     displayResults(corrected, {
                         preserveProofreadingUndo: true,
                         suppressWarning: true,
@@ -1278,7 +1273,7 @@ export function initializeTab0() {
                     proofreadUndoBtn?.classList.remove('hidden');
                     hideModal();
                     const skippedText = result.skipped.length > 0
-                        ? `；另有 ${result.skipped.length} 項因原文已變更而跳過`
+                        ? `；另有 ${result.skipped.length} 項因原文變更或建議衝突而跳過`
                         : '';
                     showToast(`已套用 ${result.applied.length} 項校對${skippedText}，時間軸保持不變。`);
                 }},
@@ -1292,9 +1287,30 @@ export function initializeTab0() {
             const count = checkboxes.filter(input => input.checked).length;
             if (selectedCount) selectedCount.textContent = `已選 ${count}／${suggestions.length}`;
         };
-        checkboxes.forEach(input => input.addEventListener('change', updateSelectedCount));
+        const getRange = suggestion => {
+            const start = Number.isInteger(suggestion.start)
+                ? suggestion.start : suggestion.cueText.indexOf(suggestion.original);
+            return { start, end: start + suggestion.original.length };
+        };
+        checkboxes.forEach(input => input.addEventListener('change', () => {
+            if (input.checked) {
+                const selected = suggestions[Number(input.dataset.proofreadingIndex)];
+                const range = getRange(selected);
+                checkboxes.forEach(other => {
+                    if (other === input || !other.checked) return;
+                    const candidate = suggestions[Number(other.dataset.proofreadingIndex)];
+                    if (candidate.cueNumber !== selected.cueNumber || candidate.timeline !== selected.timeline) return;
+                    const otherRange = getRange(candidate);
+                    if (range.start < otherRange.end && otherRange.start < range.end) other.checked = false;
+                });
+            }
+            updateSelectedCount();
+        }));
         document.querySelector('[data-proofreading-action="select-all"]')?.addEventListener('click', () => {
-            checkboxes.forEach(input => { input.checked = true; });
+            checkboxes.forEach(input => {
+                input.checked = true;
+                input.dispatchEvent(new Event('change'));
+            });
             updateSelectedCount();
         });
         document.querySelector('[data-proofreading-action="clear"]')?.addEventListener('click', () => {
@@ -1303,17 +1319,34 @@ export function initializeTab0() {
         });
     }
 
-    async function startProofreading() {
+    async function startProofreading({ approvedCloudflare = false } = {}) {
         const srt = state.transcribeResult?.srt;
         if (!srt) {
             showToast('請先完成字幕辨識。', { type: 'warning' });
             return;
         }
         const apiKey = getConfiguredGeminiApiKey();
-        if (!apiKey) {
+        const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
+        const workerUrl = localStorage.getItem('aliang-tab0-worker-url')
+            || sessionStorage.getItem('aliang-tab0-worker-url');
+        if (aiEngine === 'cloudflare' && !workerUrl) {
             showModal({
-                title: '需要 Gemini API Key',
-                message: 'AI 校對建議使用 Gemini 文字模型，請先在全域設定中加入可用的 Gemini API Key。',
+                title: '需要 Cloudflare Worker',
+                message: '目前選擇 Cloudflare AI 校對，請先設定 Worker 連線。',
+                buttons: [
+                    { text: '取消', class: 'btn-secondary', callback: hideModal },
+                    { text: '前往設定', class: 'btn-primary', callback: () => {
+                        hideModal();
+                        showGlobalSettingsModal('settings-tab-worker');
+                    }},
+                ],
+            });
+            return;
+        }
+        if (!apiKey && (aiEngine === 'gemini' || !workerUrl)) {
+            showModal({
+                title: '需要 AI 連線設定',
+                message: 'AI 校對需要 Gemini API Key，或選擇已設定的 Cloudflare AI。',
                 buttons: [
                     { text: '取消', class: 'btn-secondary', callback: hideModal },
                     { text: '前往設定', class: 'btn-primary', callback: () => {
@@ -1324,12 +1357,29 @@ export function initializeTab0() {
             });
             return;
         }
+        if (!apiKey && aiEngine === 'auto' && workerUrl && !approvedCloudflare) {
+            showModal({
+                title: '改用 Cloudflare AI 校對？',
+                message: '目前沒有 Gemini API Key。是否將這份字幕送往已設定的 Cloudflare Worker 產生校對建議？',
+                buttons: [
+                    { text: '取消', class: 'btn-secondary', callback: hideModal },
+                    { text: '使用 Cloudflare AI', class: 'btn-primary', callback: () => {
+                        hideModal();
+                        startProofreading({ approvedCloudflare: true });
+                    }},
+                ],
+            });
+            return;
+        }
+        const engineOverride = aiEngine === 'cloudflare' || (!apiKey && workerUrl)
+            ? 'cloudflare' : null;
+        const engineLabel = engineOverride === 'cloudflare' ? 'Cloudflare AI' : 'Gemini';
 
         const controller = new AbortController();
         proofreadBtn.disabled = true;
         showModal({
             title: 'AI 正在產生校對建議',
-            message: '正在檢查字幕文字，AI 不會直接修改任何內容。',
+            message: `${engineLabel} 正在檢查字幕文字，不會直接修改任何內容。`,
             showProgressBar: true,
             buttons: [{
                 text: '取消',
@@ -1343,13 +1393,12 @@ export function initializeTab0() {
         state.currentAbortController = controller;
 
         try {
-            const terminology = state.aiTerminologyRules
-                .filter(rule => rule.type === 'positive' && rule.term?.trim())
-                .map(rule => rule.term.trim());
-            const suggestions = await requestProofreadingSuggestions({
+            const aiSuggestions = await requestProofreadingSuggestions({
                 apiKey,
                 srt,
-                terminology,
+                terminology: state.aiTerminologyRules,
+                replacementRules: state.batchReplaceRules,
+                engineOverride,
                 abortSignal: controller.signal,
                 onProgress: (current, total) => {
                     const message = document.getElementById('modal-message');
@@ -1359,10 +1408,14 @@ export function initializeTab0() {
                 },
             });
             if (controller.signal.aborted) return;
+            if (state.transcribeResult?.srt !== srt) return;
+            const suggestions = mergeProofreadingSuggestions(
+                buildRuleProofreadingSuggestions(srt, state.batchReplaceRules), aiSuggestions,
+            );
             if (suggestions.length === 0) {
                 showModal({
                     title: 'AI 校對完成',
-                    message: '沒有發現具備足夠上下文依據的校對建議。原始字幕未做任何修改。',
+                    message: '沒有發現可套用的校對建議。目前核准的字幕未做任何修改。',
                     buttons: [{ text: '我知道了', class: 'btn-primary', callback: hideModal }],
                 });
                 return;
@@ -1436,6 +1489,8 @@ export function initializeTab0() {
             }
 
             const confirmDictAndStart = async () => {
+                const runId = ++transcriptionRunId;
+                clearTranscriptionResult();
                 startBtn.disabled = true;
 
                 try {
@@ -1500,12 +1555,9 @@ export function initializeTab0() {
                             tab0Badge.textContent = '模型：whisper-large-v3-turbo';
                         }
                         
-                        // 專有名詞作為提示；錯字替換同時交給 Worker 與前端最終輸出確定性執行。
+                        // 專有名詞僅作為辨識提示；錯字規則留待校對清單由使用者勾選。
                         const { buildWhisperDictionary } = await import('./transcription-text.js');
-                        const whisperPrompt = buildWhisperDictionary(
-                            state.aiTerminologyRules,
-                            state.batchReplaceRules
-                        );
+                        const whisperPrompt = buildWhisperDictionary(state.aiTerminologyRules);
 
                         result = await transcribeWithWhisper(
                             selectedFile,
@@ -1537,7 +1589,7 @@ export function initializeTab0() {
                             result = await transcribeWithWhisper(
                                 selectedFile,
                                 state.transcribeLanguage,
-                                buildWhisperDictionary(state.aiTerminologyRules, state.batchReplaceRules),
+                                buildWhisperDictionary(state.aiTerminologyRules),
                                 handleWhisperProgress,
                                 handleChunkComplete
                             );
@@ -1547,6 +1599,7 @@ export function initializeTab0() {
                         }
                     }
 
+                    if (runId !== transcriptionRunId) return;
                     displayResults(result);
                     if (showWorkersAiUsageNotice(result.usageLimit)) {
                         // 額度彈窗已提供完整說明，不再疊加一般錯誤提示。
@@ -1557,12 +1610,13 @@ export function initializeTab0() {
                     }
 
                 } catch (error) {
+                    if (runId !== transcriptionRunId || error?.name === 'AbortError') return;
                     console.error('[Tab0] Transcription failed:', error);
                     if (!showWorkersAiUsageNotice(error)) {
                         showToast(`辨識失敗：${error.message}`, { type: 'error' });
                     }
                 } finally {
-                    stopProgressMessages();
+                    if (runId === transcriptionRunId) stopProgressMessages();
                     updateTab0StartButton();
                 }
             };
@@ -1604,8 +1658,8 @@ export function initializeTab0() {
     // --- 匯出 VTT ---
     if (exportVttBtn) {
         exportVttBtn.addEventListener('click', () => {
-            if (!state.transcribeResult?.vtt) return;
-            saveFile(state.transcribeResult.vtt, (state.originalFileName || 'subtitle') + '.vtt');
+            if (!state.transcribeResult?.srt) return;
+            saveFile(proofreadingSrtToVtt(state.transcribeResult.srt), (state.originalFileName || 'subtitle') + '.vtt');
             showToast('VTT 檔案已下載！');
         });
     }
@@ -1613,8 +1667,8 @@ export function initializeTab0() {
     // --- 匯出文字檔 ---
     if (exportTxtBtn) {
         exportTxtBtn.addEventListener('click', () => {
-            if (!state.transcribeResult?.text) return;
-            saveFile(state.transcribeResult.text, (state.originalFileName || 'subtitle') + '.txt');
+            if (!state.transcribeResult?.srt) return;
+            saveFile(srtToPlainText(state.transcribeResult.srt), (state.originalFileName || 'subtitle') + '.txt');
             showToast('文字檔案已下載！');
         });
     }
@@ -1640,7 +1694,7 @@ export function initializeTab0() {
     // --- 傳入逐字稿整理頁面 ---
     if (sendToTab1Btn) {
         sendToTab1Btn.addEventListener('click', () => {
-            const content = state.transcribeResult?.srt || state.transcribeResult?.text || '';
+            const content = state.transcribeResult?.srt || '';
             if (!content) {
                 showToast('沒有可傳入的內容。', { type: 'warning' });
                 return;

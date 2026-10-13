@@ -74,8 +74,8 @@ function countOccurrences(text, target) {
     return count;
 }
 
-function makeSuggestionId(cueNumber, original, suggested) {
-    const value = `${cueNumber}\u0000${original}\u0000${suggested}`;
+function makeSuggestionId(cueNumber, original, suggested, start = '') {
+    const value = `${cueNumber}\u0000${original}\u0000${suggested}\u0000${start}`;
     let hash = 2166136261;
     for (let index = 0; index < value.length; index++) {
         hash ^= value.charCodeAt(index);
@@ -84,14 +84,24 @@ function makeSuggestionId(cueNumber, original, suggested) {
     return `proof-${cueNumber}-${(hash >>> 0).toString(36)}`;
 }
 
-export function buildProofreadingPrompt(srt, terminology = []) {
-    const terms = (terminology || [])
-        .map(term => String(term || '').trim())
-        .filter(Boolean)
+export function buildProofreadingPrompt(srt, terminology = [], replacementRules = []) {
+    const positiveTerms = (terminology || [])
+        .filter(rule => typeof rule === 'string' || rule?.type === 'positive')
+        .map(rule => String(typeof rule === 'string' ? rule : rule.term || '').trim())
+        .filter(Boolean).slice(0, 100);
+    const negativeTerms = (terminology || [])
+        .filter(rule => rule?.type === 'negative')
+        .map(rule => String(rule.term || '').trim())
+        .filter(Boolean).slice(0, 100);
+    const replacements = (replacementRules || [])
+        .filter(rule => rule?.original?.trim() && rule.original !== rule.replacement)
+        .map(rule => `${rule.original.trim()} → ${String(rule.replacement ?? '').trim() || '刪除'}`)
         .slice(0, 100);
-    const terminologySection = terms.length > 0
-        ? `\n可參考的使用者專有名詞（仍須依上下文判斷，不可強制替換）：\n${terms.join('、')}\n`
-        : '';
+    const terminologySection = [
+        positiveTerms.length && `使用者指定的正向專有名詞（若辨識成相似錯詞，請提出替換建議）：${positiveTerms.join('、')}`,
+        negativeTerms.length && `使用者禁用的詞（若出現在字幕中，只有能依上下文確認正確用詞時才提出替換建議，不可猜測）：${negativeTerms.join('、')}`,
+        replacements.length && `使用者設定的錯字替換參考：${replacements.join('；')}`,
+    ].filter(Boolean).join('\n');
 
     return `你是臺灣繁體中文字幕的保守校對員。你沒有原始音訊，只能提出校對建議，不能直接改寫字幕。
 
@@ -123,6 +133,60 @@ ${terminologySection}
 ---
 ${String(srt || '').trim()}
 ---`;
+}
+
+export function buildRuleProofreadingSuggestions(srt, replacementRules = []) {
+    const document = parseSrtDocument(srt);
+    const suggestions = [];
+    const seen = new Set();
+    document.cues.forEach((cue, index) => {
+        const previous = document.cues[index - 1]?.text || '';
+        const next = document.cues[index + 1]?.text || '';
+        for (const rule of replacementRules || []) {
+            const original = String(rule?.original || '').trim();
+            const suggested = String(rule?.replacement ?? '').trim();
+            if (!original || original === suggested || /\r|\n|-->/.test(original + suggested)) continue;
+            let start = cue.text.indexOf(original);
+            while (start >= 0) {
+                const key = `${cue.number}\u0000${original}\u0000${suggested}\u0000${start}`;
+                if (seen.has(key)) {
+                    start = cue.text.indexOf(original, start + original.length);
+                    continue;
+                }
+                seen.add(key);
+                suggestions.push({
+                    id: makeSuggestionId(cue.number, original, suggested, start),
+                    source: 'rule',
+                    cueNumber: cue.number,
+                    timeline: cue.timeline,
+                    time: cue.timeline.split('-->')[0].trim(),
+                    original,
+                    suggested,
+                    start,
+                    reason: '全域設定中的錯字替換',
+                    confidence: 'high',
+                    context: [previous, cue.text, next].filter(Boolean).join(' ｜ '),
+                    cueText: cue.text,
+                });
+                start = cue.text.indexOf(original, start + original.length);
+            }
+        }
+    });
+    return suggestions;
+}
+
+export function mergeProofreadingSuggestions(ruleSuggestions, aiSuggestions) {
+    const merged = [...(ruleSuggestions || [])];
+    const seen = new Set(merged.map(item => `${item.cueNumber}\u0000${item.original}\u0000${item.suggested}`));
+    for (const item of aiSuggestions || []) {
+        const key = `${item.cueNumber}\u0000${item.original}\u0000${item.suggested}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(item);
+    }
+    return merged.sort((left, right) => left.cueNumber - right.cueNumber
+        || (left.start ?? Infinity) - (right.start ?? Infinity)
+        || left.id.localeCompare(right.id));
 }
 
 export function parseProofreadingSuggestions(response, srt) {
@@ -256,6 +320,8 @@ export async function requestProofreadingSuggestions({
     apiKey,
     srt,
     terminology = [],
+    replacementRules = [],
+    engineOverride = null,
     abortSignal = null,
     onProgress = null,
 }) {
@@ -268,10 +334,12 @@ export async function requestProofreadingSuggestions({
         for (let attempt = 0; attempt < 2; attempt++) {
             const response = await callGeminiAPI(
                 apiKey,
-                buildProofreadingPrompt(batches[index], terminology),
+                buildProofreadingPrompt(batches[index], terminology, replacementRules),
                 true,
                 null,
                 abortSignal,
+                null,
+                engineOverride,
             );
             try {
                 items = parseProofreadingBatchResponse(response);
@@ -291,6 +359,17 @@ export async function requestProofreadingSuggestions({
     }
 
     const suggestions = parseProofreadingSuggestions({ suggestions: candidates }, srt);
+    const positiveTerms = new Set(terminology
+        .filter(rule => typeof rule === 'string' || rule?.type === 'positive')
+        .map(rule => String(typeof rule === 'string' ? rule : rule.term || '').trim()));
+    const negativeTerms = new Set(terminology
+        .filter(rule => rule?.type === 'negative')
+        .map(rule => String(rule.term || '').trim()));
+    suggestions.forEach(suggestion => {
+        if (positiveTerms.has(suggestion.suggested) || negativeTerms.has(suggestion.original)) {
+            suggestion.source = 'terminology';
+        }
+    });
     return expandConsistencySuggestions(srt, suggestions);
 }
 
@@ -327,11 +406,15 @@ export function applyProofreadingSuggestions(srt, suggestions, selectedIds) {
 
         const operations = [];
         for (const suggestion of items) {
-            const index = cue.text.indexOf(suggestion.original);
+            const index = Number.isInteger(suggestion.start)
+                ? suggestion.start : cue.text.indexOf(suggestion.original);
             const overlaps = operations.some(operation => (
                 index < operation.end && index + suggestion.original.length > operation.start
             ));
-            if (index < 0 || countOccurrences(cue.text, suggestion.original) !== 1 || overlaps) {
+            const validTarget = Number.isInteger(suggestion.start)
+                ? cue.text.slice(index, index + suggestion.original.length) === suggestion.original
+                : countOccurrences(cue.text, suggestion.original) === 1;
+            if (index < 0 || !validTarget || overlaps) {
                 skipped.push(suggestion);
                 continue;
             }

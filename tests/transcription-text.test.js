@@ -7,23 +7,17 @@ import {
     normalizeTranscriptionPayload,
 } from '../public/js/transcription-text.js';
 
-test('Whisper dictionary keeps terminology and deterministic replacements as separate entries', () => {
+test('Whisper dictionary sends only positive terminology as recognition hints', () => {
     const dictionary = buildWhisperDictionary(
         [
             { type: 'positive', term: '四維國小' },
             { type: 'negative', term: '四個國小' },
             { type: 'positive', term: '先備知識' },
-        ],
-        [
-            { original: '四個國小', replacement: '四維國小' },
-            { original: '先輩知識', replacement: '先備知識' },
         ]
     );
     assert.deepEqual(dictionary.split('\n'), [
         '四維國小',
         '先備知識',
-        '四個國小=四維國小',
-        '先輩知識=先備知識',
     ]);
     assert.doesNotMatch(dictionary, /繁體中文字幕。四維國小/);
 });

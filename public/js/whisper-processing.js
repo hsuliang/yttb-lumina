@@ -557,39 +557,6 @@ function mergeSrtBlocks(
     return serializeSrtCues(improveShortCueTimings(splitAgain));
 }
 
-function createRecognitionTextRules(replaceRules = [], promptWords = []) {
-    const terms = [...new Set(promptWords.map(term => String(term || '').trim()).filter(Boolean))]
-        .sort((a, b) => b.replace(/\s+/g, '').length - a.replace(/\s+/g, '').length);
-    const termRules = [];
-    for (const term of terms) {
-        const compact = term.replace(/\s+/g, '');
-        if (compact.length < 2) continue;
-        const pattern = Array.from(compact)
-            .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-            .join('[\\s._-]*');
-        if (/^[A-Za-z0-9]+$/.test(compact)) {
-            termRules.push([
-                new RegExp(`(^|[^A-Za-z0-9])(${pattern})(?![A-Za-z0-9])`, 'gi'),
-                (_, prefix) => `${prefix}${term}`
-            ]);
-        } else {
-            termRules.push([new RegExp(pattern, 'giu'), () => term]);
-        }
-    }
-    const replacements = replaceRules.map(rule => {
-        const escapedWrong = rule.wrong.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return [new RegExp(escapedWrong, 'g'), () => rule.correct];
-    });
-    // 每個請求只編譯一次，供各字幕與品質重試共用；不跨請求保留使用者詞庫。
-    return text => {
-        let result = String(text || '');
-        for (const [pattern, replacement] of termRules) result = result.replace(pattern, replacement);
-        result = fixSpellingInText(result, ENGLISH_DICT_SET);
-        for (const [pattern, replacement] of replacements) result = result.replace(pattern, replacement);
-        return result;
-    };
-}
-
 function restoreChinesePunctuation(srtText) {
     const cues = parseSrtCues(srtText).map(cue => ({ ...cue }));
     let restored = 0;
@@ -1024,8 +991,7 @@ function normalizeLanguageCode(lang) {
     return map[lang] || lang;
 }
 
-export function processWhisperResult(result, { language, promptWords = [], replaceRules = [], audioAnalysis, isFirstChunk = false, usedMinimalInput = false }) {
-    const applyRecognitionTextRules = createRecognitionTextRules(replaceRules, promptWords);
+export function processWhisperResult(result, { language, promptWords = [], audioAnalysis, isFirstChunk = false, usedMinimalInput = false }) {
     const detectedLanguage = result.transcription_info?.language
         || result.language
         || null;
@@ -1033,20 +999,14 @@ export function processWhisperResult(result, { language, promptWords = [], repla
         ? normalizeLanguageCode(language)
         : /^(?:zh|chinese|mandarin)/i.test(String(detectedLanguage || '')) ? 'zh' : null;
 
-    const rawText = applyRecognitionTextRules(
-        String(result.text || '').trim()
-    );
+    const rawText = fixSpellingInText(String(result.text || '').trim(), ENGLISH_DICT_SET);
     const structuredSrt = segmentsToSrt(result.segments);
     const parsedSrt = structuredSrt || vttToSrt(String(result.vtt || ''));
     const rawSrt = serializeSrtCues(parseSrtCues(parsedSrt).map(cue => ({
         ...cue,
-        text: applyRecognitionTextRules(cue.text),
+        text: fixSpellingInText(cue.text, ENGLISH_DICT_SET),
     })));
     let srt = mergeSrtBlocks(rawSrt);
-    srt = serializeSrtCues(parseSrtCues(srt).map(cue => ({
-        ...cue,
-        text: applyRecognitionTextRules(cue.text),
-    })));
     let punctuationRestored = 0;
     if (qualityLanguage === 'zh') {
         const punctuated = restoreChinesePunctuation(srt);
@@ -1064,7 +1024,6 @@ export function processWhisperResult(result, { language, promptWords = [], repla
     quality.punctuationRestored = punctuationRestored;
     quality.usedMinimalInput = usedMinimalInput;
     quality.dictionaryTermCount = promptWords.length;
-    quality.replacementRuleCount = replaceRules.length;
     return {
         rawText,
         srt,
@@ -1090,28 +1049,8 @@ export function formatWhisperResult(selected, audioAnalysis, isFirstChunk, retri
 }
 
 export function parseWhisperDictionary(customDict) {
-    let promptWords = [];
-    let replaceRules = [];
-
-    if (customDict) {
-        const items = customDict.split(/[\n,，]+/).map(i => i.trim()).filter(i => i);
-        for (const item of items) {
-            if (item.includes('=') || item.includes('＝')) {
-                const parts = item.split(/=|＝/);
-                if (parts.length >= 2) {
-                    const wrong = parts[0].trim();
-                    const correct = parts.slice(1).join('=').trim();
-                    if (wrong && correct) {
-                        replaceRules.push({ wrong, correct });
-                        promptWords.push(correct); // 也把正確字加進 prompt
-                    }
-                }
-            } else {
-                promptWords.push(item);
-            }
-        }
-    }
-    return { promptWords, replaceRules };
+    const promptWords = String(customDict || '').split(/[\n,，]+/).map(item => item.trim()).filter(Boolean);
+    return { promptWords };
 }
 
 export {

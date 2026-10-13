@@ -6,6 +6,7 @@ import { activateSource, getCanonicalTranscript, isCurrentSource } from './conte
 import { updateAiButtonStatus, getConfiguredGeminiApiKey, hasTextAIEnabled, showGlobalSettingsModal, updateTabAvailability, switchTab, renderReplaceRules } from './app.js';
 import { extractTopicTitleSuggestions, validateTopicTitleSuggestion } from './topic-title-validator.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
+import { srtToPlainText } from './transcription-proofreading.js';
 
 /**
  * tab1-srt.js
@@ -30,6 +31,7 @@ const fixTimestampsCheckbox = document.getElementById('fix-timestamps');
 const timestampThresholdInput = document.getElementById('timestamp-threshold');
 const processSrtBtn = document.getElementById('process-srt-btn');
 const exportSrtBtn = document.getElementById('export-srt-btn');
+const exportTxtBtn = document.getElementById('export-txt-btn');
 const timelineShiftInput = document.getElementById('timeline-shift');
 const timelineShiftValue = document.getElementById('timeline-shift-value');
 const timestampThresholdValue = document.getElementById('timestamp-threshold-value');
@@ -144,6 +146,7 @@ function resetTab1() {
     state.processedSrtResult = '';
     state.originalFileName = '';
     exportSrtBtn.disabled = true;
+    exportTxtBtn.disabled = true;
     // 注意：不清空 state.batchReplaceRules，因為它是全域設定，不應被 Tab1 重置影響
     if (renderReplaceRules) renderReplaceRules();
     updateCharCount();
@@ -559,9 +562,7 @@ ${content}
             fixTimestamps: fixTimestampsCheckbox.checked,
             timestampThreshold: parseInt(timestampThresholdInput.value, 10),
             batchReplaceRules: state.batchReplaceRules,
-            protectedTerms: state.aiTerminologyRules
-                .filter(rule => rule.type === 'positive')
-                .map(rule => rule.term),
+            protectedTerms: [],
             timelineShift: parseInt(timelineShiftInput.value, 10) || 0
         };
 
@@ -624,6 +625,7 @@ ${content}
             });
 
             exportSrtBtn.disabled = false;
+            exportTxtBtn.disabled = false;
         } catch (error) {
             console.error('處理時發生錯誤:', error);
             showModal({ title: '處理失敗', message: `發生未預期的錯誤: ${error.message}` });
@@ -638,6 +640,17 @@ ${content}
         const blob = new Blob([state.processedSrtResult], { type: 'text/plain;charset=utf-8' });
         let fileName = state.originalFileName ? `${state.originalFileName}_已整理.srt` : `AliangYTTB_${new Date().toISOString().slice(2, 10).replace(/-/g, "")}.srt`;
         saveFile(blob, fileName);
+    }
+
+    function exportTxtFile() {
+        if (!state.processedSrtResult) {
+            showModal({ title: '匯出失敗', message: '請先重新整理逐字稿。' });
+            return;
+        }
+        const fileName = state.originalFileName
+            ? `${state.originalFileName}_已整理.txt`
+            : `AliangYTTB_${new Date().toISOString().slice(2, 10).replace(/-/g, '')}.txt`;
+        saveFile(srtToPlainText(state.processedSrtResult), fileName);
     }
 
     // --- 事件監聽 ---
@@ -718,6 +731,14 @@ ${content}
         if (displaySummary) setAiOutputText('summary', '');
         if (displayChapters) displayChapters.value = '';
         exportSrtBtn.disabled = true;
+        exportTxtBtn.disabled = true;
+    });
+
+    window.addEventListener('lumina:replaceRulesChanged', () => {
+        if (!state.processedSrtResult) return;
+        window.dispatchEvent(new CustomEvent('lumina:sourceChanged', { detail: { notify: false } }));
+        setMode('input');
+        showToast('全域規則已變更，請重新按「開始整理」更新匯出內容。');
     });
 
     window.addEventListener('lumina:showTab1Input', () => {
@@ -739,7 +760,7 @@ ${content}
     processSrtBtn.addEventListener('click', () => {
         showModal({
             title: '確認開始整理',
-            message: '是否需要設定「批次取代 / 專有名詞替換」？\n如果您已經設定過或不需要，請點擊「直接開始」。',
+            message: '是否需要更新「錯字替換」規則？\n開始整理會依當前規則重新處理輸入稿；專有名詞的修正請在前一步校對建議中勾選。',
             buttons: [
                 { text: '前往設定', class: 'btn-secondary', callback: () => {
                     hideModal();
@@ -753,6 +774,7 @@ ${content}
         });
     });
     exportSrtBtn.addEventListener('click', exportSrtFile);
+    exportTxtBtn.addEventListener('click', exportTxtFile);
 
     // --- 初始化 ---
     timestampThresholdInput.disabled = !fixTimestampsCheckbox.checked;

@@ -644,8 +644,8 @@ async function generateWithSingleKey(apiKey, buildRequest, { onModel = null, log
  * @returns {Promise<string>} AI 生成的文本內容。
  * @throws {Error} 如果所有嘗試均失敗。
  */
-export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null) {
-    const aiEngine = localStorage.getItem('aliang-ai-engine') || 'auto';
+export async function callGeminiAPI(apiKey, prompt, forceJson = false, onStream = null, abortSignal = null, forceModel = null, engineOverride = null) {
+    const aiEngine = engineOverride || localStorage.getItem('aliang-ai-engine') || 'auto';
 
     if (aiEngine === 'cloudflare') {
         return await callCloudflareTextAPI(prompt, onStream, abortSignal, forceModel);

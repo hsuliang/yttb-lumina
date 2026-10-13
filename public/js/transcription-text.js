@@ -2,17 +2,11 @@ import OpenCC from 'opencc-js/cn2t';
 
 const toTaiwanTraditional = OpenCC.Converter({ from: 'cn', to: 'tw' });
 
-export function buildWhisperDictionary(terminologyRules = [], replacementRules = [], maxLength = 6000) {
+export function buildWhisperDictionary(terminologyRules = [], maxLength = 6000) {
     const entries = [];
     for (const rule of terminologyRules) {
         if (rule?.type === 'positive' && rule.term?.trim()) entries.push(rule.term.trim());
     }
-    for (const rule of replacementRules) {
-        const original = rule?.original?.trim();
-        const replacement = rule?.replacement?.trim();
-        if (original && replacement && original !== replacement) entries.push(`${original}=${replacement}`);
-    }
-
     const uniqueEntries = [...new Set(entries)];
     const accepted = [];
     for (const entry of uniqueEntries) {

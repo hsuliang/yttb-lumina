@@ -734,7 +734,7 @@ test('client mode delegates quality retries to the browser and preserves the mod
     assert.equal(payload.quality, undefined);
 });
 
-test('browser processing produces the same subtitles, dictionary corrections and retry choice as legacy mode', async () => {
+test('browser processing retries quality but leaves dictionary corrections for user approval', async () => {
     const { processWhisperChunk } = await import('../public/js/whisper-client.js');
     const { parseWhisperDictionary } = await import('../public/js/whisper-processing.js');
     const wav = makeWav(sineWave(20));
@@ -744,31 +744,24 @@ test('browser processing produces the same subtitles, dictionary corrections and
     const bad = { text: '哈'.repeat(100), segments: [{ start: 0, end: 20, text: '哈'.repeat(100) }] };
     const headers = { 'X-Language': 'zh', 'X-First-Chunk': '1',
         'X-Custom-Dict': encodeURIComponent(customDict), 'X-Previous-Context': encodeURIComponent('前文內容') };
-    const run = async client => {
-        const inputs = [];
-        const env = { AI: { async run(_model, input) { inputs.push(input); return inputs.length === 1 ? bad : good; } } };
-        const request = async retry => {
-            const suffix = client ? `?processing=client${retry ? '&retry=1' : ''}` : '';
-            const response = await worker.fetch(new Request(`https://worker.example/api/transcribe${suffix}`, {
-                method: 'POST', headers, body: wav,
-            }), env, {});
-            assert.equal(response.status, 200);
-            return response.json();
-        };
-        const result = client ? await processWhisperChunk(new Blob([wav]), request, {
-            ...parseWhisperDictionary(customDict), language: 'zh', isFirstChunk: true,
-        }) : await request(false);
-        return { result, inputs };
+    const inputs = [];
+    const env = { AI: { async run(_model, input) { inputs.push(input); return inputs.length === 1 ? bad : good; } } };
+    const request = async retry => {
+        const response = await worker.fetch(new Request(`https://worker.example/api/transcribe?processing=client${retry ? '&retry=1' : ''}`, {
+            method: 'POST', headers, body: wav,
+        }), env, {});
+        assert.equal(response.status, 200);
+        return response.json();
     };
-    const legacy = await run(false);
-    const client = await run(true);
-    assert.deepEqual(client, legacy);
-    assert.equal(client.inputs.length, 2);
-    assert.equal(client.inputs[1].condition_on_previous_text, false);
-    assert.doesNotMatch(client.inputs[1].initial_prompt, /前文內容/);
-    assert.match(client.result.text, /正確詞/);
-    assert.match(client.result.text, /PowerPoint/);
-    assert.equal(client.result.quality.retried, true);
+    const result = await processWhisperChunk(new Blob([wav]), request, {
+        ...parseWhisperDictionary(customDict), language: 'zh', isFirstChunk: true,
+    });
+    assert.equal(inputs.length, 2);
+    assert.equal(inputs[1].condition_on_previous_text, false);
+    assert.doesNotMatch(inputs[1].initial_prompt, /前文內容/);
+    assert.match(result.text, /錯誤詞/);
+    assert.doesNotMatch(result.text, /正確詞/);
+    assert.equal(result.quality.retried, true);
 });
 
 test('client mode keeps authentication and invalid AI input fallback', async () => {

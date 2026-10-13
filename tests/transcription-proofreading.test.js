@@ -4,8 +4,10 @@ import { readFileSync } from 'node:fs';
 import {
     applyProofreadingSuggestions,
     buildProofreadingPrompt,
+    buildRuleProofreadingSuggestions,
     expandConsistencySuggestions,
     getSrtTimelineSignature,
+    mergeProofreadingSuggestions,
     parseProofreadingSuggestions,
     requestProofreadingSuggestions,
     splitSrtForProofreading,
@@ -119,6 +121,89 @@ test('proofreading prompt allows suggestions only and forbids timeline edits', (
     assert.match(prompt, /original/);
     assert.match(prompt, /suggested/);
     assert.match(prompt, /聯絡簿/);
+});
+
+test('proofreading prompt uses positive terms, forbidden terms, and typo rules as references', () => {
+    const prompt = buildProofreadingPrompt(sampleSrt, [
+        { type: 'positive', term: '聯絡簿' },
+        { type: 'negative', term: '聯絡部' },
+    ], [{ original: '預期', replacement: '逾期' }]);
+    assert.match(prompt, /聯絡簿/);
+    assert.match(prompt, /聯絡部/);
+    assert.match(prompt, /預期 → 逾期/);
+    assert.match(prompt, /只有能依上下文確認正確用詞時才提出替換建議/);
+});
+
+test('checked typo suggestions replace only selected occurrences and keep the SRT timeline', () => {
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\n預期和預期';
+    const suggestions = buildRuleProofreadingSuggestions(srt, [
+        { original: '預期', replacement: '逾期' },
+    ]);
+    assert.equal(suggestions.length, 2);
+    assert.notEqual(suggestions[0].id, suggestions[1].id);
+    assert.equal(suggestions[0].source, 'rule');
+    const corrected = applyProofreadingSuggestions(srt, suggestions, [suggestions[1].id]);
+    assert.equal(corrected.srt, '1\n00:00:00,000 --> 00:00:02,000\n預期和逾期');
+    assert.deepEqual(getSrtTimelineSignature(corrected.srt), getSrtTimelineSignature(srt));
+});
+
+test('an empty typo replacement is offered as an explicit deletion', () => {
+    const srt = '1\n00:00:00,000 --> 00:00:02,000\n請刪贅字';
+    const suggestions = buildRuleProofreadingSuggestions(srt, [
+        { original: '贅字', replacement: '' },
+    ]);
+    assert.equal(suggestions.length, 1);
+    assert.equal(applyProofreadingSuggestions(srt, suggestions, [suggestions[0].id]).srt,
+        '1\n00:00:00,000 --> 00:00:02,000\n請刪');
+});
+
+test('proofreading uses Cloudflare when that engine is selected', async () => {
+    await withGeminiResponses([], async ({ requests }) => {
+        globalThis.localStorage.setItem('aliang-ai-engine', 'cloudflare');
+        globalThis.localStorage.setItem('aliang-tab0-worker-url', 'https://worker.example');
+        globalThis.fetch = async url => {
+            requests.push(String(url));
+            return new Response('data: {"response":"{\\"suggestions\\":[]}"}\n\n');
+        };
+        await requestProofreadingSuggestions({ apiKey: '', srt: sampleSrt, engineOverride: 'cloudflare' });
+        assert.deepEqual(requests, ['https://worker.example/api/generate-text']);
+    });
+});
+
+test('AI suggestions that correct terminology are marked and remain opt-in', async () => {
+    await withGeminiResponses([JSON.stringify({ suggestions: [{
+        cueNumber: 3,
+        original: '聯絡部',
+        suggested: '聯絡簿',
+        confidence: 'high',
+    }] })], async ({ apiKey }) => {
+        const suggestions = await requestProofreadingSuggestions({
+            apiKey, srt: sampleSrt,
+            terminology: [
+                { type: 'positive', term: '聯絡簿' },
+                { type: 'negative', term: '聯絡部' },
+            ],
+        });
+        assert.equal(suggestions[0].source, 'terminology');
+        assert.equal(applyProofreadingSuggestions(sampleSrt, suggestions, []).srt, sampleSrt);
+        assert.match(applyProofreadingSuggestions(sampleSrt, suggestions, [suggestions[0].id]).srt,
+            /聯絡簿也貼過了/);
+    });
+});
+
+test('AI and typo-rule duplicates appear once while terminology advice applies when checked', () => {
+    const ruleSuggestions = buildRuleProofreadingSuggestions(sampleSrt, [
+        { original: '預期', replacement: '逾期' },
+    ]);
+    const aiSuggestions = parseProofreadingSuggestions({ suggestions: [
+        { cueNumber: 2, original: '預期', suggested: '逾期', confidence: 'high' },
+        { cueNumber: 3, original: '聯絡部', suggested: '聯絡簿', confidence: 'high' },
+    ] }, sampleSrt);
+    const suggestions = mergeProofreadingSuggestions(ruleSuggestions, aiSuggestions);
+    assert.equal(suggestions.length, 2);
+    const result = applyProofreadingSuggestions(sampleSrt, suggestions, suggestions.map(item => item.id));
+    assert.match(result.srt, /沒有還逾期/);
+    assert.match(result.srt, /聯絡簿也貼過了/);
 });
 
 test('AI suggestions are accepted only when they target one exact cue substring', () => {

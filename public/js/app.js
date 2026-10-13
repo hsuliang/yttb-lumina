@@ -824,11 +824,12 @@ export const switchTab = (tabId) => {
         const importRulesFileInput = document.getElementById('import-rules-file-input');
         const STORAGE_KEY_REPLACE_RULES = 'aliang-yttb-replace-rules-preset';
 
-        export function renderReplaceRules() {
+        export function renderReplaceRules(notify = false) {
             if (!replaceRulesList) return;
             replaceRulesList.innerHTML = '';
             if (state.batchReplaceRules.length === 0) {
                 replaceRulesList.innerHTML = `<p class="p-4 text-center text-on-surface-variant/60">尚未新增任何取代規則</p>`;
+                if (notify) window.dispatchEvent(new Event('lumina:replaceRulesChanged'));
                 return;
             }
             state.batchReplaceRules.forEach((rule, index) => {
@@ -848,6 +849,7 @@ export const switchTab = (tabId) => {
                     tab1BatchBtn.classList.remove('active');
                 }
             }
+            if (notify) window.dispatchEvent(new Event('lumina:replaceRulesChanged'));
         }
 
 
@@ -859,28 +861,26 @@ export const switchTab = (tabId) => {
                 replaceOriginalInput.value = '';
                 replaceReplacementInput.value = '';
                 replaceOriginalInput.focus();
-                renderReplaceRules();
+                renderReplaceRules(true);
             }
         }
 
         function deleteRule(index) {
             state.batchReplaceRules.splice(index, 1);
-            renderReplaceRules();
+            renderReplaceRules(true);
         }
 
         function clearAllRules() {
             state.batchReplaceRules = [];
-            renderReplaceRules();
+            renderReplaceRules(true);
         }
 
         function savePresetRules() {
-            if (state.batchReplaceRules.length === 0) {
-                showToast('目前沒有規則可儲存。', { type: 'error' });
-                return;
-            }
             try {
                 localStorage.setItem(STORAGE_KEY_REPLACE_RULES, JSON.stringify(state.batchReplaceRules));
-                showToast('✅ 已將目前規則儲存為常用範本！');
+                showToast(state.batchReplaceRules.length
+                    ? '✅ 已將目前規則儲存為常用範本！'
+                    : '✅ 已清空儲存的錯字規則範本。');
             } catch (e) {
                 console.error('儲存失敗:', e);
                 showToast('儲存失敗，可能是儲存空間不足。', { type: 'error' });
@@ -895,15 +895,15 @@ export const switchTab = (tabId) => {
                     return;
                 }
                 const rules = JSON.parse(savedRules);
-                if (Array.isArray(rules) && rules.length > 0) {
+                if (Array.isArray(rules)) {
                     if (state.batchReplaceRules.length > 0) {
                         if (!confirm('載入範本將會清除目前未儲存的規則，確定要繼續嗎？')) return;
                     }
                     state.batchReplaceRules = rules;
-                    renderReplaceRules();
+                    renderReplaceRules(true);
                     showToast(`📥 已載入 ${rules.length} 條常用規則！`);
                 } else {
-                    showToast('儲存的範本格式錯誤或為空。', { type: 'error' });
+                    showToast('儲存的範本格式錯誤。', { type: 'error' });
                 }
             } catch (e) {
                 console.error('載入失敗:', e);
@@ -942,7 +942,7 @@ export const switchTab = (tabId) => {
                             if (!confirm('匯入規則將會覆蓋當前暫存的規則，確定要繼續嗎？')) return;
                         }
                         state.batchReplaceRules = rules;
-                        renderReplaceRules();
+                        renderReplaceRules(true);
                         showToast(`📥 成功匯入 ${rules.length} 條取代規則！`);
                     } else {
                         showModal({ title: '匯入失敗', message: '匯入的檔案內容必須是 JSON 陣列。' });
@@ -974,7 +974,7 @@ export const switchTab = (tabId) => {
             const savedReplaceRules = localStorage.getItem(STORAGE_KEY_REPLACE_RULES);
             if (savedReplaceRules) {
                 const rules = JSON.parse(savedReplaceRules);
-                if (Array.isArray(rules) && rules.length > 0) {
+                if (Array.isArray(rules)) {
                     state.batchReplaceRules = rules;
                     renderReplaceRules();
                     console.log(`[Settings] 自動還原 ${rules.length} 條錯字替換規則`);
@@ -991,13 +991,11 @@ export const switchTab = (tabId) => {
         const termImportRulesFileInput = document.getElementById('term-import-rules-file-input');
 
         function saveTermPresetRules() {
-            if (state.aiTerminologyRules.length === 0) {
-                showToast('目前沒有專有名詞可儲存。', { type: 'error' });
-                return;
-            }
             try {
                 localStorage.setItem(STORAGE_KEY_TERM_RULES, JSON.stringify(state.aiTerminologyRules));
-                showToast('✅ 已將目前專有名詞儲存為常用範本！');
+                showToast(state.aiTerminologyRules.length
+                    ? '✅ 已將目前專有名詞儲存為常用範本！'
+                    : '✅ 已清空儲存的專有名詞範本。');
             } catch (e) {
                 console.error('儲存失敗:', e);
                 showToast('儲存失敗。', { type: 'error' });
@@ -1100,7 +1098,7 @@ export const switchTab = (tabId) => {
                 const isPositive = rule.type === 'positive';
                 const bgClass = isPositive ? 'bg-success/10 border-success/20' : 'bg-error/10 border-error/20';
                 const textClass = isPositive ? 'text-success' : 'text-error';
-                const label = isPositive ? '🟢 辨識提示／保護' : '🔴 辨識禁用';
+                const label = isPositive ? '🟢 辨識／校對參考' : '🔴 辨識禁用／校對參考';
                 
                 ruleEl.className = `rule-item p-2 rounded mb-2 flex items-center justify-between border ${bgClass}`;
                 ruleEl.innerHTML = ` 

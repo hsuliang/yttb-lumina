@@ -657,6 +657,9 @@
                             <button id="export-srt-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="">
                                 <span class="material-symbols-outlined text-[14px]">download</span>匯出 SRT
                             </button>
+                            <button id="export-txt-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="">
+                                <span class="material-symbols-outlined text-[14px]">download</span>匯出文字檔
+                            </button>
 
                             <button id="generate-topic-title-btn" class="font-bold py-2 px-4 rounded-lg bg-primary text-on-primary text-xs hover:brightness-110 shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1" disabled="" title="請先輸入內容並設定 API Key">
                                 <span class="material-symbols-outlined text-[14px]">auto_awesome</span>爆款主題建議
@@ -2064,7 +2067,7 @@
                     <div id="settings-tab-typo" class="settings-tab-panel hidden flex flex-col h-full">
                         <h4 class="text-lg font-bold text-on-surface mb-2">錯字替換管理</h4>
                         <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
-                            您設定的替換規則，將會在「逐字稿整理」頁面按下「開始整理」時，自動對逐字稿執行強制文字取代，用來修正 AI 經常聽錯的錯字。
+                            錯字規則會列入「AI 校對建議」供您勾選；在「逐字稿整理」按下「開始整理」時，則會依當前規則替換文字。
                         </p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 shrink-0">
@@ -2093,15 +2096,15 @@
                     <div id="settings-tab-terminology" class="settings-tab-panel hidden flex flex-col h-full">
                         <h4 class="text-lg font-bold text-on-surface mb-2">專有名詞設定</h4>
                         <p class="text-xs text-on-surface-variant leading-relaxed mb-4">
-                            設定語音辨識提示與禁用詞。正確專有名詞也會在「開始整理」套用錯字替換時受到保護；整理完成後不再注入摘要或其他 AI 文案生成。
+                            設定語音辨識提示與禁用詞。AI 校對會參考這些詞產生可勾選的替換建議；「開始整理」依當前錯字替換規則處理。
                         </p>
                         
                         <div class="flex flex-col md:flex-row gap-3 mb-4 shrink-0 items-end">
                             <div class="w-full md:w-1/3">
                                 <label class="block text-xs font-semibold text-on-surface-variant mb-1">規則類型</label>
                                 <select id="terminology-type-select" class="w-full rounded-lg p-2.5 bg-surface-container-lowest/50 border border-outline-variant/20 text-xs text-on-surface focus:outline-none cursor-pointer appearance-none">
-                                    <option value="positive">🟢 辨識提示／保護正確寫法</option>
-                                    <option value="negative">🔴 語音辨識禁用詞</option>
+                                    <option value="positive">🟢 辨識／校對參考詞</option>
+                                    <option value="negative">🔴 辨識禁用／校對參考詞</option>
                                 </select>
                             </div>
                             <div class="flex-1">
