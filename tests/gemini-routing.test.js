@@ -28,24 +28,24 @@ test('approved Flash text models use the fixed stable model allowlist in priorit
     ];
 
     assert.deepEqual(buildApprovedFlashModelList(models), [
-        'gemini-3.8-flash',
-        'gemini-3.6-flash',
         'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
+        'gemini-3.6-flash',
+        'gemini-3.8-flash',
         'gemini-2.5-flash',
     ]);
     assert.deepEqual(GEMINI_TEXT_MODEL_ALLOWLIST, [
-        'gemini-3.8-flash',
-        'gemini-3.6-flash',
         'gemini-3.5-flash-lite',
         'gemini-3.1-flash-lite',
+        'gemini-3.6-flash',
+        'gemini-3.8-flash',
         'gemini-2.5-flash',
     ]);
 });
 
 test('model discovery never adds a moving latest alias when no allowed model is returned', () => {
     assert.deepEqual(buildApprovedFlashModelList([]), []);
-    assert.deepEqual(GEMINI_FALLBACK_MODELS, ['gemini-3.8-flash', 'gemini-2.5-flash']);
+    assert.deepEqual(GEMINI_FALLBACK_MODELS, GEMINI_TEXT_MODEL_ALLOWLIST);
 });
 
 test('quota errors scope cooldown to the affected model or project', () => {

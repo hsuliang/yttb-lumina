@@ -330,16 +330,16 @@ test('503 retries the same model once, then uses the next model with the same ke
                 { name: 'models/gemini-3.6-flash', supportedGenerationMethods: ['generateContent'] },
             ] });
         }
-        const model = requestUrl.includes('gemini-3.8-flash') ? '3.8' : '3.6';
+        const model = requestUrl.includes('gemini-3.6-flash') ? '3.6' : '3.8';
         attempts.push(model);
-        if (model === '3.8') {
+        if (model === '3.6') {
             return Response.json({ error: { message: 'UNAVAILABLE', status: 'UNAVAILABLE' } }, { status: 503 });
         }
         return Response.json({ candidates: [{ content: { parts: [{ text: '完成' }] }, finishReason: 'STOP' }] });
     };
     try {
         assert.equal(await callGeminiAPI('fallback-key', '測試 503'), '完成');
-        assert.deepEqual(attempts, ['3.8', '3.8', '3.6']);
+        assert.deepEqual(attempts, ['3.6', '3.6', '3.8']);
     } finally {
         globalThis.fetch = original.fetch;
         globalThis.localStorage = original.localStorage;

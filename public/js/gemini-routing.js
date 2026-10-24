@@ -1,18 +1,15 @@
-export const GEMINI_FALLBACK_MODELS = Object.freeze([
-    'gemini-3.8-flash',
-    'gemini-2.5-flash',
-]);
 export const GEMINI_DEFAULT_QUOTA_COOLDOWN_MS = 60 * 1000;
 export const GEMINI_MODEL_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 export const GEMINI_TRANSIENT_RETRY_DELAY_MS = 1000;
 
 export const GEMINI_TEXT_MODEL_ALLOWLIST = Object.freeze([
-    'gemini-3.8-flash',
-    'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3.8-flash',
     'gemini-2.5-flash',
 ]);
+export const GEMINI_FALLBACK_MODELS = GEMINI_TEXT_MODEL_ALLOWLIST;
 
 const VERSIONED_FLASH_MODEL_PATTERN = /^(gemini-\d+(?:\.\d+)?-flash(?:-lite)?)(?:-(\d{3}))?$/i;
 const EXCLUDED_MODEL_PATTERN = /(tts|image|imagen|vision|live|audio|embedding|robotics|computer[-_]?use|veo|lyria|preview|experimental|exp)/i;
