@@ -40,13 +40,6 @@ function resolveShotCount(shotCount = 'auto') {
     return SHOT_COUNT_RULE;
 }
 
-function resolveOutputPrefixInstruction(shotCount = 'auto') {
-    if (shotCount === '4' || shotCount === '5') {
-        return `輸出的第一行必須原樣寫出：「生成以下 ${shotCount} 張圖片，務必分開生成，一次只生一張，共 ${shotCount}張」。這一行必須是整段輸出的最前方，不可在前面加入標題、說明或其他內容。`;
-    }
-    return '請先依文本資訊量決定實際生成 4 或 5 張圖片，再把 XXX 替換為同一個實際張數。輸出的第一行必須是：「生成以下 XXX 張圖片，務必分開生成，一次只生一張，共 XXX張」，這一行必須是整段輸出的最前方，不可在前面加入標題、說明或其他內容。';
-}
-
 function buildRoleInstruction(roles) {
     if (!roles.length) {
         return `未提供人物參考圖片。可依文章情境安排適合的教師、學生、主持人或講師角色，但人物動作必須與內容有關；也可以只使用工具、場景或抽象視覺，不要讓人物在每張圖都只是站著微笑。`;
@@ -88,7 +81,6 @@ export function buildReelsPrompt({
         ? `請以以下變化指令覆蓋原本的視覺風格：${variationModifier}`
         : `${resolveStyle(style, customStyle)}${variationModifier ? ` 另外加入：${variationModifier}` : ''}`;
     const countRule = resolveShotCount(shotCount);
-    const outputPrefixInstruction = resolveOutputPrefixInstruction(shotCount);
     const roleInstruction = buildRoleInstruction(normalizedRoles);
     const logoInstruction = buildLogoInstruction(includeLogo, normalizedRoles);
 
@@ -107,7 +99,7 @@ export function buildReelsPrompt({
 - 每張只能有一個主要視覺焦點，保留足夠留白，文字不得壓在人臉或主要物件上。
 - 重要文字、人物臉部、CTA 與 Logo 避開最上方、最下方及右側互動區，放在 Reels 安全區。
 - 不可做成簡報截圖感，不可使用版權動漫或影視角色。
-- 每一張提示詞都要明確包含：「這是一張單一且完整的圖片，這次只生成這一張；絕對不要使用分割畫面、拼貼、多格漫畫、contact sheet、grid、panel、comic strip 或多圖合併。」
+- 每一張提示詞都要完整描述該張畫面；單張完整圖片與獨立任務限制由程式依圖片編號加在各段結尾。
 
 【角色與品牌素材】
 ${roleInstruction}
@@ -122,10 +114,10 @@ ${styleDescription}
 - 只在最後一張優先放 CTA，可使用「收藏起來」「分享給需要的人」「關注更多教學應用」等 Reels 用語，不可使用「往左滑看更多」或「下一頁看重點」。Hashtag 若使用，只在最後一張放 2～4 個。
 
 【每張提示詞固定欄位】
-請為每張依序寫出：功能定位、9:16 比例、整體風格、人物設定與對應 image、畫面主體與動作、場景背景、主標與副標、最多 3 個重點短句、CTA（需要時）、Logo 處理、安全區與留白限制，以及單張完整圖片與禁止拼貼的限制。主標與副標請直接呈現文字內容，不要把「主標題：」「副標題：」「重點短句：」等分類標籤印到圖上。
+請為每張依序寫出：功能定位、9:16 比例、整體風格、人物設定與對應 image、畫面主體與動作、場景背景、主標與副標、最多 3 個重點短句、CTA（需要時）、Logo 處理、安全區與留白限制。主標與副標請直接呈現文字內容，不要把「主標題：」「副標題：」「重點短句：」等分類標籤印到圖上。
 
 【輸出開頭固定指令】
-${outputPrefixInstruction}
+請直接從「[第 1 張]」開始輸出，依序列出實際規劃的每張圖片。不要自行輸出多張圖片總任務指令；程式會依實際段落數在最前方加入。
 
 【上架文案】
 在全部逐張繪圖提示詞之後，另輸出一段約 100 字（90～110 字）的繁體中文 Reels 上架文案，適合直接貼到 Facebook 或 Instagram，包含吸引人的開頭、內容重點與自然 CTA。請只使用「【上架文案】」作為這段文案的標記，不要把圖片提示詞或欄位說明混進文案。
@@ -135,7 +127,7 @@ ${outputPrefixInstruction}
 ${source}
 ---
 
-請使用繁體中文輸出，先輸出上述固定開頭指令，再依序使用「[第 1 張]」「[第 2 張]」等標題輸出實際規劃的 4 或 5 段逐張完整繪圖提示詞，最後輸出「【上架文案】」與約 100 字上架文案；不要輸出規劃表、表格或分析說明，不要使用 Markdown 程式碼區塊，不要把多張圖片的成品合併成一張。`;
+請使用繁體中文輸出，依序使用「[第 1 張]」「[第 2 張]」等標題輸出實際規劃的 4 或 5 段逐張完整繪圖提示詞，最後輸出「【上架文案】」與約 100 字上架文案；不要輸出規劃表、表格或分析說明，不要使用 Markdown 程式碼區塊，不要把多張圖片的成品合併成一張。`;
 }
 
 const LISTING_COPY_MARKER_PATTERN = /(?:^|\n)\s*(?:【\s*上架文案\s*】|\[\s*上架文案\s*\]|上架文案\s*[:：])\s*/i;
@@ -175,26 +167,65 @@ export function extractReelsPromptBlocks(text = '') {
     });
 }
 
-function resolveOutputShotCount(text, requestedShotCount = 'auto') {
-    if (requestedShotCount === '4' || requestedShotCount === '5') return requestedShotCount;
-    const blockCount = extractReelsPromptBlocks(text).length;
-    if (blockCount === 4 || blockCount === 5) return String(blockCount);
-    const declaredCount = String(text).match(/生成以下\s*([45])\s*張圖片/);
-    return declaredCount?.[1] || '4';
+function buildMultiImageTask(shotCount) {
+    return `# 多張圖片獨立生成任務
+
+本次任務共需生成 ${shotCount} 張獨立圖片。
+
+請使用 AI 原生繪圖工具，依照第 1 張至第 ${shotCount} 張的順序完成全部圖片。
+
+**執行規則：**
+
+1. 將每一張圖片視為獨立的繪圖任務。
+2. 每次呼叫繪圖工具時，只能使用目前編號對應的提示詞，且只生成 1 張圖片。
+3. 每次生成前，必須重新讀取目前編號的完整規格，包括人物設定、動作、場景、風格、標題、副標題與重點文字。
+4. 禁止直接重複使用前一張的完整提示詞。
+5. 各張圖片必須保留指定的共同視覺風格及人物身分特徵，但場景、動作、文字與畫面內容應依個別規格變化。
+6. 每張都是獨立完整的圖片，禁止將多張圖片合併成拼貼、九宮格、分割畫面、contact sheet、grid、panel 或 comic strip。
+7. 每完成一張，核對圖片編號與對應規格，再進行下一張。
+8. 如果圖片內容與目前編號不符，或明顯重複上一張，應判定為生成失敗，不可計入完成數量。
+9. 不得以重複圖片充數，也不得擅自改用程式合成或簡報排版冒充 AI 原生繪圖。
+10. 若無法完成指定張數，必須如實回報已完成與失敗的張數，不得宣稱全部完成。
+
+以下為各張圖片的獨立生成規格。`;
 }
 
-export function normalizeReelsPromptOutput(text = '', requestedShotCount = 'auto') {
+function buildSingleImageRule(index) {
+    return `**單張完整圖片與獨立任務限制：**
+
+本段提示詞僅適用於第 ${index} 張圖片。
+
+生成本張圖片時，必須使用本段指定的人物動作、場景、文字與構圖，不得混入其他編號的畫面內容或標題。
+
+這是一張單一且完整的圖片，禁止使用分割畫面、拼貼、多格漫畫、contact sheet、grid、panel、comic strip 或多圖合併。`;
+}
+
+const CHINESE_SHOT_NUMBERS = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5 };
+const OLD_SINGLE_IMAGE_RULE = /這是一張單一且完整的圖片，這次只生成這一張；絕對不要使用分割畫面、拼貼、多格漫畫、contact sheet、grid、panel、comic strip 或多圖合併。/g;
+const NEW_SINGLE_IMAGE_RULE = /(?:^|\n)\s*(?:\*\*)?單張完整圖片與獨立任務限制：(?:\*\*)?[\s\S]*$/;
+
+export function normalizeReelsPromptOutput(text = '') {
     const cleaned = String(text || '').trim();
     if (!cleaned) return '';
 
     const listingMarker = LISTING_COPY_MARKER_PATTERN.exec(cleaned);
     const promptText = (listingMarker ? cleaned.slice(0, listingMarker.index) : cleaned).trim();
     const blocks = extractReelsPromptBlocks(promptText);
-    const shotCount = resolveOutputShotCount(promptText, requestedShotCount);
-    const prefix = `生成以下 ${shotCount} 張圖片，務必分開生成，一次只生一張，共 ${shotCount}張`;
     if (!blocks.length) {
-        return promptText.startsWith(prefix) ? promptText : `${prefix}\n\n${promptText}`;
+        throw new Error('無法辨識 Reels 逐張提示詞，請重新生成。');
     }
 
-    return `${prefix}\n\n${blocks.map(block => block.content).join('\n\n')}`;
+    const imagePrompts = blocks.map((block, index) => {
+        const number = CHINESE_SHOT_NUMBERS[block.number] || Number(block.number);
+        if (number !== index + 1) {
+            throw new Error('Reels 圖片編號不連續，請重新生成。');
+        }
+        const content = block.content
+            .replace(NEW_SINGLE_IMAGE_RULE, '')
+            .replace(OLD_SINGLE_IMAGE_RULE, '')
+            .trim();
+        return `${content}\n\n${buildSingleImageRule(number)}`;
+    });
+
+    return `${buildMultiImageTask(blocks.length)}\n\n${imagePrompts.join('\n\n')}`;
 }

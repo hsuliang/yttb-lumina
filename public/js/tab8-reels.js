@@ -213,10 +213,7 @@ export function initializeTab8() {
 
             if (!isCurrentSource(requestSourceId)) return;
             const cleanedResult = result.trim().replace(/^```(?:markdown|text|prompt)?\s*|\s*```$/gi, '');
-            const textContent = normalizeReelsPromptOutput(
-                cleanedResult,
-                shotCountSelect.value,
-            );
+            const textContent = normalizeReelsPromptOutput(cleanedResult);
             const version = {
                 sourceId: requestSourceId,
                 textContent,

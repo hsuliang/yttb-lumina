@@ -5,7 +5,7 @@ import { buildReelsPrompt, extractReelsListingCopy, extractReelsPromptBlocks, no
 
 const readProjectFile = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('Reels prompt outputs only independent image prompts with a shot-count prefix', () => {
+test('Reels prompt keeps the existing image specifications and delegates the task header to output assembly', () => {
     const prompt = buildReelsPrompt({
         sourceContent: '<p>老師分享如何用 AI 減少備課時間，並展示課堂案例。</p>',
         roles: ['ㄚ亮笑長', '王老師'],
@@ -15,7 +15,8 @@ test('Reels prompt outputs only independent image prompts with a shot-count pref
     });
 
     assert.match(prompt, /請完成以下整組圖卡，但務必一次只生成一張/);
-    assert.match(prompt, /生成以下 5 張圖片，務必分開生成，一次只生一張，共 5張/);
+    assert.match(prompt, /不要自行輸出多張圖片總任務指令/);
+    assert.doesNotMatch(prompt, /這次只生成這一張/);
     assert.match(prompt, /Hook、核心問題、重要觀點、方法或案例、結論與 CTA/);
     assert.match(prompt, /固定規劃 5 張圖卡/);
     assert.match(prompt, /9:16 直式/);
@@ -43,7 +44,7 @@ test('Reels prompt validates custom styles and automatic shot count guidance', (
     const prompt = buildReelsPrompt({ sourceContent: '內容', style: 'custom', customStyle: '暖色手繪風' });
     assert.match(prompt, /暖色手繪風/);
     assert.match(prompt, /文章較短、主題集中/);
-    assert.match(prompt, /生成以下 XXX 張圖片，務必分開生成，一次只生一張，共 XXX張/);
+    assert.match(prompt, /請直接從「\[第 1 張\]」開始輸出/);
     assert.match(buildReelsPrompt({ sourceContent: '內容', shotCount: '4' }), /固定規劃 4 張圖卡/);
 });
 
@@ -57,12 +58,40 @@ test('Reels output blocks can be copied one image at a time', () => {
     assert.equal(extractReelsListingCopy(output), '這是一段上架文案。');
 });
 
-test('Reels output removes planning text and normalizes the leading shot-count instruction', () => {
-    const output = normalizeReelsPromptOutput('分鏡規劃\n\n[第 1 張]\n封面提示詞\n\n[第 2 張]\n問題提示詞\n\n【上架文案】\n上架文案內容', '4');
-    assert.equal(output.startsWith('生成以下 4 張圖片，務必分開生成，一次只生一張，共 4張'), true);
-    assert.doesNotMatch(output, /分鏡規劃/);
-    assert.doesNotMatch(output, /上架文案內容/);
-    assert.match(output, /\[第 1 張\][\s\S]*\[第 2 張\]/);
+test('Reels output uses the actual number of image blocks and adds one numbered rule to each block', () => {
+    for (const count of [4, 5]) {
+        const sourceBlocks = Array.from({ length: count }, (_, index) =>
+            `[第 ${index + 1} 張]\n主標：標題 ${index + 1}\n動作：動作 ${index + 1}\n場景：場景 ${index + 1}\n這是一張單一且完整的圖片，這次只生成這一張；絕對不要使用分割畫面、拼貼、多格漫畫、contact sheet、grid、panel、comic strip 或多圖合併。`,
+        );
+        const output = normalizeReelsPromptOutput(`生成以下 5 張圖片，務必分開生成，一次只生一張，共 5張\n\n${sourceBlocks.join('\n\n')}\n\n【上架文案】\n上架文案內容`);
+        const blocks = extractReelsPromptBlocks(output);
+
+        assert.equal(output.startsWith(`# 多張圖片獨立生成任務\n\n本次任務共需生成 ${count} 張獨立圖片。`), true);
+        assert.match(output, new RegExp(`依照第 1 張至第 ${count} 張的順序完成全部圖片`));
+        assert.match(output, /若無法完成指定張數，必須如實回報已完成與失敗的張數/);
+        assert.equal((output.match(/# 多張圖片獨立生成任務/g) || []).length, 1);
+        assert.equal(blocks.length, count);
+        assert.doesNotMatch(output, /生成以下 5 張圖片|這次只生成這一張|上架文案內容/);
+        blocks.forEach((block, index) => {
+            assert.match(block.content, new RegExp(`主標：標題 ${index + 1}[\\s\\S]*動作：動作 ${index + 1}[\\s\\S]*場景：場景 ${index + 1}`));
+            assert.match(block.content, new RegExp(`本段提示詞僅適用於第 ${index + 1} 張圖片`));
+            assert.equal((block.content.match(/單張完整圖片與獨立任務限制/g) || []).length, 1);
+            assert.doesNotMatch(block.content, /# 多張圖片獨立生成任務/);
+            if (index > 0) assert.doesNotMatch(block.content, new RegExp(`主標：標題 ${index}\\b`));
+        });
+    }
+});
+
+test('Reels output does not invent a shot count when image blocks are missing or misnumbered', () => {
+    assert.throws(() => normalizeReelsPromptOutput('生成以下 5 張圖片'), /無法辨識 Reels 逐張提示詞/);
+    assert.throws(() => normalizeReelsPromptOutput('[第 1 張]\n封面\n\n[第 3 張]\n內容'), /圖片編號不連續/);
+});
+
+test('Reels output replaces a model-written single-image rule instead of duplicating it', () => {
+    const output = normalizeReelsPromptOutput('[第 1 張]\n封面\n\n單張完整圖片與獨立任務限制：\n本段提示詞僅適用於第 1 張圖片。');
+    const block = extractReelsPromptBlocks(output)[0].content;
+    assert.equal((block.match(/單張完整圖片與獨立任務限制/g) || []).length, 1);
+    assert.equal((block.match(/本段提示詞僅適用於第 1 張圖片/g) || []).length, 1);
 });
 
 test('Reels page is wired after the YouTube thumbnail page', () => {
