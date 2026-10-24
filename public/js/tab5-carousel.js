@@ -5,6 +5,7 @@ import { activateSource, getPreferredSource, isCurrentSource } from './content-s
 import { VariationHub } from './variation-hub.js';
 import { getConfiguredGeminiApiKey, hasTextAIEnabled, showApiKeyModal } from './app.js';
 import { renderMarkdownBold } from './markdown-renderer.js';
+import { extractCarouselPromptBlocks, normalizeCarouselPromptOutput } from './carousel-prompt.js';
 
 /**
  * tab5-carousel.js
@@ -104,52 +105,6 @@ import { renderMarkdownBold } from './markdown-renderer.js';
         });
     }
 
-    function getCarouselBlocks(text) {
-        const blocks = [];
-        const markerPattern = /(?:^|\n)\[?\s*第\s*([1234一二三四])\s*張\s*(?:圖片)?(?:提示詞)?\s*\]?/gi;
-        
-        const matches = [];
-        let match;
-        while ((match = markerPattern.exec(text)) !== null) {
-            matches.push({
-                num: match[1],
-                index: match.index,
-                rawMarker: match[0]
-            });
-        }
-        
-        matches.sort((a, b) => a.index - b.index);
-        
-        for (let i = 0; i < matches.length; i++) {
-            const current = matches[i];
-            const next = matches[i + 1];
-            const start = current.index;
-            const end = next ? next.index : text.length;
-            
-            let blockText = text.substring(start, end).trim();
-            
-            // 擷取純繪圖提示詞部分（移除 [第 X 張] 與後續的圖上文字大標題等）
-            let promptOnly = blockText.replace(/(?:^|\n)\[?\s*第\s*[1-4一二三四]\s*張\s*(?:圖片)?(?:提示詞)?\s*\]?\s*/gi, '').trim();
-            const indexText = promptOnly.search(/(?:圖上文字|圖上疊加|大標題|版面文案)/);
-            if (indexText !== -1) {
-                promptOnly = promptOnly.substring(0, indexText).trim();
-            }
-
-            // 強效防分割圖英文語法追加
-            const antiSplitKeywords = "single complete image, no split screen, no collage, no grid, no panels, no comic strip";
-            if (!promptOnly.toLowerCase().includes("no split screen") && !promptOnly.toLowerCase().includes("no collage")) {
-                promptOnly = promptOnly.replace(/[.。，,\s]+$/, '') + ` , ${antiSplitKeywords}.`;
-            }
-            
-            blocks.push({
-                label: `第 ${current.num} 張`,
-                content: blockText,
-                promptOnly: promptOnly
-            });
-        }
-        return blocks;
-    }
-
     function renderCurrentCarouselVersionUI() {
         if (!state.carouselVersions || state.carouselVersions.length === 0) {
             carouselOutputContainer.classList.add('hidden');
@@ -174,16 +129,16 @@ import { renderMarkdownBold } from './markdown-renderer.js';
         const copyContainer = document.getElementById('carousel-individual-copy-container');
         if (copyContainer) {
             copyContainer.innerHTML = '';
-            const blocks = getCarouselBlocks(currentVersion.textContent);
+            const blocks = extractCarouselPromptBlocks(currentVersion.textContent);
             
             blocks.forEach((block, index) => {
-                if (block && block.promptOnly) {
+                if (block && block.content) {
                     const btn = document.createElement('button');
                     btn.className = 'font-semibold py-1 px-3 rounded btn-secondary text-xs transition-all duration-200 flex items-center gap-1';
                     btn.innerHTML = `📋 複製第 ${index + 1} 張`;
                     btn.title = `複製此張的繪圖提示詞（適用於 ChatGPT / Nana Banana）`;
                     btn.addEventListener('click', () => {
-                        navigator.clipboard.writeText(block.promptOnly).then(() => {
+                        navigator.clipboard.writeText(block.content).then(() => {
                             showToast(`第 ${index + 1} 張繪圖提示詞已複製！`);
                             const originalHTML = btn.innerHTML;
                             btn.innerHTML = `✅ 已複製第 ${index + 1} 張!`;
@@ -412,7 +367,7 @@ ${roleLines.join('\n')}`;
   1. **適用繪圖工具與提示詞優化**：
      - 本提示詞主要用於 ChatGPT (DALL-E 3) 或是 Nana Banana 繪圖工具，請以流暢、細緻的「繁體中文描述」撰寫繪圖提示詞（不要使用 Midjourney 的參數如 --ar, --no 等）。
      - 為了確保角色一致性，若使用者有設定角色，必須完整保留角色變數與其括號內的原名，例如「image1 (使用者設定的角色名稱)」，絕對不要自行翻譯、改名或新增未設定角色。
-     - 為了防止這些工具生成「四宮格、二格、拼貼、分割畫面或組圖」，每張圖的提示詞中，必須明確加入防分割限制詞：「這是一張單一且完整的圖片，絕對不要使用分割畫面、拼貼格、多圖組合或漫畫方格的形式 (single complete image, no split screen, no collage, no grid, no panels, no comic strip)」。
+     - 為了防止這些工具生成「四宮格、二格、拼貼、分割畫面或組圖」，每張圖都必須是單張完整圖片。單張限制由程式依圖片編號加入各段結尾，請先完整輸出每張畫面與圖上文字。
   
   2. **圖片規格與風格**：
      - 比例為 1:1 正方形。
@@ -433,16 +388,14 @@ ${layoutInstructionsText}
          字數限制規範：${captionLengthLimit}
   
   5. **輸出格式**：
-     - 在輸出的最前方，必須先輸出這行固定的開頭文字：「生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張」，換行後再開始輸出第 1 張圖片提示詞。
+     - 請直接從「[第 1 張]」開始輸出；多張圖片總任務指令由程式依實際段落數加入最前方，不要自行輸出。
      - 請**一次性**輸出完整的 4 張圖片提示詞，依序排版。
      - **不要**使用 any Markdown 程式碼區塊標記 (如 \`\`\`html 或 \`\`\`)。
      - **不要**在提示詞中包含任何角色與變數對應表（例如「角色名稱：image1」這類的對應列表不需輸出），直接輸出標題與提示詞內文。
      - 輸出格式請嚴格符合以下範例：
   
-  生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張
-  
   [第 1 張]
-  請生成 1:1 正方形社群輪播圖。[依使用者選擇的風格與原始文章描述配色及構圖]。${exampleSubject}${exampleLogo}。這是一張單一且完整的圖片，絕對不要使用分割畫面、拼貼格、多圖組合或漫畫方格的形式 (single complete image, no split screen, no collage, no grid, no panels, no comic strip)。
+  請生成 1:1 正方形社群輪播圖。[依使用者選擇的風格與原始文章描述配色及構圖]。${exampleSubject}${exampleLogo}。
   圖上排版與文字標示：
   ${exampleFormatText}
   不可出現任何版權角色。整體要適合社群快速滑讀。
@@ -517,12 +470,7 @@ ${layoutInstructionsText}
             }, state.currentAbortController.signal, '@cf/openai/gpt-oss-120b');
             if (!isCurrentSource(requestSourceId)) return;
             
-            // 確保生成文字最前方有固定的開頭
-            let finalResult = result.trim();
-            const prefix = "生成以下 4 張圖片，務必分開生成，一次只生一張，共 4 張\n\n";
-            if (!finalResult.startsWith("生成以下 4 張圖片")) {
-                finalResult = prefix + finalResult;
-            }
+            const finalResult = normalizeCarouselPromptOutput(result.trim());
 
             const newVersion = {
                 sourceId: requestSourceId,
