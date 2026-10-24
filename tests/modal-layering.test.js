@@ -15,10 +15,10 @@ test('universal error modal appears above global settings', () => {
     assert.ok(modalZIndex('modal') > modalZIndex('global-settings-modal'));
 });
 
-test('displayed release version is 寒露 20261010 R2', () => {
-    assert.match(html, /丙午．寒露．20261010<span[^>]*>R2<\/span>/);
-    assert.match(readme, /目前版本：丙午．寒露．20261010<span[^>]*>R2<\/span>/);
-    assert.match(readme, /丙午．寒露．20261010R2/);
+test('displayed release version is 霜降 20261024 R1', () => {
+    assert.match(html, /丙午．霜降．20261024<span[^>]*>R1<\/span>/);
+    assert.match(readme, /目前版本：丙午．霜降．20261024<span[^>]*>R1<\/span>/);
+    assert.match(readme, /丙午．霜降．20261024R1/);
     assert.doesNotMatch(html, /丙午．白露．20260921<span[^>]*>R2<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260804<span[^>]*>R12<\/span>/);
     assert.doesNotMatch(html, /丙午．大暑．20260803<span[^>]*>R11<\/span>/);
