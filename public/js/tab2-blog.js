@@ -165,6 +165,7 @@ function assembleBlogPrompt(options) {
     let h2_style_rule = "每個段落都需要一個簡潔有力的小標題";
     if (wizardSettings.h2Style === 'question') { h2_style_rule = "每個段落都需要一個帶有疑問句、引發好奇的小標題"; }
     else if (wizardSettings.h2Style === 'emoji') { h2_style_rule = "每個段落都需要一個活潑有趣、可加入 Emoji 的小標題"; }
+    rules.push(`- 小標題風格：${h2_style_rule}。`);
     rules.push(`- 格式要求：每個小標題用 <h2> 標籤包圍，其後的內文用 <p> 標籤包圍。`);
     rules.push('- 粗體格式：若要強調重點，直接使用 HTML <strong>...</strong> 標籤；禁止使用 Markdown 的雙星號粗體標記。');
     if (wizardSettings.elemBold) { rules.push('- 特殊元素：請在內文中適度將重要的關鍵字詞加上 <strong> 粗體標籤。'); }
